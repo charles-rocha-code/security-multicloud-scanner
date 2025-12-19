@@ -1,0 +1,2506 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Security Multicloud Storage Dashboard PRO</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Chart.js (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    /* ============================================================
+       THEME: CLOUD SECURITY SCANNER PRO (CORPORATE TECH DARK)
+       Version C — Neon Corporate UI + Filtros Avançados
+       ============================================================ */
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #0e1117;
+      color: #e5e7eb;
+      margin: 0;
+      font-family: "Segoe UI", Roboto, sans-serif;
+    }
+
+    h1, h2, h3, h4 {
+      margin: 0;
+    }
+
+    h2, h3 {
+      color: #e5e7eb;
+      font-weight: 600;
+    }
+
+    a {
+      color: #61dafb;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    /* ============================
+       HEADER
+       ============================ */
+    .main-header {
+      background: linear-gradient(90deg, #131722, #1d2433);
+      color: #fff;
+      padding: 18px 30px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #222;
+      box-shadow: 0 0 25px rgba(0, 0, 0, 0.6);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo-area {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-icon {
+      font-size: 26px;
+    }
+
+    .logo-text {
+      font-size: 20px;
+      font-weight: bold;
+    }
+
+    .header-meta {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      font-size: 14px;
+    }
+
+    .header-pill {
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: #111827;
+      border: 1px solid #1f2937;
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .header-label {
+      color: #9ca3af;
+    }
+
+    /* ============================
+       PROVIDER & RISK BADGES
+       ============================ */
+    .provider-badge {
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-weight: bold;
+      color: #fff;
+      font-size: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .provider-default { background: #2d3748; }
+    .provider-AWS_S3 { background: #ff9900; box-shadow: 0 0 10px #ff9900; }
+    .provider-GCS { background: #34a853; box-shadow: 0 0 10px #34a853; }
+    .provider-AZURE_BLOB { background: linear-gradient(135deg, #0078d4 0%, #50e6ff 100%); box-shadow: 0 0 10px #0078d4; }
+    .provider-UNIVERSAL { background: #1e90ff; box-shadow: 0 0 10px #1e90ff; }
+
+    .risk-pill {
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .risk-none { background: #4b5563; }
+    .risk-low { background: #16a34a; box-shadow: 0 0 10px #16a34a; }
+    .risk-medium { background: #0284c7; box-shadow: 0 0 10px #0284c7; }
+    .risk-high { background: #f59e0b; box-shadow: 0 0 10px #f59e0b; }
+    .risk-critical { background: #dc2626; box-shadow: 0 0 12px #dc2626; }
+
+    /* ============================
+       LAYOUT WRAPPER
+       ============================ */
+    .layout-wrapper {
+      display: flex;
+      height: calc(100vh - 70px);
+    }
+
+    /* ============================
+       SIDEBAR — Histórico
+       ============================ */
+    .sidebar {
+      width: 220px;
+      background: #11151d;
+      border-right: 1px solid #1f2531;
+      padding: 20px;
+      overflow-y: auto;
+      box-shadow: inset -1px 0 10px rgba(0,0,0,0.4);
+    }
+
+    .sidebar h3 {
+      margin-top: 0;
+      font-size: 14px;
+      color: #fff;
+      margin-bottom: 0;
+    }
+
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .history-list {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .history-item {
+      background: #1b2331;
+      padding: 8px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: 0.2s;
+      border-left: 4px solid #1e90ff;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      position: relative;
+    }
+
+    .history-item:hover {
+      background: #283144;
+      transform: translateX(4px);
+    }
+
+    .history-item.selected {
+      background: #2a3f5f;
+      border-left-color: #f59e0b;
+      box-shadow: 0 0 0 2px #f59e0b33;
+    }
+
+    .history-item-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .history-bucket {
+      font-weight: 600;
+      color: #e5e7eb;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .history-meta {
+      font-size: 10px;
+      color: #9ca3af;
+      white-space: nowrap;
+    }
+
+    .history-actions {
+      display: flex;
+      gap: 5px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .history-item:hover .history-actions {
+      opacity: 1;
+    }
+
+    .history-item.selected .history-actions {
+      opacity: 1;
+    }
+
+    .btn-delete-item {
+      padding: 4px 8px;
+      background: #7f1d1d;
+      color: #fca5a5;
+      border: 1px solid #991b1b;
+      border-radius: 4px;
+      font-size: 10px;
+      cursor: pointer;
+      transition: 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      white-space: nowrap;
+    }
+
+    .btn-delete-item:hover {
+      background: #991b1b;
+      color: #fee2e2;
+      border-color: #b91c1c;
+      transform: scale(1.05);
+    }
+
+    .btn-delete-item:active {
+      transform: scale(0.95);
+    }
+
+    .btn-clear-history {
+      padding: 5px 8px;
+      background: #1f2937;
+      color: #9ca3af;
+      border: 1px solid #374151;
+      border-radius: 5px;
+      font-size: 10px;
+      cursor: pointer;
+      transition: 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      white-space: nowrap;
+    }
+
+    .btn-clear-history:hover {
+      background: #374151;
+      color: #e5e7eb;
+      border-color: #4b5563;
+    }
+
+    .btn-clear-history:active {
+      transform: translateY(1px);
+    }
+
+    .sidebar-recommendations {
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid #1f2531;
+    }
+
+    .sidebar-recommendations h3 {
+      font-size: 14px;
+      color: #fff;
+      margin-bottom: 10px;
+    }
+
+    .sidebar-recommendations ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .sidebar-recommendations li {
+      background: #1b2331;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border-left: 3px solid #3b82f6;
+      font-size: 11px;
+      color: #e5e7eb;
+      line-height: 1.4;
+    }
+
+    /* ============================
+       MAIN CONTENT
+       ============================ */
+    .content {
+      flex: 1;
+      padding: 22px 26px;
+      overflow-y: auto;
+    }
+
+    .content-header {
+      margin-bottom: 18px;
+    }
+
+    /* ============================
+       SCAN INPUT
+       ============================ */
+    .scan-input-area {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .scan-mode-toggle {
+      display: flex;
+      gap: 10px;
+      background: #0f131b;
+      padding: 4px;
+      border-radius: 8px;
+      width: fit-content;
+    }
+
+    .toggle-btn {
+      padding: 8px 16px;
+      background: transparent;
+      color: #9ca3af;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: 0.2s;
+    }
+
+    .toggle-btn:hover {
+      color: #e5e7eb;
+    }
+
+    .toggle-btn.active {
+      background: #1e90ff;
+      color: #fff;
+    }
+
+    .scan-form-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .input-field {
+      padding: 10px;
+      font-size: 14px;
+      background: #0f131b;
+      border: 1px solid #2a3140;
+      color: #fff;
+      border-radius: 6px;
+      flex: 1;
+      min-width: 280px;
+    }
+
+    .input-field:focus {
+      outline: none;
+      border-color: #1e90ff;
+      box-shadow: 0 0 8px #1e90ff;
+    }
+
+    .input-field::placeholder {
+      color: #6b7280;
+    }
+
+    textarea.input-field {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      resize: vertical;
+      min-height: 120px;
+    }
+
+    .input-small {
+      min-width: 200px;
+      max-width: 250px;
+    }
+
+    .credentials-container {
+      display: none;
+      width: 100%;
+      background: #151a23;
+      padding: 20px;
+      border-radius: 8px;
+      border: 1px solid #1f2531;
+      gap: 15px;
+      flex-direction: column;
+      margin-top: 15px;
+    }
+
+    .credentials-container.active {
+      display: flex;
+    }
+
+    .credential-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 15px;
+      width: 100%;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .input-label {
+      font-size: 12px;
+      color: #d1d5db;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .help-text {
+      font-size: 10px;
+      color: #6b7280;
+      font-style: italic;
+    }
+
+    .warning-box {
+      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+      color: #92400e;
+      padding: 12px 15px;
+      border-radius: 8px;
+      font-size: 12px;
+      border-left: 4px solid #f59e0b;
+      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 2px 4px rgba(245, 158, 11, 0.1);
+    }
+
+    .warning-box strong {
+      color: #78350f;
+      font-weight: 700;
+    }
+
+    /* Seções de Provider */
+    #aws-fields,
+    #gcs-fields {
+      padding: 15px;
+      background: #1a1f2e;
+      border-radius: 8px;
+      border: 1px solid #252b3b;
+    }
+
+    #gcs-fields {
+      margin-top: 0;
+    }
+
+    /* Ocultar seções de resultado até scan ser executado */
+    .results-section {
+      display: none;
+    }
+
+    .results-section.active {
+      display: block;
+    }
+
+    .cards-grid.active {
+      display: grid;
+    }
+
+    .panels-grid.active {
+      display: grid;
+    }
+
+    /* Placeholder de boas-vindas no topo - MINI */
+    .welcome-placeholder-top {
+      background: linear-gradient(135deg, #1a1f2e 0%, #151a23 100%);
+      border: 1px solid #1f2531;
+      border-radius: 6px;
+      padding: 8px 16px;
+      text-align: center;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+      margin-bottom: 8px;
+    }
+
+    .welcome-placeholder-top.hidden {
+      display: none;
+    }
+
+    .welcome-icon {
+      display: inline-block;
+      font-size: 18px;
+      margin-right: 8px;
+      vertical-align: middle;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.05); opacity: 1; }
+    }
+
+    .welcome-title {
+      display: inline-block;
+      font-size: 14px;
+      font-weight: 600;
+      color: #e5e7eb;
+      margin: 0;
+      vertical-align: middle;
+      line-height: 1.2;
+    }
+
+    .welcome-text {
+      display: none; /* Ocultar para economizar espaço */
+    }
+
+    .welcome-features-horizontal {
+      display: inline-flex;
+      justify-content: center;
+      gap: 8px;
+      margin-left: 12px;
+      vertical-align: middle;
+    }
+
+    .feature-item-inline {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      background: #1f2937;
+      border-radius: 5px;
+      border: 1px solid #374151;
+      transition: 0.2s;
+    }
+
+    .feature-item-inline:hover {
+      background: #283144;
+      border-color: #4b5563;
+      transform: translateY(-1px);
+    }
+
+    .feature-icon {
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .feature-text {
+      font-size: 10px;
+      color: #d1d5db;
+      font-weight: 500;
+    }
+
+    /* Área de scan sticky */
+    .scan-area-sticky {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: #0d1117;
+      padding: 8px 0;
+      margin: 0 -20px 12px -20px;
+      padding-left: 20px;
+      padding-right: 20px;
+      border-bottom: 1px solid #1f2531;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Melhorias nos inputs */
+    .input-field {
+      background: #1f2937;
+      border: 1px solid #374151;
+      color: #e5e7eb;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      transition: all 0.2s;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .input-field:focus {
+      outline: none;
+      border-color: #1e90ff;
+      box-shadow: 0 0 0 3px rgba(30, 144, 255, 0.1);
+      background: #232c3d;
+    }
+
+    .input-field::placeholder {
+      color: #6b7280;
+      opacity: 1;
+    }
+
+    textarea.input-field {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      resize: vertical;
+      min-height: 120px;
+    }
+
+    select.input-field {
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%239CA3AF' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 36px;
+    }
+
+    .input-small {
+      max-width: 100%;
+    }
+
+    .btn-primary {
+      background: #1e90ff;
+      color: #fff;
+      padding: 9px 18px;
+      border: none;
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: 0.2s;
+    }
+
+    .btn-primary:hover {
+      background: #3aa0ff;
+      box-shadow: 0 0 10px #1e90ff;
+    }
+
+    .btn-primary:active {
+      transform: translateY(1px);
+    }
+
+    /* ============================
+       CARDS GRID
+       ============================ */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .card {
+      background: #151a23;
+      padding: 16px 18px;
+      border-radius: 12px;
+      border: 1px solid #1f2531;
+      box-shadow: 0 0 20px rgba(0,0,0,0.35);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card-animated {
+      animation: fadeSlideIn 0.55s ease-out;
+    }
+
+    .card-title {
+      font-size: 13px;
+      color: #9ca3af;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .card-value {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .card-subtext {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 4px;
+    }
+
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ============================
+       MAIN PANELS
+       ============================ */
+    .panels-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 18px;
+      margin-top: 6px;
+    }
+
+    .panel {
+      background: #151a23;
+      border-radius: 12px;
+      border: 1px solid #1f2531;
+      padding: 18px;
+      box-shadow: 0 0 18px rgba(0,0,0,0.4);
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .panel-title {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .panel-sub {
+      font-size: 11px;
+      color: #9ca3af;
+    }
+
+    /* ============================
+       FILTER BAR PRO
+       ============================ */
+    .filter-bar-pro {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 16px;
+      background: #131923;
+      padding: 12px;
+      border-radius: 10px;
+      margin: 12px 0 18px 0;
+      border: 1px solid #1f2531;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .filter-label {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-right: 4px;
+    }
+
+    .filter-btn {
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      background: #1f2937;
+      color: #fff;
+      transition: .2s;
+    }
+
+    .filter-btn.active {
+      box-shadow: 0 0 10px rgba(255,255,255,0.3);
+      transform: scale(1.05);
+    }
+
+    .sev-critical { background: #b91c1c; }
+    .sev-high     { background: #b45309; }
+    .sev-medium   { background: #1d4ed8; }
+    .sev-low      { background: #15803d; }
+
+    .filter-reset {
+      background: #475569;
+    }
+
+    .filter-input {
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: #0f131b;
+      border: 1px solid #2a3140;
+      color: #fff;
+      font-size: 12px;
+    }
+
+    #ext-filter {
+      background: #0f131b;
+      border: 1px solid #2a3140;
+      border-radius: 6px;
+      color: #e5e7eb;
+      padding: 6px 8px;
+      font-size: 12px;
+    }
+
+    /* ============================
+       BULK ACTIONS
+       ============================ */
+    .bulk-actions-header {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .btn-bulk-action {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-select-all {
+      background: #1e40af;
+      color: #dbeafe;
+    }
+
+    .btn-select-all:hover {
+      background: #1e3a8a;
+      color: #fff;
+    }
+
+    .btn-delete-selected {
+      background: #991b1b;
+      color: #fecaca;
+    }
+
+    .btn-delete-selected:hover:not(:disabled) {
+      background: #7f1d1d;
+      color: #fff;
+    }
+
+    .btn-delete-selected:disabled {
+      background: #374151;
+      color: #6b7280;
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    #selected-count {
+      font-weight: 700;
+    }
+
+    /* Checkbox styling */
+    .file-table input[type="checkbox"] {
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
+    }
+
+    /* ============================
+       CHART CONTAINER
+       ============================ */
+    .chart-container {
+      width: 100%;
+      max-width: 340px;
+      height: 340px;
+      margin: 0 auto;
+    }
+
+    /* ============================
+       RECOMMENDATIONS
+       ============================ */
+    .recommendations {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .recommendations li {
+      background: #1b2331;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      border-left: 4px solid #1e90ff;
+      font-size: 13px;
+      animation: fadeIn 0.5s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    /* ============================
+       FILE TABLE
+       ============================ */
+    .file-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .file-table thead {
+      background: #1e2533;
+    }
+
+    .file-table th,
+    .file-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #2a3140;
+      text-align: left;
+    }
+
+    .file-table tr:hover {
+      background: #232b3a;
+    }
+
+    .severity-tag {
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .sev-critical-tag { background: #7f1d1d; color: #fecaca; }
+    .sev-high-tag     { background: #78350f; color: #fed7aa; }
+    .sev-medium-tag   { background: #1e3a8a; color: #bfdbfe; }
+    .sev-low-tag      { background: #064e3b; color: #bbf7d0; }
+
+    /* ============================
+       RESPONSIVE
+       ============================ */
+    @media (max-width: 1100px) {
+      .layout-wrapper {
+        flex-direction: column;
+      }
+
+      .sidebar {
+        width: 100%;
+        max-height: 220px;
+        border-right: none;
+        border-bottom: 1px solid #1f2531;
+      }
+
+      .cards-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .panels-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .welcome-features-horizontal {
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .feature-item-inline {
+        justify-content: center;
+      }
+    }
+
+    @media (max-width: 700px) {
+      .cards-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .scan-input-area {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .input-field {
+        width: 100%;
+        max-width: 100%;
+      }
+
+      .welcome-placeholder-top {
+        padding: 6px 12px;
+        margin-bottom: 6px;
+      }
+
+      .welcome-icon {
+        font-size: 16px;
+        margin-right: 6px;
+      }
+
+      .welcome-title {
+        font-size: 12px;
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      .welcome-features-horizontal {
+        display: flex;
+        gap: 6px;
+        margin-left: 0;
+        flex-wrap: wrap;
+      }
+
+      .feature-item-inline {
+        padding: 2px 6px;
+      }
+
+      .feature-icon {
+        font-size: 11px;
+      }
+
+      .feature-text {
+        font-size: 9px;
+      }
+
+      .scan-area-sticky {
+        margin: 0 -15px 10px -15px;
+        padding: 6px 15px;
+      }
+
+      .filter-bar-pro {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      /* Layout responsivo - empilhar colunas em mobile */
+      .content-header {
+        flex-direction: column;
+      }
+
+      .content-header-left,
+      .content-header-right {
+        width: 100%;
+      }
+
+      .welcome-placeholder {
+        position: static;
+        margin-bottom: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- ============================================================
+       HEADER
+       ============================================================ -->
+  <header class="main-header">
+    <div class="logo-area">
+      <div class="logo-icon">🛡️</div>
+      <div>
+        <div class="logo-text">Security Multicloud Storage Dashboard</div>
+        <div style="font-size: 12px; color: #9ca3af;">
+          Auditoria avançada de buckets e CDNs — AWS S3, Google Cloud Storage & Azure Blob Storage
+        </div>
+      </div>
+    </div>
+
+    <div class="header-meta">
+      <span id="provider-badge" class="provider-badge provider-default">Provider: -</span>
+
+      <span class="header-pill">
+        <span class="header-label">Region:</span>
+        <span id="region-value">-</span>
+      </span>
+
+      <span class="header-pill">
+        <span class="header-label">Account:</span>
+        <span id="account-value">-</span>
+      </span>
+
+      <span class="header-pill">
+        <span class="header-label">Risco:</span>
+        <span id="risk-pill" class="risk-pill risk-none">--</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       LAYOUT
+       ============================================================ -->
+  <div class="layout-wrapper">
+
+    <!-- ============================
+         SIDEBAR — Histórico
+         ============================ -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h3>Histórico de Scans</h3>
+        <button class="btn-clear-history" onclick="clearHistory()">
+          🗑️ Limpar
+        </button>
+      </div>
+      <div id="history-list" class="history-list">
+        <!-- Populado via JS -->
+      </div>
+
+      <!-- Recomendações -->
+      <div class="sidebar-recommendations">
+        <div class="sidebar-header">
+          <h3>Recomendações</h3>
+          <button class="btn-clear-history" onclick="clearRecommendations()">
+            🗑️ Limpar
+          </button>
+        </div>
+        <ul id="recommendation-list-sidebar">
+          <!-- Populado via JS -->
+        </ul>
+      </div>
+    </aside>
+
+    <!-- ============================
+         MAIN CONTENT
+         ============================ -->
+    <main class="content">
+
+      <!-- ============================
+           HEADER DO CONTEÚDO
+           ============================ -->
+      
+      <!-- Placeholder de Boas-Vindas (Topo) -->
+      <div id="welcome-placeholder" class="welcome-placeholder-top">
+        <span class="welcome-icon">🔍</span>
+        <span class="welcome-title">Bem-vindo ao Security Multicloud Scanner</span>
+        <span class="welcome-features-horizontal">
+          <span class="feature-item-inline">
+            <span class="feature-icon">☁️</span>
+            <span class="feature-text">Multi-cloud</span>
+          </span>
+          <span class="feature-item-inline">
+            <span class="feature-icon">🔐</span>
+            <span class="feature-text">Público/Privado</span>
+          </span>
+          <span class="feature-item-inline">
+            <span class="feature-icon">📊</span>
+            <span class="feature-text">Análise de Risco</span>
+          </span>
+        </span>
+      </div>
+
+      <!-- Área de Scan Fixa -->
+      <div class="scan-area-sticky">
+        <div class="scan-input-area">
+          <!-- Toggle Modo de Scan -->
+          <div class="scan-mode-toggle">
+            <button class="toggle-btn active" onclick="setScanMode('public')" id="btn-mode-public">
+              🌐 Scan Público
+            </button>
+            <button class="toggle-btn" onclick="setScanMode('private')" id="btn-mode-private">
+              🔐 Scan Privado
+            </button>
+          </div>
+
+          <!-- Formulário Principal -->
+          <div class="scan-form-row">
+            <input
+              id="bucket-input"
+              class="input-field"
+              placeholder="Ex.: my-bucket.s3.amazonaws.com, bucket.storage.googleapis.com, gododev.blob.core.windows.net"
+            />
+
+            <button class="btn-primary" onclick="startScan()" id="scan-btn">
+              ▶ Iniciar Scan
+            </button>
+          </div>
+
+          <!-- Container de Credenciais (visível apenas em modo privado) -->
+          <div id="credentials-container" class="credentials-container">
+            <div class="warning-box">
+              <strong>⚠️ Modo Autenticado:</strong> Suas credenciais são usadas apenas para este scan e não são armazenadas.
+            </div>
+
+            <!-- Seletor de Provider -->
+            <div class="input-group" style="max-width: 300px;">
+              <label class="input-label">Provider *</label>
+              <select id="provider-select" class="input-field" onchange="toggleProviderFields()">
+                <option value="s3">AWS S3</option>
+                <option value="gcs">Google Cloud Storage</option>
+                <option value="azure">Azure Blob Storage</option>
+              </select>
+              <span class="help-text">Selecione o provedor do bucket</span>
+            </div>
+
+            <!-- Campos AWS S3 -->
+            <div id="aws-fields">
+              <div class="credential-row">
+                <div class="input-group">
+                  <label class="input-label">AWS Access Key ID *</label>
+                  <input
+                    id="aws-access-key"
+                    type="text"
+                    class="input-field"
+                    placeholder="AKIA..."
+                  />
+                  <span class="help-text">Sua AWS Access Key ID</span>
+                </div>
+
+                <div class="input-group">
+                  <label class="input-label">AWS Secret Access Key *</label>
+                  <input
+                    id="aws-secret-key"
+                    type="password"
+                    class="input-field"
+                    placeholder="••••••••••••••"
+                  />
+                  <span class="help-text">Sua AWS Secret Access Key</span>
+                </div>
+              </div>
+
+              <div class="credential-row">
+                <div class="input-group">
+                  <label class="input-label">Session Token (Opcional)</label>
+                  <input
+                    id="aws-session-token"
+                    type="password"
+                    class="input-field"
+                    placeholder="Para credenciais temporárias (STS)"
+                  />
+                  <span class="help-text">Apenas para credenciais STS</span>
+                </div>
+
+                <div class="input-group">
+                  <label class="input-label">Região AWS (Opcional)</label>
+                  <select id="aws-region" class="input-field">
+                    <option value="">Auto-detectar</option>
+                    <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                    <option value="us-east-2">us-east-2 (Ohio)</option>
+                    <option value="us-west-1">us-west-1 (N. California)</option>
+                    <option value="us-west-2">us-west-2 (Oregon)</option>
+                    <option value="sa-east-1">sa-east-1 (São Paulo)</option>
+                    <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                    <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
+                    <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+                    <option value="ap-southeast-2">ap-southeast-2 (Sydney)</option>
+                    <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+                  </select>
+                  <span class="help-text">Região do bucket S3</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Campos GCS -->
+            <div id="gcs-fields" style="display: none;">
+              <div class="input-group">
+                <label class="input-label">Service Account Key JSON *</label>
+                <textarea
+                  id="gcs-service-account"
+                  class="input-field"
+                  rows="8"
+                  placeholder='Cole aqui o JSON completo da Service Account:
+{
+  "type": "service_account",
+  "project_id": "my-project",
+  "private_key_id": "...",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...",
+  "client_email": "...@....iam.gserviceaccount.com",
+  ...
+}'
+                ></textarea>
+                <span class="help-text">JSON completo da Service Account Key (gerado no GCP Console → IAM & Admin → Service Accounts)</span>
+              </div>
+            </div>
+
+            <!-- Campos Azure Blob Storage -->
+            <div id="azure-fields" style="display: none;">
+              <div class="input-group">
+                <label class="input-label">Método de Autenticação</label>
+                <select id="azure-auth-method" class="input-field" onchange="toggleAzureAuthFields()">
+                  <option value="connection-string">Connection String (Recomendado)</option>
+                  <option value="sas-token">SAS Token</option>
+                  <option value="account-key">Account Key</option>
+                </select>
+                <span class="help-text">Escolha o método de autenticação Azure</span>
+              </div>
+
+              <!-- Connection String -->
+              <div id="azure-connection-string-field">
+                <div class="input-group">
+                  <label class="input-label">Azure Connection String *</label>
+                  <textarea
+                    id="azure-connection-string"
+                    class="input-field"
+                    rows="4"
+                    placeholder="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
+                  ></textarea>
+                  <span class="help-text">
+                    Encontre em: Azure Portal → Storage Account → Access Keys → Connection String
+                  </span>
+                </div>
+              </div>
+
+              <!-- SAS Token -->
+              <div id="azure-sas-token-field" style="display: none;">
+                <div class="input-group">
+                  <label class="input-label">Azure SAS Token *</label>
+                  <textarea
+                    id="azure-sas-token"
+                    class="input-field"
+                    rows="3"
+                    placeholder="?sv=2021-06-08&ss=b&srt=sco&sp=rl&se=2024-12-31T23:59:59Z&sig=..."
+                  ></textarea>
+                  <span class="help-text">
+                    SAS Token com permissões de leitura e listagem
+                  </span>
+                </div>
+              </div>
+
+              <!-- Account Key -->
+              <div id="azure-account-key-field" style="display: none;">
+                <div class="input-group">
+                  <label class="input-label">Azure Account Key *</label>
+                  <input
+                    id="azure-account-key"
+                    type="password"
+                    class="input-field"
+                    placeholder="••••••••••••••••••••••••••••••••••••••••"
+                  />
+                  <span class="help-text">
+                    Encontre em: Azure Portal → Storage Account → Access Keys → Key1 ou Key2
+                  </span>
+                </div>
+              </div>
+
+              <!-- Container opcional -->
+              <div class="input-group" style="max-width: 400px;">
+                <label class="input-label">Container (Opcional)</label>
+                <input
+                  id="azure-container"
+                  type="text"
+                  class="input-field"
+                  placeholder="nome-do-container"
+                />
+                <span class="help-text">
+                  Deixe vazio para scanear todos os containers
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Fim scan-input-area -->
+      </div>
+      <!-- Fim scan-area-sticky -->
+
+      <!-- ============================
+           CARDS RESUMO
+           ============================ -->
+      <section class="cards-grid results-section" id="results-cards">
+
+        <div class="card card-animated">
+          <div class="card-title">Total de Arquivos</div>
+          <div id="total-files" class="card-value">0</div>
+          <div class="card-subtext">Arquivos analisados no scan</div>
+        </div>
+
+        <div class="card card-animated">
+          <div class="card-title">Tamanho Total</div>
+          <div id="total-size" class="card-value">0 B</div>
+          <div class="card-subtext">Somatório de objetos analisados</div>
+        </div>
+
+        <div class="card card-animated">
+          <div class="card-title">Exposição</div>
+          <div id="exposure-status" class="card-value">-</div>
+          <div id="exposure-detail" class="card-subtext">Nenhum dado disponível</div>
+        </div>
+
+        <div class="card card-animated">
+          <div class="card-title">Risco Total</div>
+          <div id="risk-total-value" class="card-value">--</div>
+          <div class="card-subtext">Pontuação de risco consolidada</div>
+        </div>
+
+      </section>
+
+      <!-- ============================
+           PAINÉIS PRINCIPAIS
+           ============================ -->
+      <section class="panels-grid results-section" id="results-panels">
+
+        <!-- ============================================================
+             Painel 1: Arquivos expostos + Filtros PRO + Recomendações
+             ============================================================ -->
+        <div class="panel">
+
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">Arquivos Expostos & Detalhes</div>
+              <div class="panel-sub">
+                Itens com possível exposição pública (Critical / High / Medium / Low)
+              </div>
+            </div>
+            <div class="bulk-actions-header">
+              <button class="btn-bulk-action btn-select-all" onclick="selectAllFiles()" id="btn-select-all">
+                ☑️ Selecionar Todos
+              </button>
+              <button class="btn-bulk-action btn-delete-selected" onclick="deleteSelectedFiles()" id="btn-delete-selected" disabled>
+                🗑️ Excluir Selecionados (<span id="selected-count">0</span>)
+              </button>
+            </div>
+          </div>
+
+          <!-- ============================
+               FILTER BAR PRO
+               ============================ -->
+          <div class="filter-bar-pro">
+
+            <!-- Severidade -->
+            <div class="filter-group">
+              <div class="filter-label">Severidade:</div>
+              <button class="filter-btn sev-critical active" onclick="toggleSeverity('CRITICAL', this)">Critical</button>
+              <button class="filter-btn sev-high active" onclick="toggleSeverity('HIGH', this)">High</button>
+              <button class="filter-btn sev-medium active" onclick="toggleSeverity('MEDIUM', this)">Medium</button>
+              <button class="filter-btn sev-low active" onclick="toggleSeverity('LOW', this)">Low</button>
+            </div>
+
+            <!-- Extensões -->
+            <div class="filter-group">
+              <div class="filter-label">Extensão:</div>
+              <select id="ext-filter" onchange="setExtensionFilter(this.value)">
+                <option value="ALL">Todas</option>
+                <option value=".js">.js</option>
+                <option value=".css">.css</option>
+                <option value=".html">.html</option>
+                <option value=".svg">.svg</option>
+                <option value=".eot">.eot</option>
+                <option value=".woff">.woff</option>
+                <option value=".woff2">.woff2</option>
+                <option value=".ttf">.ttf</option>
+                <option value=".pdf">.pdf</option>
+              </select>
+            </div>
+
+            <!-- Busca -->
+            <div class="filter-group">
+              <div class="filter-label">Busca:</div>
+              <input
+                id="search-filter"
+                class="filter-input"
+                placeholder="Buscar nome, extensão, severidade..."
+                oninput="setSearchFilter(this.value)"
+              />
+            </div>
+
+            <!-- Reset -->
+            <div class="filter-group">
+              <button class="filter-btn filter-reset" onclick="resetFilters()">Resetar</button>
+            </div>
+
+          </div>
+
+          <!-- ============================
+               TABELA DE ARQUIVOS
+               ============================ -->
+          <table class="file-table">
+            <thead>
+              <tr>
+                <th style="width: 40px;">
+                  <input type="checkbox" id="checkbox-select-all" onchange="toggleSelectAll(this.checked)" title="Selecionar/Desselecionar todos">
+                </th>
+                <th>Objeto / Caminho</th>
+                <th>Tamanho</th>
+                <th>Severidade</th>
+                <th>Ação</th>
+              </tr>
+            </thead>
+            <tbody id="file-table-body">
+              <!-- Populado via JS -->
+            </tbody>
+          </table>
+
+        </div>
+
+        <!-- ============================================================
+             Painel 2: Gráfico
+             ============================================================ -->
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">Distribuição de Severidade</div>
+              <div class="panel-sub">
+                Baseada nos objetos analisados
+              </div>
+            </div>
+          </div>
+
+          <div class="chart-container">
+            <canvas id="severityChart"></canvas>
+          </div>
+        </div>
+
+      </section>
+
+    </main>
+  </div>
+  <!-- ============================================================
+       SCRIPT — Dashboard Logic PRO (Versão C Enterprise)
+       ============================================================ -->
+  <script>
+    // ============================================================
+    // ESTADO GLOBAL
+    // ============================================================
+    let severityChart = null;
+
+    // Lista completa do último scan (bruto do backend)
+    let fullFileList = [];
+
+    // Filtros
+    let selectedSeverities = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
+    let selectedExtension = "ALL";
+    let searchQuery = "";
+
+    // Modo de scan (public ou private)
+    let scanMode = "public";
+
+    // Item do histórico selecionado
+    let selectedHistoryIndex = null;
+
+    // ============================================================
+    // 0. SCAN MODE TOGGLE
+    // ============================================================
+    function setScanMode(mode) {
+      scanMode = mode;
+      
+      const publicBtn = document.getElementById("btn-mode-public");
+      const privateBtn = document.getElementById("btn-mode-private");
+      const credentialsContainer = document.getElementById("credentials-container");
+      
+      if (mode === "public") {
+        publicBtn.classList.add("active");
+        privateBtn.classList.remove("active");
+        credentialsContainer.classList.remove("active");
+      } else {
+        privateBtn.classList.add("active");
+        publicBtn.classList.remove("active");
+        credentialsContainer.classList.add("active");
+      }
+    }
+
+    function toggleProviderFields() {
+      const provider = document.getElementById("provider-select").value;
+      const awsFields = document.getElementById("aws-fields");
+      const gcsFields = document.getElementById("gcs-fields");
+      const azureFields = document.getElementById("azure-fields");
+      
+      if (provider === "s3") {
+        awsFields.style.display = "block";
+        gcsFields.style.display = "none";
+        azureFields.style.display = "none";
+      } else if (provider === "gcs") {
+        awsFields.style.display = "none";
+        gcsFields.style.display = "block";
+        azureFields.style.display = "none";
+      } else if (provider === "azure") {
+        awsFields.style.display = "none";
+        gcsFields.style.display = "none";
+        azureFields.style.display = "block";
+      }
+    }
+
+    // Toggle entre métodos de autenticação Azure
+    function toggleAzureAuthFields() {
+      const method = document.getElementById("azure-auth-method").value;
+      const connectionStringField = document.getElementById("azure-connection-string-field");
+      const sasTokenField = document.getElementById("azure-sas-token-field");
+      const accountKeyField = document.getElementById("azure-account-key-field");
+      
+      // Esconder todos
+      connectionStringField.style.display = "none";
+      sasTokenField.style.display = "none";
+      accountKeyField.style.display = "none";
+      
+      // Mostrar o selecionado
+      if (method === "connection-string") {
+        connectionStringField.style.display = "block";
+      } else if (method === "sas-token") {
+        sasTokenField.style.display = "block";
+      } else if (method === "account-key") {
+        accountKeyField.style.display = "block";
+      }
+    }
+
+    // ============================================================
+    // 1. START SCAN (Público ou Privado)
+    // ============================================================
+    function startScan() {
+      const bucketInput = document.getElementById("bucket-input");
+      const bucket = bucketInput.value.trim();
+
+      if (!bucket) {
+        alert("Digite o nome do bucket ou domínio para iniciar o scan.");
+        return;
+      }
+
+      if (scanMode === "public") {
+        startPublicScan(bucket);
+      } else {
+        startPrivateScan(bucket);
+      }
+    }
+
+    function startPublicScan(bucket) {
+      const scanBtn = document.getElementById("scan-btn");
+      scanBtn.disabled = true;
+      scanBtn.textContent = "⏳ Scaneando...";
+      
+      // Reset filtros antes do scan
+      resetFilters();
+      
+      animateScanStart();
+
+      fetch("/scan/" + encodeURIComponent(bucket))
+        .then(res => res.json())
+        .then(data => {
+          console.log("SCAN RESULT:", data);
+          if (data.error) {
+            alert(data.error);
+            return;
+          }
+          updateUI(data);
+          saveScanToHistory(data);
+        })
+        .catch(err => {
+          console.error(err);
+          alert("Erro ao conectar com a API /scan.");
+        })
+        .finally(() => {
+          scanBtn.disabled = false;
+          scanBtn.textContent = "▶ Iniciar Scan";
+        });
+    }
+
+    function startPrivateScan(bucket) {
+      const provider = document.getElementById("provider-select").value;
+      const scanBtn = document.getElementById("scan-btn");
+      
+      let payload = {
+        bucket: bucket,
+        max_objects: 1000
+      };
+
+      // Validação e montagem do payload por provider
+      if (provider === "s3") {
+        const accessKey = document.getElementById("aws-access-key").value.trim();
+        const secretKey = document.getElementById("aws-secret-key").value.trim();
+        const sessionToken = document.getElementById("aws-session-token").value.trim();
+        const region = document.getElementById("aws-region").value.trim();
+
+        if (!accessKey || !secretKey) {
+          alert("Por favor, forneça AWS Access Key ID e Secret Access Key para scan S3 privado.");
+          return;
+        }
+
+        payload.aws_access_key_id = accessKey;
+        payload.aws_secret_access_key = secretKey;
+        payload.aws_session_token = sessionToken || null;
+        payload.region = region || null;
+        
+      } else if (provider === "gcs") {
+        const serviceAccountJson = document.getElementById("gcs-service-account").value.trim();
+
+        if (!serviceAccountJson) {
+          alert("Por favor, forneça o JSON da Service Account Key para scan GCS privado.");
+          return;
+        }
+
+        try {
+          payload.service_account_key = JSON.parse(serviceAccountJson);
+        } catch (e) {
+          alert("Erro ao parsear JSON da Service Account. Verifique se o formato está correto.");
+          return;
+        }
+        
+      } else if (provider === "azure") {
+        const authMethod = document.getElementById("azure-auth-method").value;
+        const container = document.getElementById("azure-container").value.trim();
+        
+        if (authMethod === "connection-string") {
+          const connectionString = document.getElementById("azure-connection-string").value.trim();
+          
+          if (!connectionString) {
+            alert("Por favor, forneça a Connection String do Azure Storage para scan privado.");
+            return;
+          }
+          
+          payload.azure_connection_string = connectionString;
+          
+        } else if (authMethod === "sas-token") {
+          const sasToken = document.getElementById("azure-sas-token").value.trim();
+          
+          if (!sasToken) {
+            alert("Por favor, forneça o SAS Token do Azure Storage para scan privado.");
+            return;
+          }
+          
+          payload.azure_sas_token = sasToken;
+          
+        } else if (authMethod === "account-key") {
+          const accountKey = document.getElementById("azure-account-key").value.trim();
+          
+          if (!accountKey) {
+            alert("Por favor, forneça o Account Key do Azure Storage para scan privado.");
+            return;
+          }
+          
+          payload.azure_account_key = accountKey;
+        }
+        
+        // Container é opcional
+        if (container) {
+          payload.azure_container = container;
+        }
+      }
+
+      scanBtn.disabled = true;
+      scanBtn.textContent = "🔐 Scaneando com credenciais...";
+      
+      // Reset filtros antes do scan
+      resetFilters();
+      
+      animateScanStart();
+
+      fetch("/scan/authenticated", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log("AUTHENTICATED SCAN RESULT:", data);
+          if (data.error || data.detail) {
+            alert(data.error || data.detail);
+            return;
+          }
+          updateUI(data);
+          saveScanToHistory(data);
+        })
+        .catch(err => {
+          console.error(err);
+          alert("Erro ao conectar com a API /scan/authenticated.");
+        })
+        .finally(() => {
+          scanBtn.disabled = false;
+          scanBtn.textContent = "▶ Iniciar Scan";
+        });
+    }
+
+    // ============================================================
+    // 2. UPDATE DASHBOARD UI (cards, header, gráfico, tabela...)
+    // ============================================================
+    function updateUI(data) {
+      const provider = data.provider || "UNIVERSAL";
+      const region = data.region || "-";
+      const accountId = data.account_id || data.account || "-";
+      const summary = data.summary || {};
+      const files = data.files || [];
+      const publicAccess = !!data.public_access;
+      const riskScore = typeof data.risk_score === "number" ? data.risk_score : 0;
+      const severity = data.severity_distribution || {};
+
+      // Mostrar seções de resultado
+      showResultsSections();
+
+      // Header
+      updateProviderBadge(provider);
+      updateRegionAccount(region, accountId);
+      updateRiskBadge(calcRiskLevel(riskScore), riskScore);
+
+      // Cards
+      document.getElementById("total-files").innerText =
+        summary.objects_scanned ?? summary.total_files ?? files.length ?? 0;
+
+      const totalBytes =
+        summary.total_size_bytes ??
+        files.reduce((acc, f) => acc + (f.size || 0), 0);
+
+      document.getElementById("total-size").innerText = formatBytes(totalBytes);
+
+      const exposureLabel = publicAccess ? "Público" : "Privado";
+      document.getElementById("exposure-status").innerText = exposureLabel;
+
+      const expDetail = publicAccess
+        ? "Foi detectada listagem pública de objetos neste bucket."
+        : "Nenhuma listagem pública de objetos detectada.";
+      document.getElementById("exposure-detail").innerText = expDetail;
+
+      document.getElementById("risk-total-value").innerText = riskScore + "%";
+
+      // Gráfico (distribuição original)
+      updateSeverityChart(severity);
+
+      // Recomendações
+      updateRecommendations(data.recommendations || []);
+
+      // Tabela de arquivos (salva base + aplica filtros)
+      updateFileList(files);
+    }
+
+    // ============================================================
+    // Mostrar seções de resultado
+    // ============================================================
+    function showResultsSections() {
+      // Ocultar placeholder
+      const placeholder = document.getElementById("welcome-placeholder");
+      if (placeholder) {
+        placeholder.classList.add("hidden");
+      }
+
+      // Mostrar cards e painéis
+      document.getElementById("results-cards")?.classList.add("active");
+      document.getElementById("results-panels")?.classList.add("active");
+    }
+
+    // ============================================================
+    // 3. PROVIDER / REGION / ACCOUNT
+    // ============================================================
+    function updateProviderBadge(provider) {
+      const badge = document.getElementById("provider-badge");
+      badge.className = "provider-badge"; // reset
+      badge.innerHTML = "Provider: " + provider;
+
+      if (provider === "AWS_S3") {
+        badge.classList.add("provider-AWS_S3");
+      } else if (provider === "GCS") {
+        badge.classList.add("provider-GCS");
+      } else if (provider === "AZURE_BLOB") {
+        badge.classList.add("provider-AZURE_BLOB");
+      } else {
+        badge.classList.add("provider-UNIVERSAL");
+      }
+    }
+
+    function updateRegionAccount(region, accountId) {
+      document.getElementById("region-value").innerText = region;
+      document.getElementById("account-value").innerText = accountId;
+    }
+
+    // ============================================================
+    // 4. RISK BADGE
+    // ============================================================
+    function calcRiskLevel(score) {
+      if (score >= 80) return "CRITICAL";
+      if (score >= 60) return "HIGH";
+      if (score >= 30) return "MEDIUM";
+      if (score > 0) return "LOW";
+      return "--";
+    }
+
+    function updateRiskBadge(level, score) {
+      const pill = document.getElementById("risk-pill");
+      pill.className = "risk-pill"; // reset
+
+      if (level === "--") {
+        pill.classList.add("risk-none");
+        pill.innerText = "--";
+        return;
+      }
+
+      pill.innerText = level + " (" + score + "%)";
+
+      if (level === "CRITICAL") pill.classList.add("risk-critical");
+      else if (level === "HIGH") pill.classList.add("risk-high");
+      else if (level === "MEDIUM") pill.classList.add("risk-medium");
+      else if (level === "LOW") pill.classList.add("risk-low");
+      else pill.classList.add("risk-none");
+    }
+
+    // ============================================================
+    // 5. SEVERITY CHART (Chart.js Doughnut)
+    // ============================================================
+    function updateSeverityChart(dist) {
+      const ctx = document.getElementById("severityChart");
+
+      if (!ctx) return;
+
+      const values = [
+        dist.critical || 0,
+        dist.high || 0,
+        dist.medium || 0,
+        dist.low || 0
+      ];
+
+      if (severityChart) severityChart.destroy();
+
+      severityChart = new Chart(ctx, {
+        type: "doughnut",
+        data: {
+          labels: ["Critical", "High", "Medium", "Low"],
+          datasets: [
+            {
+              data: values,
+              backgroundColor: [
+                "#dc2626",
+                "#f59e0b",
+                "#3b82f6",
+                "#22c55e"
+              ],
+              borderColor: "#0e1117",
+              borderWidth: 3
+            }
+          ]
+        },
+        options: {
+          plugins: {
+            legend: {
+              labels: {
+                color: "#e5e7eb",
+                font: { size: 13 }
+              }
+            }
+          },
+          cutout: "60%"
+        }
+      });
+    }
+
+    // ============================================================
+    // 6. RECOMMENDATIONS
+    // ============================================================
+    function updateRecommendations(list) {
+      // Atualiza apenas a lista na sidebar
+      const ulSidebar = document.getElementById("recommendation-list-sidebar");
+      ulSidebar.innerHTML = "";
+
+      if (!list.length) {
+        const liSidebar = document.createElement("li");
+        liSidebar.textContent = "Nenhuma recomendação.";
+        liSidebar.style.fontSize = "10px";
+        liSidebar.style.color = "#9ca3af";
+        liSidebar.style.borderLeft = "3px solid #4b5563";
+        ulSidebar.appendChild(liSidebar);
+        return;
+      }
+
+      list.forEach(rec => {
+        const liSidebar = document.createElement("li");
+        liSidebar.textContent = rec;
+        ulSidebar.appendChild(liSidebar);
+      });
+    }
+
+    // ============================================================
+    // 7. FILE LIST (BASE + RENDER)
+    // ============================================================
+    function updateFileList(files) {
+      console.log("=== updateFileList START ===");
+      console.log("updateFileList called with", files ? files.length : 0, "files");
+      console.log("Raw files:", files);
+      
+      // Normaliza severidade para UPPERCASE para filtros
+      fullFileList = (files || []).map(f => {
+        const sev = (f.severity || "").toString().toUpperCase();
+        return {
+          ...f,
+          severity: sev
+        };
+      });
+
+      console.log("fullFileList updated:", fullFileList.length, "files");
+      console.log("fullFileList sample:", fullFileList.slice(0, 3));
+      console.log("Current filters - severities:", Array.from(selectedSeverities));
+      console.log("Current filters - extension:", selectedExtension);
+      console.log("Current filters - search:", searchQuery);
+
+      // Sempre aplica filtros (severidade, extensão, busca)
+      applyFilters();
+      console.log("=== updateFileList END ===");
+    }
+
+    function renderFileTable(files) {
+      console.log("renderFileTable called with", files ? files.length : 0, "files");
+      
+      const tbody = document.getElementById("file-table-body");
+      if (!tbody) {
+        console.error("file-table-body element not found!");
+        return;
+      }
+      
+      tbody.innerHTML = "";
+
+      if (!files.length) {
+        console.log("No files to display");
+        const row = document.createElement("tr");
+        row.innerHTML =
+          '<td colspan="5" style="text-align:center; color:#9ca3af;">' +
+          "Nenhum arquivo encontrado com os filtros atuais." +
+          "</td>";
+        tbody.appendChild(row);
+        updateSelectedCount();
+        return;
+      }
+
+      console.log("Rendering", files.length, "files to table");
+      
+      files.forEach((f, index) => {
+        const row = document.createElement("tr");
+        const sev = (f.severity || "").toString().toUpperCase();
+        const fileKey = f.key || f.name || "-";
+
+        let sevClass = "sev-low-tag";
+        if (sev === "CRITICAL") sevClass = "sev-critical-tag";
+        else if (sev === "HIGH") sevClass = "sev-high-tag";
+        else if (sev === "MEDIUM") sevClass = "sev-medium-tag";
+
+        row.innerHTML = `
+          <td>
+            <input type="checkbox" 
+                   class="file-checkbox" 
+                   data-file-key="${escapeHtml(fileKey)}"
+                   data-file-index="${index}"
+                   onchange="updateSelectedCount()">
+          </td>
+          <td>${escapeHtml(fileKey)}</td>
+          <td>${formatBytes(f.size || 0)}</td>
+          <td><span class="severity-tag ${sevClass}">${sev || "-"}</span></td>
+          <td>
+            ${
+              f.url || f.url_host
+                ? `<a href="${f.url || f.url_host}" target="_blank">Abrir</a>`
+                : "-"
+            }
+          </td>
+        `;
+
+        tbody.appendChild(row);
+      });
+      
+      console.log("Table rendered successfully");
+      updateSelectedCount();
+    }
+
+    // ============================================================
+    // 8. FILTROS AVANÇADOS (Severidade + Extensão + Busca)
+    // ============================================================
+    function applyFilters() {
+      console.log("=== applyFilters START ===");
+      console.log("fullFileList length:", fullFileList.length);
+      
+      let filtered = fullFileList.slice();
+      console.log("Initial filtered count:", filtered.length);
+
+      // Filtro por severidade (multi)
+      if (selectedSeverities.size > 0) {
+        filtered = filtered.filter(f => selectedSeverities.has(f.severity));
+        console.log("After severity filter:", filtered.length, "files");
+      }
+
+      // Filtro por extensão
+      if (selectedExtension !== "ALL") {
+        filtered = filtered.filter(f => {
+          const key = (f.key || f.name || "").toLowerCase();
+          return key.endsWith(selectedExtension.toLowerCase());
+        });
+        console.log("After extension filter:", filtered.length, "files");
+      }
+
+      // Filtro por busca
+      if (searchQuery) {
+        filtered = filtered.filter(f => {
+          const key = (f.key || f.name || "").toLowerCase();
+          const sev = (f.severity || "").toLowerCase();
+          return (
+            key.includes(searchQuery) ||
+            sev.includes(searchQuery)
+          );
+        });
+        console.log("After search filter:", filtered.length, "files");
+      }
+
+      console.log("Final filtered count:", filtered.length);
+      console.log("=== applyFilters END ===");
+
+      // Renderiza tabela
+      renderFileTable(filtered);
+
+      // Atualiza gráfico com base no filtrado
+      const dist = {
+        critical: filtered.filter(f => f.severity === "CRITICAL").length,
+        high:     filtered.filter(f => f.severity === "HIGH").length,
+        medium:   filtered.filter(f => f.severity === "MEDIUM").length,
+        low:      filtered.filter(f => f.severity === "LOW").length
+      };
+      updateSeverityChart(dist);
+    }
+
+    // --- Interações dos filtros ---
+    function toggleSeverity(level, btn) {
+      if (selectedSeverities.has(level)) {
+        selectedSeverities.delete(level);
+        btn.classList.remove("active");
+      } else {
+        selectedSeverities.add(level);
+        btn.classList.add("active");
+      }
+
+      // Se nenhuma severidade estiver selecionada, restaura todas
+      if (selectedSeverities.size === 0) {
+        selectedSeverities = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
+        document
+          .querySelectorAll(".filter-btn.sev-critical, .filter-btn.sev-high, .filter-btn.sev-medium, .filter-btn.sev-low")
+          .forEach(b => b.classList.add("active"));
+      }
+
+      applyFilters();
+    }
+
+    function setExtensionFilter(ext) {
+      selectedExtension = ext;
+      applyFilters();
+    }
+
+    function setSearchFilter(value) {
+      searchQuery = (value || "").toLowerCase();
+      applyFilters();
+    }
+
+    function resetFilters() {
+      // Reset severidade
+      selectedSeverities = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
+      document
+        .querySelectorAll(".filter-btn.sev-critical, .filter-btn.sev-high, .filter-btn.sev-medium, .filter-btn.sev-low")
+        .forEach(b => b.classList.add("active"));
+
+      // Reset extensão
+      selectedExtension = "ALL";
+      const extSelect = document.getElementById("ext-filter");
+      if (extSelect) extSelect.value = "ALL";
+
+      // Reset busca
+      searchQuery = "";
+      const searchInput = document.getElementById("search-filter");
+      if (searchInput) searchInput.value = "";
+
+      applyFilters();
+    }
+
+    // ============================================================
+    // 9. SCAN ANIMATION
+    // ============================================================
+    function animateScanStart() {
+      document.body.style.filter = "brightness(0.88)";
+      setTimeout(() => {
+        document.body.style.filter = "brightness(1)";
+      }, 220);
+    }
+
+    // ============================================================
+    // 10. HISTORY SYSTEM (LOCALSTORAGE)
+    // ============================================================
+    function saveScanToHistory(data) {
+      let history = JSON.parse(localStorage.getItem("scanHistory") || "[]");
+
+      history.unshift({
+        bucket: data.bucket || "-",
+        provider: data.provider || "UNIVERSAL",
+        risk_score: data.risk_score || 0,
+        timestamp: new Date().toLocaleString(),
+        data: data
+      });
+
+      history = history.slice(0, 30); // limita histórico
+      localStorage.setItem("scanHistory", JSON.stringify(history));
+      loadHistory();
+    }
+
+    function loadHistory() {
+      let history = JSON.parse(localStorage.getItem("scanHistory") || "[]");
+      const container = document.getElementById("history-list");
+      container.innerHTML = "";
+
+      if (!history.length) {
+        const div = document.createElement("div");
+        div.className = "history-item";
+        div.style.cursor = "default";
+        div.style.borderLeft = "4px solid #4b5563";
+        div.innerHTML =
+          "<span class='history-meta'>Nenhum scan realizado ainda.</span>";
+        container.appendChild(div);
+        return;
+      }
+
+      history.forEach((item, index) => {
+        const div = document.createElement("div");
+        div.className = "history-item";
+        
+        // Marca como selecionado se for o índice atual
+        if (selectedHistoryIndex === index) {
+          div.classList.add("selected");
+        }
+
+        const contentDiv = document.createElement("div");
+        contentDiv.className = "history-item-content";
+        contentDiv.innerHTML = `
+          <div class="history-bucket">${escapeHtml(item.bucket)}</div>
+          <div class="history-meta">
+            Provider: ${item.provider} · Risco: ${item.risk_score}%<br/>
+            ${item.timestamp}
+          </div>
+        `;
+
+        // Área de ações (botão deletar)
+        const actionsDiv = document.createElement("div");
+        actionsDiv.className = "history-actions";
+        
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "btn-delete-item";
+        deleteBtn.innerHTML = "🗑️ Excluir";
+        deleteBtn.title = "Excluir este item";
+        deleteBtn.onclick = (e) => {
+          e.stopPropagation(); // Não dispara o click do item
+          deleteHistoryItem(index);
+        };
+        
+        actionsDiv.appendChild(deleteBtn);
+
+        // Clique no item para carregar/selecionar
+        contentDiv.onclick = () => {
+          selectedHistoryIndex = index;
+          loadHistoryItem(index);
+        };
+
+        div.appendChild(contentDiv);
+        div.appendChild(actionsDiv);
+        container.appendChild(div);
+      });
+    }
+
+    function loadHistoryItem(index) {
+      let history = JSON.parse(localStorage.getItem("scanHistory") || "[]");
+      console.log("Loading history item:", index);
+      console.log("Total history items:", history.length);
+      
+      if (!history[index]) {
+        console.error("History item not found:", index);
+        return;
+      }
+      
+      selectedHistoryIndex = index;
+      const itemData = history[index].data;
+      
+      console.log("Item data:", itemData);
+      console.log("Files count:", itemData.files ? itemData.files.length : 0);
+      
+      // Resetar filtros antes de carregar
+      resetFilters();
+      
+      updateUI(itemData);
+      loadHistory(); // Recarrega para atualizar visual de seleção
+    }
+
+    // Função para resetar todos os filtros
+    function resetFilters() {
+      // Resetar severidades - ativar todas
+      selectedSeverities = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
+      document.querySelectorAll(".filter-btn.sev-critical, .filter-btn.sev-high, .filter-btn.sev-medium, .filter-btn.sev-low")
+        .forEach(btn => btn.classList.add("active"));
+      
+      // Resetar extensão
+      selectedExtension = "ALL";
+      const extSelect = document.getElementById("ext-filter");
+      if (extSelect) extSelect.value = "ALL";
+      
+      // Resetar busca
+      searchQuery = "";
+      const searchInput = document.getElementById("search-filter");
+      if (searchInput) searchInput.value = "";
+      
+      console.log("Filters reset");
+    }
+
+    function deleteHistoryItem(index) {
+      let history = JSON.parse(localStorage.getItem("scanHistory") || "[]");
+      
+      if (!history[index]) return;
+      
+      const bucket = history[index].bucket;
+      
+      if (confirm(`Deseja excluir o scan "${bucket}" do histórico?`)) {
+        history.splice(index, 1); // Remove item
+        localStorage.setItem("scanHistory", JSON.stringify(history));
+        
+        // Se era o item selecionado, desseleciona
+        if (selectedHistoryIndex === index) {
+          selectedHistoryIndex = null;
+        } else if (selectedHistoryIndex > index) {
+          // Ajusta índice se estava selecionado item posterior
+          selectedHistoryIndex--;
+        }
+        
+        loadHistory();
+      }
+    }
+
+    function clearHistory() {
+      if (confirm("Deseja realmente limpar todo o histórico de scans?")) {
+        localStorage.removeItem("scanHistory");
+        selectedHistoryIndex = null;
+        loadHistory();
+      }
+    }
+
+    function clearRecommendations() {
+      if (confirm("Deseja realmente limpar todas as recomendações?")) {
+        const sidebarList = document.getElementById("recommendation-list-sidebar");
+        if (sidebarList) {
+          const li = document.createElement("li");
+          li.textContent = "Nenhuma recomendação.";
+          li.style.fontSize = "10px";
+          li.style.color = "#9ca3af";
+          li.style.borderLeft = "3px solid #4b5563";
+          li.style.padding = "8px";
+          
+          sidebarList.innerHTML = "";
+          sidebarList.appendChild(li);
+        }
+        
+        console.log("Recomendações limpas com sucesso");
+      }
+    }
+
+    // ============================================================
+    // BULK FILE OPERATIONS
+    // ============================================================
+    
+    function updateSelectedCount() {
+      const checkboxes = document.querySelectorAll(".file-checkbox");
+      const checked = document.querySelectorAll(".file-checkbox:checked");
+      const count = checked.length;
+      
+      const countSpan = document.getElementById("selected-count");
+      const deleteBtn = document.getElementById("btn-delete-selected");
+      const selectAllCheckbox = document.getElementById("checkbox-select-all");
+      const selectAllBtn = document.getElementById("btn-select-all");
+      
+      if (countSpan) countSpan.textContent = count;
+      if (deleteBtn) deleteBtn.disabled = count === 0;
+      
+      // Atualizar estado do checkbox "select all"
+      if (selectAllCheckbox && checkboxes.length > 0) {
+        selectAllCheckbox.checked = count === checkboxes.length;
+        selectAllCheckbox.indeterminate = count > 0 && count < checkboxes.length;
+      }
+      
+      // Atualizar texto do botão "Selecionar Todos"
+      if (selectAllBtn) {
+        if (count === checkboxes.length && checkboxes.length > 0) {
+          selectAllBtn.textContent = "☐ Desselecionar Todos";
+        } else {
+          selectAllBtn.textContent = "☑️ Selecionar Todos";
+        }
+      }
+    }
+    
+    function toggleSelectAll(checked) {
+      const checkboxes = document.querySelectorAll(".file-checkbox");
+      checkboxes.forEach(cb => {
+        cb.checked = checked;
+      });
+      updateSelectedCount();
+    }
+    
+    function selectAllFiles() {
+      const checkboxes = document.querySelectorAll(".file-checkbox");
+      const checked = document.querySelectorAll(".file-checkbox:checked");
+      
+      // Se todos já estão selecionados, desselecionar. Caso contrário, selecionar todos
+      const shouldSelect = checked.length !== checkboxes.length;
+      
+      checkboxes.forEach(cb => {
+        cb.checked = shouldSelect;
+      });
+      
+      updateSelectedCount();
+    }
+    
+    function deleteSelectedFiles() {
+      const checked = document.querySelectorAll(".file-checkbox:checked");
+      
+      if (checked.length === 0) {
+        alert("Nenhum arquivo selecionado para exclusão.");
+        return;
+      }
+      
+      const fileKeys = Array.from(checked).map(cb => cb.dataset.fileKey);
+      const fileCount = fileKeys.length;
+      
+      const confirmMsg = `⚠️ ATENÇÃO: Você está prestes a EXCLUIR ${fileCount} arquivo(s)!
+
+Arquivos a serem excluídos:
+${fileKeys.slice(0, 10).map(k => `  • ${k}`).join('\n')}${fileCount > 10 ? `\n  ... e mais ${fileCount - 10} arquivo(s)` : ''}
+
+⚠️ ESTA AÇÃO NÃO PODE SER DESFEITA!
+
+Tem certeza que deseja continuar?`;
+      
+      if (!confirm(confirmMsg)) {
+        console.log("Exclusão cancelada pelo usuário");
+        return;
+      }
+      
+      // Perguntar novamente para ações críticas
+      if (fileCount > 10) {
+        if (!confirm(`Confirme novamente: Excluir ${fileCount} arquivos permanentemente?`)) {
+          console.log("Exclusão cancelada na segunda confirmação");
+          return;
+        }
+      }
+      
+      console.log("Iniciando exclusão de", fileCount, "arquivo(s)");
+      
+      // Aqui você implementaria a chamada à API de exclusão
+      // Por enquanto, vamos apenas remover da lista local
+      deleteFilesFromList(fileKeys);
+    }
+    
+    function deleteFilesFromList(fileKeys) {
+      console.log("Deletando arquivos:", fileKeys);
+      
+      // Remove da lista completa
+      fullFileList = fullFileList.filter(f => {
+        const key = f.key || f.name || "";
+        return !fileKeys.includes(key);
+      });
+      
+      console.log("Arquivos removidos. Lista atual:", fullFileList.length, "arquivos");
+      
+      // Reaplica filtros e atualiza UI
+      applyFilters();
+      
+      // Atualiza cards de resumo
+      const totalFiles = document.getElementById("total-files");
+      if (totalFiles) {
+        totalFiles.textContent = fullFileList.length;
+      }
+      
+      // Feedback visual
+      alert(`✅ ${fileKeys.length} arquivo(s) removido(s) da visualização com sucesso!
+
+⚠️ IMPORTANTE: Esta é apenas uma remoção da INTERFACE.
+Para excluir os arquivos PERMANENTEMENTE do bucket, você deve:
+
+AWS S3:
+  aws s3 rm s3://BUCKET/${fileKeys[0]}
+
+GCS:
+  gsutil rm gs://BUCKET/${fileKeys[0]}
+
+Ou use o console web do provider.`);
+      
+      // Limpa seleção
+      const selectAllCheckbox = document.getElementById("checkbox-select-all");
+      if (selectAllCheckbox) selectAllCheckbox.checked = false;
+      
+      updateSelectedCount();
+    }
+
+    // ============================================================
+    // 11. HELPERS
+    // ============================================================
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return "0 B";
+      const units = ["B", "KB", "MB", "GB", "TB"];
+      let i = 0;
+      let v = bytes;
+      while (v >= 1024 && i < units.length - 1) {
+        v /= 1024;
+        i++;
+      }
+      return v.toFixed(2) + " " + units[i];
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // ============================================================
+    // 12. AUTOLOAD HISTORY ON PAGE LOAD
+    // ============================================================
+    window.onload = () => {
+      loadHistory();
+    };
+  </script>
+</body>
+</html>

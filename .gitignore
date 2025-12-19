@@ -205,3 +205,58 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+=======
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDEs e Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Mac OS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Backups
+*.bkp
+*.backup
+api.py.bkp
+auditor.backup
+auditor_gcs_bkp.py
+dashboard_v2_backup_*
+dashboard.html.backup
+
+# Reports e temporários
+reports/
+*.log
+scan-report-*.json
+wl-public_*.html
+wl-public_*.json
+
+# Testes
+*_test.html
+dashboard_test.html
+
+# Environment variables
+.env
+.env.local
+
+# Databases
+*.db
+*.sqlite
