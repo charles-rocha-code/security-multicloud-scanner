@@ -887,6 +887,107 @@
     }
 
     /* ============================
+       SEVERITY SUMMARY CARDS
+       ============================ */
+    .severity-card {
+      background: linear-gradient(135deg, #1b2331 0%, #0f1419 100%);
+      border-radius: 12px;
+      padding: 16px;
+      border-left: 5px solid;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .severity-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 60px;
+      height: 60px;
+      opacity: 0.1;
+      border-radius: 50%;
+    }
+
+    .severity-card:hover {
+      transform: translateX(5px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+    }
+
+    .severity-card.critical {
+      border-left-color: #dc2626;
+    }
+
+    .severity-card.critical::before {
+      background: #dc2626;
+    }
+
+    .severity-card.high {
+      border-left-color: #f59e0b;
+    }
+
+    .severity-card.high::before {
+      background: #f59e0b;
+    }
+
+    .severity-card.medium {
+      border-left-color: #3b82f6;
+    }
+
+    .severity-card.medium::before {
+      background: #3b82f6;
+    }
+
+    .severity-card.low {
+      border-left-color: #22c55e;
+    }
+
+    .severity-card.low::before {
+      background: #22c55e;
+    }
+
+    .severity-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .severity-card-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .severity-card-icon {
+      font-size: 18px;
+    }
+
+    .severity-card-percentage {
+      font-size: 32px;
+      font-weight: bold;
+      color: #ffffff;
+      line-height: 1;
+      margin-bottom: 6px;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+
+    .severity-card-count {
+      font-size: 13px;
+      color: #6b7280;
+      font-weight: 500;
+    }
+
+    .severity-card-count strong {
+      color: #e5e7eb;
+      font-weight: 700;
+    }
+
+    /* ============================
        RECOMMENDATIONS
        ============================ */
     .recommendations {
@@ -1411,7 +1512,7 @@
         </div>
 
         <!-- ============================================================
-             Painel 2: Gráfico
+             Painel 2: Gráfico com Sumário
              ============================================================ -->
         <div class="panel">
           <div class="panel-header">
@@ -1423,8 +1524,16 @@
             </div>
           </div>
 
-          <div class="chart-container">
-            <canvas id="severityChart"></canvas>
+          <div style="display: flex; gap: 20px; align-items: center;">
+            <!-- Gráfico -->
+            <div class="chart-container" style="flex: 1; min-width: 300px;">
+              <canvas id="severityChart"></canvas>
+            </div>
+
+            <!-- Sumário de Porcentagens -->
+            <div id="severity-summary" style="flex: 0 0 220px; display: flex; flex-direction: column; gap: 12px;">
+              <!-- Cards serão inseridos via JavaScript -->
+            </div>
           </div>
         </div>
 
@@ -1855,6 +1964,69 @@
           }
         },
         plugins: [ChartDataLabels]
+      });
+
+      // Atualizar sumário de cards ao lado do gráfico
+      updateSeveritySummary(dist, values);
+    }
+
+    // ============================================================
+    // 5b. SEVERITY SUMMARY CARDS
+    // ============================================================
+    function updateSeveritySummary(dist, values) {
+      const container = document.getElementById("severity-summary");
+      if (!container) return;
+
+      const total = values.reduce((a, b) => a + b, 0);
+
+      const data = [
+        { 
+          label: 'Critical', 
+          value: dist.critical || 0, 
+          class: 'critical', 
+          icon: '🔴',
+          color: '#dc2626'
+        },
+        { 
+          label: 'High', 
+          value: dist.high || 0, 
+          class: 'high', 
+          icon: '🟠',
+          color: '#f59e0b'
+        },
+        { 
+          label: 'Medium', 
+          value: dist.medium || 0, 
+          class: 'medium', 
+          icon: '🔵',
+          color: '#3b82f6'
+        },
+        { 
+          label: 'Low', 
+          value: dist.low || 0, 
+          class: 'low', 
+          icon: '🟢',
+          color: '#22c55e'
+        }
+      ];
+
+      container.innerHTML = '';
+
+      data.forEach(item => {
+        const percentage = total > 0 ? ((item.value / total) * 100).toFixed(1) : 0;
+        
+        const card = document.createElement('div');
+        card.className = `severity-card ${item.class}`;
+        card.innerHTML = `
+          <div class="severity-card-header">
+            <span class="severity-card-label">${item.label}</span>
+            <span class="severity-card-icon">${item.icon}</span>
+          </div>
+          <div class="severity-card-percentage" style="color: ${item.color}">${percentage}%</div>
+          <div class="severity-card-count"><strong>${item.value}</strong> arquivo${item.value !== 1 ? 's' : ''}</div>
+        `;
+        
+        container.appendChild(card);
       });
     }
 
@@ -2432,4 +2604,3 @@ Ou use o console web do provider.`);
   </script>
 </body>
 </html>
-
