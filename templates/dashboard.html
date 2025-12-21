@@ -1777,10 +1777,19 @@
           plugins: {
             legend: {
               position: 'bottom',
+              align: 'center',
               labels: {
                 color: "#e5e7eb",
-                font: { size: 13 },
-                padding: 15,
+                font: { 
+                  size: 14,
+                  weight: '500',
+                  family: "'Segoe UI', Roboto, sans-serif"
+                },
+                padding: 20,
+                boxWidth: 16,
+                boxHeight: 16,
+                usePointStyle: true,
+                pointStyle: 'circle',
                 generateLabels: function(chart) {
                   const data = chart.data;
                   const total = values.reduce((a, b) => a + b, 0);
@@ -1788,9 +1797,20 @@
                     return data.labels.map((label, i) => {
                       const value = data.datasets[0].data[i];
                       const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                      
+                      // Ícones para cada severidade
+                      const icons = {
+                        'Critical': '🔴',
+                        'High': '🟠', 
+                        'Medium': '🔵',
+                        'Low': '🟢'
+                      };
+                      
                       return {
-                        text: `${label}: ${value} (${percentage}%)`,
+                        text: `${icons[label] || ''} ${label}: ${value} (${percentage}%)`,
                         fillStyle: data.datasets[0].backgroundColor[i],
+                        strokeStyle: data.datasets[0].backgroundColor[i],
+                        lineWidth: 2,
                         hidden: false,
                         index: i
                       };
@@ -1819,11 +1839,16 @@
               }
             },
             datalabels: {
-              color: '#fff',
+              color: '#ffffff',
               font: {
                 weight: 'bold',
-                size: 18
+                size: 22,
+                family: "'Segoe UI', Roboto, sans-serif"
               },
+              textStrokeColor: 'rgba(0, 0, 0, 0.8)',
+              textStrokeWidth: 3,
+              textShadowColor: 'rgba(0, 0, 0, 0.9)',
+              textShadowBlur: 8,
               formatter: function(value, context) {
                 const total = values.reduce((a, b) => a + b, 0);
                 const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
@@ -2413,4 +2438,3 @@ Ou use o console web do provider.`);
   </script>
 </body>
 </html>
-
