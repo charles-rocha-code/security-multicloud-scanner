@@ -1779,15 +1779,15 @@
               position: 'bottom',
               align: 'center',
               labels: {
-                color: "#e5e7eb",
+                color: "#ffffff",
                 font: { 
-                  size: 14,
-                  weight: '500',
+                  size: 15,
+                  weight: '600',
                   family: "'Segoe UI', Roboto, sans-serif"
                 },
-                padding: 20,
-                boxWidth: 16,
-                boxHeight: 16,
+                padding: 18,
+                boxWidth: 14,
+                boxHeight: 14,
                 usePointStyle: true,
                 pointStyle: 'circle',
                 generateLabels: function(chart) {
@@ -1798,19 +1798,11 @@
                       const value = data.datasets[0].data[i];
                       const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
                       
-                      // Ícones para cada severidade
-                      const icons = {
-                        'Critical': '🔴',
-                        'High': '🟠', 
-                        'Medium': '🔵',
-                        'Low': '🟢'
-                      };
-                      
                       return {
-                        text: `${icons[label] || ''} ${label}: ${value} (${percentage}%)`,
+                        text: `${label}: ${value} (${percentage}%)`,
                         fillStyle: data.datasets[0].backgroundColor[i],
                         strokeStyle: data.datasets[0].backgroundColor[i],
-                        lineWidth: 2,
+                        lineWidth: 0,
                         hidden: false,
                         index: i
                       };
@@ -1842,21 +1834,23 @@
               color: '#ffffff',
               font: {
                 weight: 'bold',
-                size: 22,
+                size: 20,
                 family: "'Segoe UI', Roboto, sans-serif"
               },
-              textStrokeColor: 'rgba(0, 0, 0, 0.8)',
-              textStrokeWidth: 3,
-              textShadowColor: 'rgba(0, 0, 0, 0.9)',
-              textShadowBlur: 8,
+              textStrokeColor: 'rgba(0, 0, 0, 0.9)',
+              textStrokeWidth: 4,
+              textShadowColor: 'rgba(0, 0, 0, 0.95)',
+              textShadowBlur: 10,
               formatter: function(value, context) {
                 const total = values.reduce((a, b) => a + b, 0);
                 const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                // Mostrar porcentagem apenas se for maior que 3%
-                return percentage > 3 ? percentage + '%' : '';
+                // Mostrar TODAS as porcentagens, mesmo as pequenas
+                return percentage > 0 ? percentage + '%' : '';
               },
               anchor: 'center',
-              align: 'center'
+              align: 'center',
+              offset: 0,
+              clip: false
             }
           }
         },
@@ -2438,3 +2432,4 @@ Ou use o console web do provider.`);
   </script>
 </body>
 </html>
+
