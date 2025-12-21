@@ -7,6 +7,8 @@
 
   <!-- Chart.js (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Plugin para mostrar porcentagens dentro dos gráficos -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 
   <style>
     /* ============================================================
@@ -111,7 +113,6 @@
     .provider-default { background: #2d3748; }
     .provider-AWS_S3 { background: #ff9900; box-shadow: 0 0 10px #ff9900; }
     .provider-GCS { background: #34a853; box-shadow: 0 0 10px #34a853; }
-    .provider-AZURE_BLOB { background: linear-gradient(135deg, #0078d4 0%, #50e6ff 100%); box-shadow: 0 0 10px #0078d4; }
     .provider-UNIVERSAL { background: #1e90ff; box-shadow: 0 0 10px #1e90ff; }
 
     .risk-pill {
@@ -1066,7 +1067,7 @@
       <div>
         <div class="logo-text">Security Multicloud Storage Dashboard</div>
         <div style="font-size: 12px; color: #9ca3af;">
-          Auditoria avançada de buckets e CDNs — AWS S3, Google Cloud Storage & Azure Blob Storage
+          Auditoria avançada de buckets e CDNs — AWS S3 & Google Cloud Storage
         </div>
       </div>
     </div>
@@ -1171,7 +1172,7 @@
             <input
               id="bucket-input"
               class="input-field"
-              placeholder="Ex.: my-bucket.s3.amazonaws.com, bucket.storage.googleapis.com, gododev.blob.core.windows.net"
+              placeholder="Ex.: my-bucket.s3.amazonaws.com, bucket.storage.googleapis.com"
             />
 
             <button class="btn-primary" onclick="startScan()" id="scan-btn">
@@ -1191,7 +1192,6 @@
               <select id="provider-select" class="input-field" onchange="toggleProviderFields()">
                 <option value="s3">AWS S3</option>
                 <option value="gcs">Google Cloud Storage</option>
-                <option value="azure">Azure Blob Storage</option>
               </select>
               <span class="help-text">Selecione o provedor do bucket</span>
             </div>
@@ -1273,81 +1273,6 @@
 }'
                 ></textarea>
                 <span class="help-text">JSON completo da Service Account Key (gerado no GCP Console → IAM & Admin → Service Accounts)</span>
-              </div>
-            </div>
-
-            <!-- Campos Azure Blob Storage -->
-            <div id="azure-fields" style="display: none;">
-              <div class="input-group">
-                <label class="input-label">Método de Autenticação</label>
-                <select id="azure-auth-method" class="input-field" onchange="toggleAzureAuthFields()">
-                  <option value="connection-string">Connection String (Recomendado)</option>
-                  <option value="sas-token">SAS Token</option>
-                  <option value="account-key">Account Key</option>
-                </select>
-                <span class="help-text">Escolha o método de autenticação Azure</span>
-              </div>
-
-              <!-- Connection String -->
-              <div id="azure-connection-string-field">
-                <div class="input-group">
-                  <label class="input-label">Azure Connection String *</label>
-                  <textarea
-                    id="azure-connection-string"
-                    class="input-field"
-                    rows="4"
-                    placeholder="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
-                  ></textarea>
-                  <span class="help-text">
-                    Encontre em: Azure Portal → Storage Account → Access Keys → Connection String
-                  </span>
-                </div>
-              </div>
-
-              <!-- SAS Token -->
-              <div id="azure-sas-token-field" style="display: none;">
-                <div class="input-group">
-                  <label class="input-label">Azure SAS Token *</label>
-                  <textarea
-                    id="azure-sas-token"
-                    class="input-field"
-                    rows="3"
-                    placeholder="?sv=2021-06-08&ss=b&srt=sco&sp=rl&se=2024-12-31T23:59:59Z&sig=..."
-                  ></textarea>
-                  <span class="help-text">
-                    SAS Token com permissões de leitura e listagem
-                  </span>
-                </div>
-              </div>
-
-              <!-- Account Key -->
-              <div id="azure-account-key-field" style="display: none;">
-                <div class="input-group">
-                  <label class="input-label">Azure Account Key *</label>
-                  <input
-                    id="azure-account-key"
-                    type="password"
-                    class="input-field"
-                    placeholder="••••••••••••••••••••••••••••••••••••••••"
-                  />
-                  <span class="help-text">
-                    Encontre em: Azure Portal → Storage Account → Access Keys → Key1 ou Key2
-                  </span>
-                </div>
-              </div>
-
-              <!-- Container opcional -->
-              <div class="input-group" style="max-width: 400px;">
-                <label class="input-label">Container (Opcional)</label>
-                <input
-                  id="azure-container"
-                  type="text"
-                  class="input-field"
-                  placeholder="nome-do-container"
-                />
-                <span class="help-text">
-                  Deixe vazio para scanear todos os containers
-                </span>
               </div>
             </div>
           </div>
@@ -1555,42 +1480,13 @@
       const provider = document.getElementById("provider-select").value;
       const awsFields = document.getElementById("aws-fields");
       const gcsFields = document.getElementById("gcs-fields");
-      const azureFields = document.getElementById("azure-fields");
       
       if (provider === "s3") {
         awsFields.style.display = "block";
         gcsFields.style.display = "none";
-        azureFields.style.display = "none";
-      } else if (provider === "gcs") {
+      } else {
         awsFields.style.display = "none";
         gcsFields.style.display = "block";
-        azureFields.style.display = "none";
-      } else if (provider === "azure") {
-        awsFields.style.display = "none";
-        gcsFields.style.display = "none";
-        azureFields.style.display = "block";
-      }
-    }
-
-    // Toggle entre métodos de autenticação Azure
-    function toggleAzureAuthFields() {
-      const method = document.getElementById("azure-auth-method").value;
-      const connectionStringField = document.getElementById("azure-connection-string-field");
-      const sasTokenField = document.getElementById("azure-sas-token-field");
-      const accountKeyField = document.getElementById("azure-account-key-field");
-      
-      // Esconder todos
-      connectionStringField.style.display = "none";
-      sasTokenField.style.display = "none";
-      accountKeyField.style.display = "none";
-      
-      // Mostrar o selecionado
-      if (method === "connection-string") {
-        connectionStringField.style.display = "block";
-      } else if (method === "sas-token") {
-        sasTokenField.style.display = "block";
-      } else if (method === "account-key") {
-        accountKeyField.style.display = "block";
       }
     }
 
@@ -1684,46 +1580,6 @@
           alert("Erro ao parsear JSON da Service Account. Verifique se o formato está correto.");
           return;
         }
-        
-      } else if (provider === "azure") {
-        const authMethod = document.getElementById("azure-auth-method").value;
-        const container = document.getElementById("azure-container").value.trim();
-        
-        if (authMethod === "connection-string") {
-          const connectionString = document.getElementById("azure-connection-string").value.trim();
-          
-          if (!connectionString) {
-            alert("Por favor, forneça a Connection String do Azure Storage para scan privado.");
-            return;
-          }
-          
-          payload.azure_connection_string = connectionString;
-          
-        } else if (authMethod === "sas-token") {
-          const sasToken = document.getElementById("azure-sas-token").value.trim();
-          
-          if (!sasToken) {
-            alert("Por favor, forneça o SAS Token do Azure Storage para scan privado.");
-            return;
-          }
-          
-          payload.azure_sas_token = sasToken;
-          
-        } else if (authMethod === "account-key") {
-          const accountKey = document.getElementById("azure-account-key").value.trim();
-          
-          if (!accountKey) {
-            alert("Por favor, forneça o Account Key do Azure Storage para scan privado.");
-            return;
-          }
-          
-          payload.azure_account_key = accountKey;
-        }
-        
-        // Container é opcional
-        if (container) {
-          payload.azure_container = container;
-        }
       }
 
       scanBtn.disabled = true;
@@ -1767,7 +1623,7 @@
     function updateUI(data) {
       const provider = data.provider || "UNIVERSAL";
       const region = data.region || "-";
-      const accountId = data.account_id || data.account || "-";
+      const accountId = data.account_id || "-";
       const summary = data.summary || {};
       const files = data.files || [];
       const publicAccess = !!data.public_access;
@@ -1839,8 +1695,6 @@
         badge.classList.add("provider-AWS_S3");
       } else if (provider === "GCS") {
         badge.classList.add("provider-GCS");
-      } else if (provider === "AZURE_BLOB") {
-        badge.classList.add("provider-AZURE_BLOB");
       } else {
         badge.classList.add("provider-UNIVERSAL");
       }
@@ -1917,16 +1771,71 @@
           ]
         },
         options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: "60%",
           plugins: {
             legend: {
+              position: 'bottom',
               labels: {
                 color: "#e5e7eb",
-                font: { size: 13 }
+                font: { size: 13 },
+                padding: 15,
+                generateLabels: function(chart) {
+                  const data = chart.data;
+                  const total = values.reduce((a, b) => a + b, 0);
+                  if (data.labels.length && data.datasets.length) {
+                    return data.labels.map((label, i) => {
+                      const value = data.datasets[0].data[i];
+                      const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                      return {
+                        text: `${label}: ${value} (${percentage}%)`,
+                        fillStyle: data.datasets[0].backgroundColor[i],
+                        hidden: false,
+                        index: i
+                      };
+                    });
+                  }
+                  return [];
+                }
               }
+            },
+            tooltip: {
+              backgroundColor: 'rgba(0, 0, 0, 0.9)',
+              titleColor: '#fff',
+              bodyColor: '#fff',
+              borderColor: '#374151',
+              borderWidth: 1,
+              padding: 12,
+              displayColors: true,
+              callbacks: {
+                label: function(context) {
+                  let label = context.label || '';
+                  let value = context.parsed || 0;
+                  const total = values.reduce((a, b) => a + b, 0);
+                  let percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                  return `${label}: ${value} arquivos (${percentage}%)`;
+                }
+              }
+            },
+            datalabels: {
+              color: '#fff',
+              font: {
+                weight: 'bold',
+                size: 18
+              },
+              formatter: function(value, context) {
+                const total = values.reduce((a, b) => a + b, 0);
+                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                // Mostrar porcentagem apenas se for maior que 3%
+                return percentage > 3 ? percentage + '%' : '';
+              },
+              anchor: 'center',
+              align: 'center'
             }
-          },
-          cutout: "60%"
-        }
+          }
+        },
+        plugins: [ChartDataLabels]
       });
     }
 
@@ -2504,3 +2413,4 @@ Ou use o console web do provider.`);
   </script>
 </body>
 </html>
+
