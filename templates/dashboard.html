@@ -996,6 +996,22 @@
       margin: 0;
     }
 
+    /* ============================
+       CHART.JS LEGEND - FORÇAR BRANCO
+       ============================ */
+    #severityChart + div ul li,
+    #severityChart ~ div ul li,
+    .chartjs-legend ul li,
+    .chartjs-legend-item,
+    canvas + div ul li span {
+      color: #ffffff !important;
+    }
+
+    /* Forçar branco em todos os elementos da legenda do Chart.js */
+    #severityChart {
+      color: #ffffff !important;
+    }
+
     .recommendations li {
       background: #1b2331;
       padding: 10px 12px;
@@ -1911,6 +1927,8 @@
                         text: `${label}: ${value} (${percentage}%)`,
                         fillStyle: data.datasets[0].backgroundColor[i],
                         strokeStyle: data.datasets[0].backgroundColor[i],
+                        fontColor: '#ffffff',
+                        color: '#ffffff',
                         lineWidth: 0,
                         hidden: false,
                         index: i
