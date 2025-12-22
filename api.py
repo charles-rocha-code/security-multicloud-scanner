@@ -1,6 +1,6 @@
 # api.py
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -8,6 +8,15 @@ from typing import Optional, Dict, Any
 from auditor import S3Auditor
 from auditor_gcs import GCSAuditor
 from auditor_azure import AzureBlobAuditor
+
+# Import para geração de relatórios
+try:
+    from generate_report import generate_executive_report
+    REPORTS_AVAILABLE = True
+    print("✅ generate_report.py carregado com sucesso!")
+except ImportError as e:
+    REPORTS_AVAILABLE = False
+    print(f"⚠️  generate_report.py não encontrado: {e}")
 
 app = FastAPI(
     title="Security Multicloud Storage API",
@@ -40,6 +49,13 @@ class AuthenticatedScanRequest(BaseModel):
     azure_sas_token: Optional[str] = None
     azure_account_key: Optional[str] = None
     azure_container: Optional[str] = None
+
+class ReportRequest(BaseModel):
+    """Model para requisição de relatório executivo"""
+    scan_data: Dict[str, Any]
+    client_name: Optional[str] = None
+    client_contact: Optional[str] = None
+    output_format: str = 'both'  # 'pdf', 'docx', ou 'both'
 
 # ============================================================
 # HEALTH CHECK
@@ -206,6 +222,124 @@ def scan_authenticated(req: AuthenticatedScanRequest):
         )
 
 # ============================================================
+# RELATÓRIOS EXECUTIVOS
+# ============================================================
+@app.post("/generate-report")
+def generate_report_endpoint(req: ReportRequest):
+    """
+    Gera relatório executivo em PDF e/ou DOCX
+    
+    Body:
+    {
+        "scan_data": {...},
+        "client_name": "Empresa XYZ",
+        "client_contact": "contato@empresa.com",
+        "output_format": "both"
+    }
+    """
+    if not REPORTS_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Gerador de relatórios não disponível. Instale: pip install reportlab python-docx"
+        )
+    
+    try:
+        client_info = {
+            'name': req.client_name or 'Cliente não informado',
+            'contact': req.client_contact or 'Não informado'
+        }
+        
+        print(f"📊 Gerando relatório para: {client_info['name']}")
+        
+        results = generate_executive_report(
+            scan_data=req.scan_data,
+            client_info=client_info,
+            output_format=req.output_format
+        )
+        
+        if not results:
+            raise HTTPException(status_code=500, detail="Erro ao gerar relatórios")
+        
+        print(f"✅ Relatórios gerados: {results}")
+        
+        return {
+            "success": True,
+            "files": results,
+            "message": "Relatórios gerados com sucesso"
+        }
+        
+    except Exception as e:
+        print(f"❌ Erro ao gerar relatório: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
+
+
+@app.get("/download-report/{filename}")
+def download_report(filename: str):
+    """
+    Download de relatório gerado
+    
+    Exemplo: GET /download-report/relatorio_growbiz_2024-12-22.pdf
+    """
+    try:
+        report_path = Path("./reports_executive") / filename
+        
+        if not report_path.exists():
+            raise HTTPException(status_code=404, detail="Relatório não encontrado")
+        
+        # Detectar tipo de arquivo
+        if filename.endswith('.pdf'):
+            media_type = 'application/pdf'
+        elif filename.endswith('.docx'):
+            media_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        else:
+            media_type = 'application/octet-stream'
+        
+        return FileResponse(
+            path=str(report_path),
+            filename=filename,
+            media_type=media_type
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Erro ao baixar relatório: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
+
+
+@app.get("/reports/list")
+def list_reports():
+    """
+    Lista todos os relatórios gerados
+    """
+    try:
+        reports_dir = Path("./reports_executive")
+        reports_dir.mkdir(exist_ok=True)
+        
+        reports = []
+        for file_path in reports_dir.glob("relatorio_*"):
+            reports.append({
+                "filename": file_path.name,
+                "size": file_path.stat().st_size,
+                "created": file_path.stat().st_mtime,
+                "url": f"/download-report/{file_path.name}"
+            })
+        
+        reports.sort(key=lambda x: x['created'], reverse=True)
+        
+        return {
+            "success": True,
+            "count": len(reports),
+            "reports": reports
+        }
+        
+    except Exception as e:
+        print(f"❌ Erro ao listar relatórios: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
+
+# ============================================================
 # INFO
 # ============================================================
 @app.get("/")
@@ -234,7 +368,10 @@ def root():
             "health": "/health",
             "dashboard": "/dashboard",
             "scan_public": "/scan/{bucket}",
-            "scan_authenticated": "/scan/authenticated"
+            "scan_authenticated": "/scan/authenticated",
+            "generate_report": "/generate-report",
+            "download_report": "/download-report/{filename}",
+            "list_reports": "/reports/list"
         }
     }
 

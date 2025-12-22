@@ -11,6 +11,7 @@ from collections import Counter
 # ------------------------------------------------------------
 # Regras de severidade por extensão / padrão
 # ------------------------------------------------------------
+
 SENSITIVE_EXTENSIONS = {
     ".env": ("CRITICAL", "Arquivo de ambiente exposto"),
     ".pem": ("CRITICAL", "Chave privada exposta"),
