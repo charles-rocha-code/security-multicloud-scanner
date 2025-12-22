@@ -1034,7 +1034,7 @@
       background: linear-gradient(135deg, #1b2331 0%, #0f1419 100%);
       border-radius: 16px;
       padding: 32px;
-      margin: 30px 0;
+      margin: 20px 0 30px 0;
       border: 1px solid #374151;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
       animation: fadeIn 0.5s ease;
@@ -1704,62 +1704,6 @@
             </tbody>
           </table>
 
-          <!-- ============================
-               BOTÕES DE AÇÃO / RELATÓRIOS
-               ============================ -->
-          <div class="action-buttons-container" id="action-buttons" style="display: none;">
-            <div class="action-buttons-header">
-              <h3>📊 Exportar Resultados</h3>
-              <p>Gere relatórios profissionais ou exporte os dados do scan</p>
-            </div>
-            
-            <div class="action-buttons-grid">
-              <!-- Botão: Relatório Executivo -->
-              <button class="action-btn action-btn-primary" onclick="generateExecutiveReport()">
-                <div class="action-btn-icon">📄</div>
-                <div class="action-btn-content">
-                  <div class="action-btn-title">Relatório Executivo</div>
-                  <div class="action-btn-desc">PDF + DOCX profissional para cliente</div>
-                </div>
-              </button>
-
-              <!-- Botão: Exportar JSON -->
-              <button class="action-btn action-btn-secondary" onclick="exportJSON()">
-                <div class="action-btn-icon">💾</div>
-                <div class="action-btn-content">
-                  <div class="action-btn-title">Exportar JSON</div>
-                  <div class="action-btn-desc">Dados completos do scan em JSON</div>
-                </div>
-              </button>
-
-              <!-- Botão: Exportar CSV -->
-              <button class="action-btn action-btn-secondary" onclick="exportCSV()">
-                <div class="action-btn-icon">📊</div>
-                <div class="action-btn-content">
-                  <div class="action-btn-title">Exportar CSV</div>
-                  <div class="action-btn-desc">Tabela de arquivos em CSV</div>
-                </div>
-              </button>
-
-              <!-- Botão: Compartilhar -->
-              <button class="action-btn action-btn-secondary" onclick="shareResults()">
-                <div class="action-btn-icon">🔗</div>
-                <div class="action-btn-content">
-                  <div class="action-btn-title">Compartilhar</div>
-                  <div class="action-btn-desc">Gerar link para compartilhamento</div>
-                </div>
-              </button>
-            </div>
-
-            <!-- Status da geração de relatório -->
-            <div class="report-status" id="report-status" style="display: none;">
-              <div class="report-status-content">
-                <div class="spinner"></div>
-                <span id="report-status-text">Gerando relatório...</span>
-              </div>
-            </div>
-          </div>
-
         </div>
 
         <!-- ============================================================
@@ -1788,6 +1732,62 @@
           </div>
         </div>
 
+        <!-- ============================================================
+             BOTÕES DE AÇÃO / RELATÓRIOS
+             ============================================================ -->
+        <div class="action-buttons-container" id="action-buttons" style="display: none;">
+          <div class="action-buttons-header">
+            <h3>📊 Exportar Resultados</h3>
+            <p>Gere relatórios profissionais ou exporte os dados do scan</p>
+          </div>
+          
+          <div class="action-buttons-grid">
+            <!-- Botão: Relatório Executivo -->
+            <button class="action-btn action-btn-primary" onclick="generateExecutiveReport()">
+              <div class="action-btn-icon">📄</div>
+              <div class="action-btn-content">
+                <div class="action-btn-title">Relatório Executivo</div>
+                <div class="action-btn-desc">PDF + DOCX profissional para cliente</div>
+              </div>
+            </button>
+
+            <!-- Botão: Exportar JSON -->
+            <button class="action-btn action-btn-secondary" onclick="exportJSON()">
+              <div class="action-btn-icon">💾</div>
+              <div class="action-btn-content">
+                <div class="action-btn-title">Exportar JSON</div>
+                <div class="action-btn-desc">Dados completos do scan em JSON</div>
+              </div>
+            </button>
+
+            <!-- Botão: Exportar CSV -->
+            <button class="action-btn action-btn-secondary" onclick="exportCSV()">
+              <div class="action-btn-icon">📊</div>
+              <div class="action-btn-content">
+                <div class="action-btn-title">Exportar CSV</div>
+                <div class="action-btn-desc">Tabela de arquivos em CSV</div>
+              </div>
+            </button>
+
+            <!-- Botão: Compartilhar -->
+            <button class="action-btn action-btn-secondary" onclick="shareResults()">
+              <div class="action-btn-icon">🔗</div>
+              <div class="action-btn-content">
+                <div class="action-btn-title">Compartilhar</div>
+                <div class="action-btn-desc">Gerar link para compartilhamento</div>
+              </div>
+            </button>
+          </div>
+
+          <!-- Status da geração de relatório -->
+          <div class="report-status" id="report-status" style="display: none;">
+            <div class="report-status-content">
+              <div class="spinner"></div>
+              <span id="report-status-text">Gerando relatório...</span>
+            </div>
+          </div>
+        </div>
+
       </section>
 
     </main>
@@ -1803,6 +1803,9 @@
 
     // Lista completa do último scan (bruto do backend)
     let fullFileList = [];
+    
+    // Dados completos do último scan (para relatórios)
+    let globalResult = null;
 
     // Filtros
     let selectedSeverities = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
@@ -1987,6 +1990,9 @@
     // 2. UPDATE DASHBOARD UI (cards, header, gráfico, tabela...)
     // ============================================================
     function updateUI(data) {
+      // Salvar dados completos do scan para uso nos relatórios
+      globalResult = data;
+      
       const provider = data.provider || "UNIVERSAL";
       const region = data.region || "-";
       const accountId = data.account_id || "-";
