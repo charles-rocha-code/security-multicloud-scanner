@@ -1351,6 +1351,31 @@
         margin-bottom: 20px;
       }
     }
+
+    /* ============================
+       ANIMAÇÕES PARA NOTIFICAÇÕES
+       ============================ */
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    
+    @keyframes slideOut {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+    }
   </style>
 </head>
 <body>
@@ -3032,32 +3057,170 @@ Ou use o console web do provider.`);
     /**
      * Compartilhar resultados (gera link)
      */
-    function shareResults() {
-      if (!globalResult || !globalResult.bucket) {
-        alert('❌ Nenhum scan disponível. Execute um scan primeiro!');
+    async function shareResults() {
+      if (!globalResult) {
+        alert('❌ Nenhum resultado de scan disponível');
         return;
       }
 
-      // Criar URL com hash dos dados
-      const dataStr = JSON.stringify(globalResult);
-      const base64Data = btoa(encodeURIComponent(dataStr));
-      const shareUrl = `${window.location.origin}${window.location.pathname}#scan=${base64Data}`;
-
-      // Copiar para clipboard
-      navigator.clipboard.writeText(shareUrl).then(() => {
-        // Feedback visual
-        const statusDiv = document.getElementById('report-status');
-        const statusText = document.getElementById('report-status-text');
-        statusDiv.style.display = 'block';
-        statusText.innerHTML = '✅ Link copiado para área de transferência!<br><small>Cole e compartilhe com sua equipe</small>';
+      try {
+        // Converter dados para string
+        const dataStr = JSON.stringify(globalResult);
         
-        setTimeout(() => {
-          statusDiv.style.display = 'none';
-        }, 4000);
-      }).catch(err => {
-        // Fallback: mostrar prompt
-        prompt('Link para compartilhar (Ctrl+C para copiar):', shareUrl);
-      });
+        // Codificar em base64
+        const base64Data = btoa(unescape(encodeURIComponent(dataStr)));
+        
+        // Gerar URL compartilhável
+        const shareUrl = `${window.location.origin}${window.location.pathname}?share=${base64Data}`;
+        
+        // Tentar copiar para clipboard com API moderna
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try {
+            await navigator.clipboard.writeText(shareUrl);
+            
+            // Mostrar notificação de sucesso
+            showNotification('✅ Link copiado para área de transferência!', 'success');
+            
+            // Log para debug
+            console.log('✅ Link compartilhável copiado:', shareUrl.substring(0, 100) + '...');
+            
+          } catch (clipboardErr) {
+            console.warn('Clipboard API falhou, usando fallback:', clipboardErr);
+            fallbackCopyToClipboard(shareUrl);
+          }
+        } else {
+          // Fallback para navegadores antigos
+          fallbackCopyToClipboard(shareUrl);
+        }
+        
+      } catch (error) {
+        console.error('❌ Erro ao compartilhar:', error);
+        showNotification('❌ Erro ao gerar link de compartilhamento', 'error');
+      }
+    }
+
+    // Função fallback para copiar (navegadores antigos)
+    function fallbackCopyToClipboard(text) {
+      try {
+        // Criar elemento temporário
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '0';
+        document.body.appendChild(textArea);
+        
+        // Selecionar e copiar
+        textArea.focus();
+        textArea.select();
+        
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        if (successful) {
+          showNotification('✅ Link copiado! (método alternativo)', 'success');
+          console.log('✅ Link copiado usando fallback method');
+        } else {
+          // Última alternativa: mostrar prompt
+          showPromptWithUrl(text);
+        }
+      } catch (error) {
+        console.error('❌ Fallback copy falhou:', error);
+        showPromptWithUrl(text);
+      }
+    }
+
+    // Mostrar URL em prompt se tudo falhar
+    function showPromptWithUrl(url) {
+      prompt('Copie o link abaixo (Ctrl+C ou Cmd+C):', url);
+      showNotification('📋 Copie o link manualmente', 'info');
+    }
+
+    // Sistema de notificações visuais
+    function showNotification(message, type = 'info') {
+      // Remover notificação anterior se existir
+      const existingNotification = document.getElementById('share-notification');
+      if (existingNotification) {
+        existingNotification.remove();
+      }
+      
+      // Cores por tipo
+      const colors = {
+        'success': '#10b981',
+        'error': '#ef4444',
+        'info': '#3b82f6',
+        'warning': '#f59e0b'
+      };
+      
+      // Ícones por tipo
+      const icons = {
+        'success': '✅',
+        'error': '❌',
+        'info': 'ℹ️',
+        'warning': '⚠️'
+      };
+      
+      // Criar notificação
+      const notification = document.createElement('div');
+      notification.id = 'share-notification';
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${colors[type] || colors.info};
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 10000;
+        font-size: 14px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        animation: slideIn 0.3s ease;
+        max-width: 400px;
+      `;
+      
+      notification.innerHTML = `
+        <span style="font-size: 20px;">${icons[type] || icons.info}</span>
+        <span>${message}</span>
+      `;
+      
+      document.body.appendChild(notification);
+      
+      // Remover após 3 segundos
+      setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+      }, 3000);
+    }
+
+    // Função para carregar dados compartilhados
+    function loadSharedData() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const sharedData = urlParams.get('share');
+      
+      if (sharedData) {
+        try {
+          // Decodificar base64
+          const decodedStr = decodeURIComponent(escape(atob(sharedData)));
+          const scanData = JSON.parse(decodedStr);
+          
+          console.log('📥 Carregando dados compartilhados...');
+          
+          // Atualizar UI com dados compartilhados
+          globalResult = scanData;
+          updateUI(scanData);
+          
+          // Mostrar notificação
+          showNotification('📊 Scan compartilhado carregado com sucesso!', 'success');
+          
+        } catch (error) {
+          console.error('❌ Erro ao carregar dados compartilhados:', error);
+          showNotification('❌ Link de compartilhamento inválido', 'error');
+        }
+      }
     }
 
     /**
@@ -3091,6 +3254,7 @@ Ou use o console web do provider.`);
     // ============================================================
     window.onload = () => {
       loadHistory();
+      loadSharedData(); // Carregar dados compartilhados se houver
     };
   </script>
 </body>
