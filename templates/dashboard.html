@@ -113,6 +113,7 @@
     .provider-default { background: #2d3748; }
     .provider-AWS_S3 { background: #ff9900; box-shadow: 0 0 10px #ff9900; }
     .provider-GCS { background: #34a853; box-shadow: 0 0 10px #34a853; }
+    .provider-AZURE { background: #0078d4; box-shadow: 0 0 10px #0078d4; }
     .provider-UNIVERSAL { background: #1e90ff; box-shadow: 0 0 10px #1e90ff; }
 
     .risk-pill {
@@ -1388,7 +1389,7 @@
       <div>
         <div class="logo-text">Security Multicloud Storage Dashboard</div>
         <div style="font-size: 12px; color: #9ca3af;">
-          Auditoria avançada de buckets e CDNs — AWS S3 & Google Cloud Storage
+          Auditoria avançada de buckets e CDNs — AWS S3, Google Cloud Storage & Azure Blob Storage
         </div>
       </div>
     </div>
@@ -1493,7 +1494,7 @@
             <input
               id="bucket-input"
               class="input-field"
-              placeholder="Ex.: my-bucket.s3.amazonaws.com, bucket.storage.googleapis.com"
+              placeholder="Ex.: my-bucket.s3.amazonaws.com, bucket.storage.googleapis.com, growbiz.blob.core.windows.net"
             />
 
             <button class="btn-primary" onclick="startScan()" id="scan-btn">
@@ -1513,6 +1514,7 @@
               <select id="provider-select" class="input-field" onchange="toggleProviderFields()">
                 <option value="s3">AWS S3</option>
                 <option value="gcs">Google Cloud Storage</option>
+                <option value="azure">Azure Blob Storage</option>
               </select>
               <span class="help-text">Selecione o provedor do bucket</span>
             </div>
@@ -1594,6 +1596,57 @@
 }'
                 ></textarea>
                 <span class="help-text">JSON completo da Service Account Key (gerado no GCP Console → IAM & Admin → Service Accounts)</span>
+              </div>
+            </div>
+
+            <!-- Campos Azure Blob Storage -->
+            <div id="azure-fields" style="display: none;">
+              <div class="credential-row">
+                <div class="input-group">
+                  <label class="input-label">Azure Connection String</label>
+                  <textarea
+                    id="azure-connection-string"
+                    class="input-field"
+                    rows="3"
+                    placeholder="DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
+                  ></textarea>
+                  <span class="help-text">Connection String completa da conta Azure Storage</span>
+                </div>
+              </div>
+
+              <div class="credential-row">
+                <div class="input-group">
+                  <label class="input-label">Azure SAS Token (Opcional)</label>
+                  <input
+                    id="azure-sas-token"
+                    type="text"
+                    class="input-field"
+                    placeholder="?sv=2021-06-08&ss=bfqt&srt=sco&sp=rwdlacupiytfx&se=..."
+                  />
+                  <span class="help-text">SAS Token para acesso delegado (alternativa à Connection String)</span>
+                </div>
+
+                <div class="input-group">
+                  <label class="input-label">Azure Account Key (Opcional)</label>
+                  <input
+                    id="azure-account-key"
+                    type="password"
+                    class="input-field"
+                    placeholder="••••••••••••••"
+                  />
+                  <span class="help-text">Account Key da conta Azure Storage (alternativa à Connection String)</span>
+                </div>
+              </div>
+
+              <div class="input-group" style="max-width: 400px;">
+                <label class="input-label">Azure Container (Opcional)</label>
+                <input
+                  id="azure-container"
+                  type="text"
+                  class="input-field"
+                  placeholder="growbiz"
+                />
+                <span class="help-text">Nome do container no Azure Blob Storage</span>
               </div>
             </div>
           </div>
@@ -1868,13 +1921,20 @@
       const provider = document.getElementById("provider-select").value;
       const awsFields = document.getElementById("aws-fields");
       const gcsFields = document.getElementById("gcs-fields");
+      const azureFields = document.getElementById("azure-fields");
       
+      // Ocultar todos os campos primeiro
+      awsFields.style.display = "none";
+      gcsFields.style.display = "none";
+      azureFields.style.display = "none";
+      
+      // Mostrar apenas os campos do provider selecionado
       if (provider === "s3") {
         awsFields.style.display = "block";
-        gcsFields.style.display = "none";
-      } else {
-        awsFields.style.display = "none";
+      } else if (provider === "gcs") {
         gcsFields.style.display = "block";
+      } else if (provider === "azure") {
+        azureFields.style.display = "block";
       }
     }
 
@@ -1971,6 +2031,23 @@
           alert("Erro ao parsear JSON da Service Account. Verifique se o formato está correto.");
           return;
         }
+        
+      } else if (provider === "azure") {
+        const connectionString = document.getElementById("azure-connection-string").value.trim();
+        const sasToken = document.getElementById("azure-sas-token").value.trim();
+        const accountKey = document.getElementById("azure-account-key").value.trim();
+        const container = document.getElementById("azure-container").value.trim();
+
+        // Validar que pelo menos uma forma de autenticação foi fornecida
+        if (!connectionString && !sasToken && !accountKey) {
+          alert("Por favor, forneça pelo menos uma forma de autenticação Azure:\n- Connection String\n- SAS Token\n- Account Key");
+          return;
+        }
+
+        payload.azure_connection_string = connectionString || null;
+        payload.azure_sas_token = sasToken || null;
+        payload.azure_account_key = accountKey || null;
+        payload.azure_container = container || null;
       }
 
       scanBtn.disabled = true;
@@ -2893,7 +2970,10 @@ Ou use o console web do provider.`);
      * Gera relatório executivo (PDF + DOCX)
      */
     async function generateExecutiveReport() {
-      if (!globalResult || !globalResult.bucket) {
+      // Azure usa 'account', AWS/GCS usam 'bucket'
+      const bucketName = globalResult?.bucket || globalResult?.account || globalResult?.container;
+      
+      if (!globalResult || !bucketName) {
         alert('❌ Nenhum scan disponível. Execute um scan primeiro!');
         return;
       }
