@@ -260,3 +260,8 @@ dashboard_test.html
 # Databases
 *.db
 *.sqlite
+reports_executive/
+*.pdf
+*.docx
+.env
+*.log
