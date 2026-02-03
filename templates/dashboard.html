@@ -334,7 +334,7 @@
     .scan-input-area {
       display: flex;
       flex-direction: column;
-      gap: 15px;
+      gap: 10px;
     }
 
     .scan-mode-toggle {
@@ -347,13 +347,13 @@
     }
 
     .toggle-btn {
-      padding: 8px 16px;
+      padding: 6px 14px;
       background: transparent;
       color: #9ca3af;
       border: none;
       border-radius: 6px;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       transition: 0.2s;
     }
@@ -375,8 +375,8 @@
     }
 
     .input-field {
-      padding: 10px;
-      font-size: 14px;
+      padding: 6px 8px;
+      font-size: 13px;
       background: #0f131b;
       border: 1px solid #2a3140;
       color: #fff;
@@ -397,9 +397,11 @@
 
     textarea.input-field {
       font-family: 'Courier New', monospace;
-      font-size: 12px;
+      font-size: 10px;
       resize: vertical;
-      min-height: 120px;
+      min-height: 60px;
+      max-height: 120px;
+    }
     }
 
     .input-small {
@@ -411,12 +413,12 @@
       display: none;
       width: 100%;
       background: #151a23;
-      padding: 20px;
+      padding: 8px 12px;
       border-radius: 8px;
       border: 1px solid #1f2531;
-      gap: 15px;
+      gap: 5px;
       flex-direction: column;
-      margin-top: 15px;
+      margin-top: 6px;
     }
 
     .credentials-container.active {
@@ -426,18 +428,18 @@
     .credential-row {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 15px;
+      gap: 6px;
       width: 100%;
     }
 
     .input-group {
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 2px;
     }
 
     .input-label {
-      font-size: 12px;
+      font-size: 11px;
       color: #d1d5db;
       font-weight: 600;
       display: flex;
@@ -446,22 +448,23 @@
     }
 
     .help-text {
-      font-size: 10px;
+      font-size: 8px;
       color: #6b7280;
       font-style: italic;
+      margin-top: 1px;
     }
 
     .warning-box {
       background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
       color: #92400e;
-      padding: 12px 15px;
-      border-radius: 8px;
-      font-size: 12px;
-      border-left: 4px solid #f59e0b;
+      padding: 5px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      border-left: 3px solid #f59e0b;
       margin-bottom: 5px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 4px;
       box-shadow: 0 2px 4px rgba(245, 158, 11, 0.1);
     }
 
@@ -473,9 +476,9 @@
     /* Seções de Provider */
     #aws-fields,
     #gcs-fields {
-      padding: 15px;
+      padding: 6px;
       background: #1a1f2e;
-      border-radius: 8px;
+      border-radius: 6px;
       border: 1px solid #252b3b;
     }
 
@@ -640,11 +643,11 @@
     .btn-primary {
       background: #1e90ff;
       color: #fff;
-      padding: 9px 18px;
+      padding: 7px 15px;
       border: none;
       cursor: pointer;
       border-radius: 6px;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 500;
       display: inline-flex;
       align-items: center;
@@ -1229,6 +1232,22 @@
 
     .file-table tr:hover {
       background: #232b3a;
+    }
+
+    /* Controles de Paginação */
+    #pagination-controls {
+      margin-top: -1px;
+      background: #161b26;
+      border-top: 1px solid #1f2937;
+    }
+
+    #pagination-controls button:not(:disabled):hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(30, 144, 255, 0.3);
+    }
+
+    #pagination-controls button:not(:disabled):active {
+      transform: translateY(0);
     }
 
     .severity-tag {
@@ -1890,6 +1909,10 @@
     let selectedExtension = "ALL";
     let searchQuery = "";
 
+    // Paginação
+    let currentPage = 1;
+    let itemsPerPage = 10;  // Reduzido para 10 itens por página para melhor visibilidade
+
     // Modo de scan (public ou private)
     let scanMode = "public";
 
@@ -2210,7 +2233,7 @@
     }
 
     // ============================================================
-    // 5. SEVERITY CHART (Chart.js Doughnut)
+    // 5. SEVERITY CHART (Chart.js Bar - Vertical Tower com Melhor Visibilidade)
     // ============================================================
     function updateSeverityChart(dist) {
       const ctx = document.getElementById("severityChart");
@@ -2226,12 +2249,18 @@
 
       if (severityChart) severityChart.destroy();
 
+      // Verificar se há grande disparidade nos valores (para decidir usar log ou não)
+      const maxValue = Math.max(...values);
+      const minValue = Math.min(...values.filter(v => v > 0));
+      const useLogScale = maxValue > 0 && minValue > 0 && (maxValue / minValue) > 20;
+
       severityChart = new Chart(ctx, {
-        type: "doughnut",
+        type: "bar",
         data: {
           labels: ["Critical", "High", "Medium", "Low"],
           datasets: [
             {
+              label: "Vulnerabilidades",
               data: values,
               backgroundColor: [
                 "#dc2626",
@@ -2239,54 +2268,76 @@
                 "#3b82f6",
                 "#22c55e"
               ],
-              borderColor: "#0e1117",
-              borderWidth: 3
+              borderColor: [
+                "#b91c1c",
+                "#d97706",
+                "#2563eb",
+                "#16a34a"
+              ],
+              borderWidth: 2,
+              borderRadius: 8,
+              borderSkipped: false,
+              minBarLength: 5  // Altura mínima para barras pequenas serem visíveis
             }
           ]
         },
         options: {
+          indexAxis: 'x',
           responsive: true,
           maintainAspectRatio: false,
-          cutout: "60%",
-          plugins: {
-            legend: {
-              position: 'bottom',
-              align: 'center',
-              labels: {
-                color: "#ffffff",
-                font: { 
-                  size: 15,
+          scales: {
+            y: {
+              type: useLogScale ? 'logarithmic' : 'linear',
+              beginAtZero: true,
+              ticks: {
+                color: '#9ca3af',
+                font: {
+                  size: 11,
+                  family: "'Segoe UI', Roboto, sans-serif"
+                },
+                callback: function(value, index, ticks) {
+                  // Formatar números inteiros apenas
+                  if (Number.isInteger(value) || value < 1) {
+                    return value;
+                  }
+                  return '';
+                }
+              },
+              grid: {
+                color: 'rgba(255, 255, 255, 0.05)',
+                drawBorder: false
+              },
+              title: {
+                display: true,
+                text: useLogScale ? 'Quantidade de Arquivos (escala log)' : 'Quantidade de Arquivos',
+                color: '#e5e7eb',
+                font: {
+                  size: 12,
                   weight: '600',
                   family: "'Segoe UI', Roboto, sans-serif"
                 },
-                padding: 18,
-                boxWidth: 14,
-                boxHeight: 14,
-                usePointStyle: true,
-                pointStyle: 'circle',
-                generateLabels: function(chart) {
-                  const data = chart.data;
-                  const total = values.reduce((a, b) => a + b, 0);
-                  if (data.labels.length && data.datasets.length) {
-                    return data.labels.map((label, i) => {
-                      const value = data.datasets[0].data[i];
-                      const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                      
-                      return {
-                        text: `${label}: ${value} (${percentage}%)`,
-                        fillStyle: data.datasets[0].backgroundColor[i],
-                        strokeStyle: data.datasets[0].backgroundColor[i],
-                        fontColor: '#ffffff',
-                        color: '#ffffff',
-                        lineWidth: 0,
-                        hidden: false,
-                        index: i
-                      };
-                    });
-                  }
-                  return [];
-                }
+                padding: { top: 0, bottom: 8 }
               }
+            },
+            x: {
+              ticks: {
+                color: '#ffffff',
+                font: {
+                  size: 13,
+                  weight: '600',
+                  family: "'Segoe UI', Roboto, sans-serif"
+                },
+                padding: 8
+              },
+              grid: {
+                display: false,
+                drawBorder: false
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              display: false
             },
             tooltip: {
               backgroundColor: 'rgba(0, 0, 0, 0.9)',
@@ -2299,34 +2350,68 @@
               callbacks: {
                 label: function(context) {
                   let label = context.label || '';
-                  let value = context.parsed || 0;
+                  let value = context.parsed.y || 0;
                   const total = values.reduce((a, b) => a + b, 0);
                   let percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                  return `${label}: ${value} arquivos (${percentage}%)`;
+                  return `${label}: ${value} arquivo${value !== 1 ? 's' : ''} (${percentage}%)`;
                 }
               }
             },
             datalabels: {
-              color: '#ffffff',
-              font: {
-                weight: 'bold',
-                size: 20,
-                family: "'Segoe UI', Roboto, sans-serif"
+              color: function(context) {
+                // Cor branca para todas as barras
+                return '#ffffff';
               },
-              textStrokeColor: 'rgba(0, 0, 0, 0.9)',
-              textStrokeWidth: 4,
-              textShadowColor: 'rgba(0, 0, 0, 0.95)',
-              textShadowBlur: 10,
+              font: function(context) {
+                const value = context.dataset.data[context.dataIndex];
+                const total = values.reduce((a, b) => a + b, 0);
+                const percentage = (value / total) * 100;
+                
+                // Tamanho menor para barras pequenas
+                return {
+                  weight: 'bold',
+                  size: percentage < 5 ? 13 : 15,
+                  family: "'Segoe UI', Roboto, sans-serif"
+                };
+              },
+              anchor: 'end',
+              align: function(context) {
+                const value = context.dataset.data[context.dataIndex];
+                const total = values.reduce((a, b) => a + b, 0);
+                const percentage = (value / total) * 100;
+                
+                // Para valores muito pequenos, colocar acima da barra
+                return percentage < 3 ? 'top' : 'top';
+              },
+              offset: function(context) {
+                const value = context.dataset.data[context.dataIndex];
+                const total = values.reduce((a, b) => a + b, 0);
+                const percentage = (value / total) * 100;
+                
+                // Offset maior para valores pequenos
+                return percentage < 3 ? 8 : 4;
+              },
               formatter: function(value, context) {
                 const total = values.reduce((a, b) => a + b, 0);
                 const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                // Mostrar TODAS as porcentagens, mesmo as pequenas
-                return percentage > 0 ? percentage + '%' : '';
+                
+                if (value === 0) return '';
+                
+                // Retorna porcentagem + quantidade de arquivos
+                return `${percentage}%\n${value} arquivo${value !== 1 ? 's' : ''}`;
               },
-              anchor: 'center',
-              align: 'center',
-              offset: 0,
+              textAlign: 'center',
+              textStrokeColor: 'rgba(0, 0, 0, 0.8)',
+              textStrokeWidth: 3,
               clip: false
+            }
+          },
+          layout: {
+            padding: {
+              top: 50,  // Mais espaço no topo para os labels
+              right: 15,
+              bottom: 10,
+              left: 15
             }
           }
         },
@@ -2445,6 +2530,9 @@
       console.log("Current filters - extension:", selectedExtension);
       console.log("Current filters - search:", searchQuery);
 
+      // Reset para primeira página em novo scan
+      currentPage = 1;
+      
       // Sempre aplica filtros (severidade, extensão, busca)
       applyFilters();
       console.log("=== updateFileList END ===");
@@ -2470,12 +2558,21 @@
           "</td>";
         tbody.appendChild(row);
         updateSelectedCount();
+        updatePaginationControls(0);
         return;
       }
 
       console.log("Rendering", files.length, "files to table");
       
-      files.forEach((f, index) => {
+      // Calcular índices de paginação
+      const totalPages = Math.ceil(files.length / itemsPerPage);
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const endIndex = Math.min(startIndex + itemsPerPage, files.length);
+      const paginatedFiles = files.slice(startIndex, endIndex);
+      
+      console.log(`Showing page ${currentPage} of ${totalPages} (items ${startIndex + 1}-${endIndex} of ${files.length})`);
+      
+      paginatedFiles.forEach((f, index) => {
         const row = document.createElement("tr");
         const sev = (f.severity || "").toString().toUpperCase();
         const fileKey = f.key || f.name || "-";
@@ -2490,7 +2587,7 @@
             <input type="checkbox" 
                    class="file-checkbox" 
                    data-file-key="${escapeHtml(fileKey)}"
-                   data-file-index="${index}"
+                   data-file-index="${startIndex + index}"
                    onchange="updateSelectedCount()">
           </td>
           <td>${escapeHtml(fileKey)}</td>
@@ -2510,6 +2607,135 @@
       
       console.log("Table rendered successfully");
       updateSelectedCount();
+      updatePaginationControls(files.length);
+    }
+
+    // ============================================================
+    // 7.5 PAGINAÇÃO
+    // ============================================================
+    function updatePaginationControls(totalItems) {
+      let paginationDiv = document.getElementById("pagination-controls");
+      
+      // Criar div de paginação se não existir
+      if (!paginationDiv) {
+        const fileTable = document.querySelector(".file-table");
+        if (fileTable) {
+          paginationDiv = document.createElement("div");
+          paginationDiv.id = "pagination-controls";
+          paginationDiv.style.cssText = `
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: #161b26;
+            border-top: 1px solid #1f2937;
+            border-radius: 0 0 12px 12px;
+            margin-top: 0;
+          `;
+          // Inserir após a tabela
+          fileTable.parentNode.insertBefore(paginationDiv, fileTable.nextSibling);
+        } else {
+          return;
+        }
+      }
+      
+      if (totalItems === 0 || totalItems <= itemsPerPage) {
+        paginationDiv.style.display = 'none';
+        return;
+      }
+      
+      paginationDiv.style.display = 'flex';
+      
+      const totalPages = Math.ceil(totalItems / itemsPerPage);
+      const startItem = (currentPage - 1) * itemsPerPage + 1;
+      const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+      
+      paginationDiv.innerHTML = `
+        <div style="color: #9ca3af; font-size: 14px;">
+          Mostrando <strong style="color: #e5e7eb;">${startItem}-${endItem}</strong> de <strong style="color: #e5e7eb;">${totalItems}</strong> arquivos
+        </div>
+        
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button 
+            onclick="goToPage(1)" 
+            ${currentPage === 1 ? 'disabled' : ''}
+            style="padding: 6px 12px; background: ${currentPage === 1 ? '#1f2937' : '#374151'}; color: ${currentPage === 1 ? '#6b7280' : '#e5e7eb'}; border: 1px solid #4b5563; border-radius: 6px; cursor: ${currentPage === 1 ? 'not-allowed' : 'pointer'}; font-size: 13px; transition: 0.2s;"
+            ${currentPage === 1 ? '' : 'onmouseover="this.style.background=\'#4b5563\'" onmouseout="this.style.background=\'#374151\'"'}
+          >
+            ⏮ Primeira
+          </button>
+          
+          <button 
+            onclick="goToPage(${currentPage - 1})" 
+            ${currentPage === 1 ? 'disabled' : ''}
+            style="padding: 6px 12px; background: ${currentPage === 1 ? '#1f2937' : '#374151'}; color: ${currentPage === 1 ? '#6b7280' : '#e5e7eb'}; border: 1px solid #4b5563; border-radius: 6px; cursor: ${currentPage === 1 ? 'not-allowed' : 'pointer'}; font-size: 13px; transition: 0.2s;"
+            ${currentPage === 1 ? '' : 'onmouseover="this.style.background=\'#4b5563\'" onmouseout="this.style.background=\'#374151\'"'}
+          >
+            ◀ Anterior
+          </button>
+          
+          <div style="padding: 6px 12px; background: #1e90ff; color: #fff; border-radius: 6px; font-weight: 600; font-size: 13px;">
+            Página ${currentPage} de ${totalPages}
+          </div>
+          
+          <button 
+            onclick="goToPage(${currentPage + 1})" 
+            ${currentPage === totalPages ? 'disabled' : ''}
+            style="padding: 6px 12px; background: ${currentPage === totalPages ? '#1f2937' : '#374151'}; color: ${currentPage === totalPages ? '#6b7280' : '#e5e7eb'}; border: 1px solid #4b5563; border-radius: 6px; cursor: ${currentPage === totalPages ? 'not-allowed' : 'pointer'}; font-size: 13px; transition: 0.2s;"
+            ${currentPage === totalPages ? '' : 'onmouseover="this.style.background=\'#4b5563\'" onmouseout="this.style.background=\'#374151\'"'}
+          >
+            Próxima ▶
+          </button>
+          
+          <button 
+            onclick="goToPage(${totalPages})" 
+            ${currentPage === totalPages ? 'disabled' : ''}
+            style="padding: 6px 12px; background: ${currentPage === totalPages ? '#1f2937' : '#374151'}; color: ${currentPage === totalPages ? '#6b7280' : '#e5e7eb'}; border: 1px solid #4b5563; border-radius: 6px; cursor: ${currentPage === totalPages ? 'not-allowed' : 'pointer'}; font-size: 13px; transition: 0.2s;"
+            ${currentPage === totalPages ? '' : 'onmouseover="this.style.background=\'#4b5563\'" onmouseout="this.style.background=\'#374151\'"'}
+          >
+            Última ⏭
+          </button>
+        </div>
+      `;
+    }
+    
+    function goToPage(pageNumber) {
+      // Armazenar os arquivos filtrados atuais
+      let filtered = fullFileList.slice();
+
+      // Aplicar mesmos filtros
+      if (selectedSeverities.size > 0) {
+        filtered = filtered.filter(f => selectedSeverities.has(f.severity));
+      }
+
+      if (selectedExtension !== "ALL") {
+        filtered = filtered.filter(f => {
+          const key = (f.key || f.name || "").toLowerCase();
+          return key.endsWith(selectedExtension.toLowerCase());
+        });
+      }
+
+      if (searchQuery) {
+        filtered = filtered.filter(f => {
+          const key = (f.key || f.name || "").toLowerCase();
+          const sev = (f.severity || "").toLowerCase();
+          return (
+            key.includes(searchQuery) ||
+            sev.includes(searchQuery)
+          );
+        });
+      }
+      
+      // Validar número da página
+      const totalPages = Math.ceil(filtered.length / itemsPerPage);
+      
+      if (pageNumber < 1) pageNumber = 1;
+      if (pageNumber > totalPages) pageNumber = totalPages;
+      
+      currentPage = pageNumber;
+      
+      // Re-renderizar apenas a tabela com a nova página
+      renderFileTable(filtered);
     }
 
     // ============================================================
@@ -2584,16 +2810,22 @@
           .forEach(b => b.classList.add("active"));
       }
 
+      // Reset para primeira página ao mudar filtro
+      currentPage = 1;
       applyFilters();
     }
 
     function setExtensionFilter(ext) {
       selectedExtension = ext;
+      // Reset para primeira página ao mudar filtro
+      currentPage = 1;
       applyFilters();
     }
 
     function setSearchFilter(value) {
       searchQuery = (value || "").toLowerCase();
+      // Reset para primeira página ao mudar filtro
+      currentPage = 1;
       applyFilters();
     }
 
@@ -2614,6 +2846,8 @@
       const searchInput = document.getElementById("search-filter");
       if (searchInput) searchInput.value = "";
 
+      // Reset para primeira página
+      currentPage = 1;
       applyFilters();
     }
 
