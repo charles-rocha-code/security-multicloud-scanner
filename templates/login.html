@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Security Scanner</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0e1117 0%, #1a1d29 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: #1e2139;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            padding: 48px;
+            max-width: 440px;
+            width: 100%;
+        }
+        .logo { text-align: center; margin-bottom: 32px; }
+        .logo-icon { font-size: 64px; margin-bottom: 16px; }
+        h1 { color: #ffffff; font-size: 28px; margin-bottom: 8px; text-align: center; }
+        .subtitle { color: #8b92a7; text-align: center; margin-bottom: 32px; font-size: 14px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; color: #e1e4ea; margin-bottom: 8px; font-size: 14px; font-weight: 500; }
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #2a2e45;
+            border: 2px solid #3a3f5c;
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 15px;
+            transition: all 0.3s;
+        }
+        input:focus { outline: none; border-color: #5b7cff; background: #33384f; }
+        input::placeholder { color: #6b7280; }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #5b7cff 0%, #4c63d9 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 24px;
+        }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(91, 124, 255, 0.4); }
+        .btn:active { transform: translateY(0); }
+        .btn:disabled { background: #4a5568; cursor: not-allowed; transform: none; }
+        .toggle-form { text-align: center; margin-top: 24px; color: #8b92a7; font-size: 14px; }
+        .toggle-form a { color: #5b7cff; text-decoration: none; font-weight: 600; }
+        .toggle-form a:hover { text-decoration: underline; }
+        .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
+        .alert-success { background: #065f46; color: #d1fae5; border-left: 4px solid #10b981; }
+        .alert-error { background: #7f1d1d; color: #fee2e2; border-left: 4px solid #ef4444; }
+        .alert-info { background: #1e3a8a; color: #dbeafe; border-left: 4px solid #3b82f6; }
+        .alert-warning { background: #78350f; color: #fef3c7; border-left: 4px solid #f59e0b; }
+        .hidden { display: none; }
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .mfa-info {
+            background: #1e3a8a;
+            border-left: 4px solid #3b82f6;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #dbeafe;
+        }
+        .debug-info {
+            background: #1a1d29;
+            border: 1px solid #3a3f5c;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 20px;
+            font-size: 11px;
+            color: #8b92a7;
+            font-family: monospace;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .debug-info div { margin: 4px 0; }
+        .password-hint { font-size: 12px; color: #6b7280; margin-top: 4px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="logo">
+        <div class="logo-icon">🛡️</div>
+        <h1 id="form-title">Login</h1>
+        <p class="subtitle">Security Multicloud Storage Scanner</p>
+    </div>
+
+    <div id="alert-container"></div>
+
+    <!-- Login Form -->
+    <form id="login-form" class="hidden">
+        <div class="form-group">
+            <label for="login-email">Email</label>
+            <input type="email" id="login-email" placeholder="seu@email.com" required autocomplete="email">
+        </div>
+
+        <div class="form-group">
+            <label for="login-password">Senha</label>
+            <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+
+        <div class="form-group hidden" id="mfa-group">
+            <label for="login-mfa">Código MFA (6 dígitos)</label>
+            <input type="text" id="login-mfa" placeholder="123456" maxlength="6" pattern="[0-9]{6}" inputmode="numeric">
+            <div class="mfa-info">
+                Digite o código de 6 dígitos do Google Authenticator
+            </div>
+        </div>
+
+        <button type="submit" class="btn" id="login-btn">Entrar</button>
+
+        <div class="toggle-form">
+            Não tem uma conta? <a href="#" id="show-register">Criar Conta</a>
+        </div>
+    </form>
+
+    <!-- Register Form -->
+    <form id="register-form" class="hidden">
+        <div class="form-group">
+            <label for="register-email">Email</label>
+            <input type="email" id="register-email" placeholder="teste@teste.com" required autocomplete="email">
+            <div class="password-hint">Use um email simples como teste@teste.com</div>
+        </div>
+
+        <div class="form-group">
+            <label for="register-name">Nome Completo</label>
+            <input type="text" id="register-name" placeholder="Usuario Teste" required autocomplete="name">
+        </div>
+
+        <div class="form-group">
+            <label for="register-password">Senha</label>
+            <input type="password" id="register-password" placeholder="teste123" required autocomplete="new-password">
+            <div class="password-hint">Mínimo 6 caracteres. Ex: teste123</div>
+        </div>
+
+        <button type="submit" class="btn" id="register-btn">Criar Conta</button>
+
+        <div class="toggle-form">
+            Já tem uma conta? <a href="#" id="show-login">Fazer Login</a>
+        </div>
+    </form>
+
+    <!-- Debug Info -->
+    <div class="debug-info hidden" id="debug-info">
+        <div><strong>Debug:</strong></div>
+        <div id="debug-content"></div>
+    </div>
+</div>
+
+<script>
+    const API_URL = '';
+    let lastRegisteredEmail = '';
+    let lastRegisteredPassword = '';
+
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const formTitle = document.getElementById('form-title');
+    const alertContainer = document.getElementById('alert-container');
+    const mfaGroup = document.getElementById('mfa-group');
+    const showRegisterLink = document.getElementById('show-register');
+    const showLoginLink = document.getElementById('show-login');
+    const debugInfo = document.getElementById('debug-info');
+    const debugContent = document.getElementById('debug-content');
+
+    loginForm.classList.remove('hidden');
+
+    // ============================================================
+    // FUNÇÕES AUXILIARES
+    // ============================================================
+
+    function addDebug(message) {
+        console.log('🔍 DEBUG:', message);
+        debugContent.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${message}</div>`;
+        debugInfo.classList.remove('hidden');
+    }
+
+    function showAlert(message, type = 'info') {
+        clearAlerts();
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type}`;
+        alert.textContent = message;
+        alertContainer.appendChild(alert);
+    }
+
+    function clearAlerts() {
+        alertContainer.innerHTML = '';
+    }
+
+    // ============================================================
+    // ALTERNAR ENTRE FORMULÁRIOS
+    // ============================================================
+
+    showRegisterLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        loginForm.classList.add('hidden');
+        registerForm.classList.remove('hidden');
+        formTitle.textContent = 'Criar Conta';
+        clearAlerts();
+    });
+
+    showLoginLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        registerForm.classList.add('hidden');
+        loginForm.classList.remove('hidden');
+        formTitle.textContent = 'Login';
+        clearAlerts();
+
+        if (lastRegisteredEmail) {
+            document.getElementById('login-email').value = lastRegisteredEmail;
+            document.getElementById('login-password').value = lastRegisteredPassword;
+            showAlert('Credenciais preenchidas automaticamente!', 'info');
+        }
+    });
+
+    // ============================================================
+    // VERIFICAR STATUS MFA
+    // ============================================================
+
+    async function checkMFAStatus(email) {
+        try {
+            addDebug(`Verificando status MFA para: ${email}`);
+            const response = await fetch(
+  `${API_URL}/auth/mfa/status?email=${encodeURIComponent(email)}`,
+  { credentials: 'include' }
+);
+          const data = await response.json();
+            addDebug(`MFA Status: ${data.mfa_enabled ? 'Ativo' : 'Inativo'}`);
+            return data.mfa_enabled || false;
+        } catch (error) {
+            addDebug(`Erro ao verificar MFA: ${error.message}`);
+            return false;
+        }
+    }
+
+    // ============================================================
+    // LOGIN - SISTEMA PRINCIPAL (CORRIGIDO)
+    // ============================================================
+
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const email = document.getElementById('login-email').value.trim();
+        const password = document.getElementById('login-password').value;
+        const mfaCode = document.getElementById('login-mfa').value.trim();
+        const loginBtn = document.getElementById('login-btn');
+
+        addDebug(`Tentando login com email: ${email}`);
+
+        if (!email || !password) {
+            showAlert("Email e senha são obrigatórios", "error");
+            return;
+        }
+
+        const mfaRequired = await checkMFAStatus(email);
+
+        if (mfaRequired && !mfaCode) {
+            mfaGroup.classList.remove('hidden');
+            showAlert('Digite o código MFA do Google Authenticator', 'info');
+            addDebug('MFA requerido mas código não fornecido');
+            return;
+        }
+
+        loginBtn.disabled = true;
+        loginBtn.innerHTML = '<span class="loading"></span>Entrando...';
+        clearAlerts();
+
+        const loginData = { email, password, mfa_code: mfaCode || null };
+
+        try {
+            console.log("📡 Enviando login para:", `${API_URL}/auth/login`);
+            
+            const response = await fetch(`${API_URL}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(loginData),
+                credentials: 'include'
+            });
+
+            const data = await response.json();
+            addDebug(`Status da resposta: ${response.status}`);
+
+            if (response.ok) {
+                console.log("✅ Login bem-sucedido");
+
+                // ✅ SALVAR TOKEN - PARTE CRÍTICA
+                if (data.token) {
+                    console.log("✅ Token recebido:", data.token.substring(0, 30) + "...");
+                    
+                    // Armazenar em múltiplos locais
+                    localStorage.setItem('scanner_token', data.token);
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('auth_token', data.token);
+                    sessionStorage.setItem('scanner_token', data.token);
+                    sessionStorage.setItem('token', data.token);
+                    
+                    addDebug("✅ Token armazenado");
+                }
+
+                // ✅ SALVAR DADOS DO USUÁRIO
+                if (data.user) {
+                    console.log("👤 Usuário:", data.user.email);
+                    
+                    localStorage.setItem('user_email', data.user.email);
+                    localStorage.setItem('user_full_name', data.user.full_name || data.user.email);
+                    localStorage.setItem('scanner_user', JSON.stringify({
+                        email: data.user.email,
+                        full_name: data.user.full_name,
+                        mfa_enabled: data.mfa_enabled
+                    }));
+                    
+                    sessionStorage.setItem('user_email', data.user.email);
+                    sessionStorage.setItem('user_full_name', data.user.full_name || data.user.email);
+                    
+                    addDebug(`Usuário armazenado: ${data.user.email}`);
+                }
+
+                lastRegisteredEmail = email;
+                lastRegisteredPassword = password;
+
+                // ✅ VERIFICAR SE PRECISA MFA
+                if (data.mfa_required || data.mfa_pending) {
+                    console.log("🔑 MFA necessário");
+                    addDebug("MFA requerido - Redirecionando para setup");
+                    
+                    localStorage.setItem("temp_token", data.token);
+                    sessionStorage.setItem("temp_token", data.token);
+                    
+                    showAlert('MFA obrigatório. Redirecionando...', 'warning');
+                    setTimeout(() => {
+                        window.location.href = '/mfa/setup';
+                    }, 1000);
+                    return;
+                }
+
+                // ✅ LOGIN COMPLETO - IR PARA DASHBOARD
+                console.log("🚀 Redirecionando para dashboard");
+                showAlert('Login realizado com sucesso! Redirecionando...', 'success');
+                
+                setTimeout(() => {
+                    window.location.href = '/dashboard';
+                }, 1000);
+
+            } else {
+                console.error("❌ Erro:", data.detail);
+                
+                if (data.detail === 'MFA code required') {
+                    mfaGroup.classList.remove('hidden');
+                    showAlert('Digite o código MFA do Google Authenticator', 'info');
+                } else if (data.detail === 'Invalid credentials') {
+                    showAlert('Email ou senha incorretos!', 'error');
+                } else if (data.detail === 'Invalid MFA code') {
+                    showAlert('Código MFA incorreto ou expirado!', 'error');
+                } else {
+                    showAlert(data.detail || 'Erro ao fazer login', 'error');
+                }
+                addDebug(`Erro: ${data.detail}`);
+            }
+
+        } catch (error) {
+            console.error("❌ Exceção:", error);
+            showAlert('Erro de conexão com o servidor', 'error');
+            addDebug(`Exceção: ${error.message}`);
+        } finally {
+            loginBtn.disabled = false;
+            loginBtn.innerHTML = 'Entrar';
+        }
+    });
+
+    // ============================================================
+    // REGISTRAR - CRIAR CONTA
+    // ============================================================
+
+    registerForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const email = document.getElementById('register-email').value.trim();
+        const fullName = document.getElementById('register-name').value.trim();
+        const password = document.getElementById('register-password').value;
+        const registerBtn = document.getElementById('register-btn');
+
+        if (password.length < 6) {
+            showAlert('A senha deve ter no mínimo 6 caracteres', 'warning');
+            return;
+        }
+
+        registerBtn.disabled = true;
+        registerBtn.innerHTML = '<span class="loading"></span>Criando conta...';
+        clearAlerts();
+
+        const registerData = { email, full_name: fullName, password };
+
+        try {
+            const response = await fetch(`${API_URL}/auth/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(registerData),
+                credentials: 'include'
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                console.log("✅ Conta criada com sucesso");
+
+                lastRegisteredEmail = email;
+                lastRegisteredPassword = password;
+
+                localStorage.setItem('user_email', data.email || email);
+                localStorage.setItem('user_full_name', fullName);
+                
+                if (data.qr_code) {
+                    localStorage.setItem('mfa_qr', data.qr_code);
+                }
+                if (data.token) {
+                    localStorage.setItem('scanner_token', data.token);
+                    localStorage.setItem('token', data.token);
+                }
+
+                showAlert('Conta criada! Configure o MFA agora.', 'success');
+                addDebug('Redirecionando para MFA setup...');
+                
+                setTimeout(() => {
+                    window.location.href = '/mfa/setup';
+                }, 1000);
+                return;
+
+            } else {
+                showAlert(data.detail || 'Erro ao criar conta', 'error');
+                addDebug(`Erro: ${data.detail}`);
+            }
+
+        } catch (error) {
+            console.error("❌ Exceção:", error);
+            showAlert('Erro de conexão com o servidor', 'error');
+            addDebug(`Exceção: ${error.message}`);
+        } finally {
+            registerBtn.disabled = false;
+            registerBtn.innerHTML = 'Criar Conta';
+        }
+    });
+
+    // ============================================================
+    // VERIFICAÇÃO AO CARREGAR PÁGINA
+    // ============================================================
+
+    window.addEventListener('load', async () => {
+        const token = localStorage.getItem('scanner_token') || 
+                      localStorage.getItem('token') ||
+                      localStorage.getItem('auth_token');
+
+        if (!token) {
+            console.log("ℹ️ Nenhum token encontrado - Exibindo login");
+            return;
+        }
+
+        console.log("🔐 Token encontrado - Validando...");
+
+        try {
+            const gate = await fetch(`${API_URL}/api/dashboard`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                credentials: 'include'
+            });
+
+            console.log(`📊 Resposta: ${gate.status}`);
+
+            if (gate.status === 403) {
+                console.warn("⚠️ 403 - MFA necessário");
+                showAlert('MFA obrigatório. Finalize a configuração.', 'warning');
+                window.location.href = '/mfa/setup';
+                return;
+            }
+
+            if (gate.ok) {
+                console.log("✅ Sessão válida - Redirecionando");
+                showAlert('Sessão válida. Redirecionando...', 'info');
+                setTimeout(() => {
+                    window.location.href = '/dashboard';
+                }, 800);
+                return;
+            }
+
+            // Token inválido
+            console.warn("⚠️ Token inválido");
+            localStorage.removeItem('scanner_token');
+            localStorage.removeItem('token');
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('scanner_user');
+
+        } catch (e) {
+            console.error("❌ Erro ao validar:", e.message);
+        }
+    });
+
+    document.getElementById('login-email').focus();
+</script>
+</body>
+</html>

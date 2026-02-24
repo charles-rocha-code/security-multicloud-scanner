@@ -1,6 +1,5 @@
-# api.py - VERSÃO CORRIGIDA (Erro 401 resolvido + Suporte GCS por nome simples)
+# api.py
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 from pathlib import Path
@@ -26,32 +25,17 @@ app = FastAPI(
 )
 
 # ============================================================
-# CORS Middleware
-# ============================================================
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ============================================================
 # Paths
 # ============================================================
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 DASHBOARD_FILE = TEMPLATES_DIR / "dashboard.html"
 
-# Criar diretório de relatórios se não existir
-Path("./reports_executive").mkdir(exist_ok=True)
-
 # ============================================================
 # MODELS
 # ============================================================
 class AuthenticatedScanRequest(BaseModel):
     bucket: str
-    provider: Optional[str] = None  # ← NOVO: "AWS_S3", "GCS" ou "AZURE_BLOB"
     max_objects: int = 1000
     # AWS S3
     aws_access_key_id: Optional[str] = None
@@ -90,6 +74,7 @@ def dashboard():
             content="<h2>dashboard.html não encontrado em /templates</h2>",
             status_code=404
         )
+
     return HTMLResponse(
         content=DASHBOARD_FILE.read_text(encoding="utf-8")
     )
@@ -104,7 +89,7 @@ def scan_bucket(bucket: str):
     - Azure Blob Storage: blob.core.windows.net
     - Google Cloud Storage: storage.googleapis.com
     - AWS S3 (default): todos os outros
-
+    
     Executa auditoria pública (sem credenciais)
     Retorna payload completo para o dashboard
     """
@@ -156,7 +141,7 @@ def scan_bucket(bucket: str):
 def scan_authenticated(req: AuthenticatedScanRequest):
     """
     Scan autenticado com credenciais
-
+    
     Providers:
     - Azure: connection_string, sas_token ou account_key
     - GCS: service_account_key (JSON)
@@ -164,35 +149,17 @@ def scan_authenticated(req: AuthenticatedScanRequest):
     """
     bucket = req.bucket
     bucket_lower = bucket.lower()
-    provider = (req.provider or "").upper()  # ← NOVO: lê o provider enviado pelo frontend
-
+    
     try:
         # ----------------------------------------------------
         # AZURE BLOB STORAGE AUTENTICADO
         # ----------------------------------------------------
-        is_azure = (
-            provider == "AZURE_BLOB"
-            or "blob.core.windows.net" in bucket_lower
-            or req.azure_connection_string
-            or req.azure_sas_token
-            or req.azure_account_key
-        )
-
-        # ----------------------------------------------------
-        # GCS AUTENTICADO
-        # ----------------------------------------------------
-        is_gcs = (
-            provider == "GCS"
-            or "storage.googleapis.com" in bucket_lower
-            or req.service_account_key is not None
-        )
-
-        if is_azure:
+        if "blob.core.windows.net" in bucket_lower or req.azure_connection_string or req.azure_sas_token or req.azure_account_key:
             print(f"[AZURE AUTH] Authenticated scan: {bucket}")
-
+            
             try:
                 from auditor_azure_authenticated import AzureBlobAuthenticatedAuditor
-
+                
                 auditor = AzureBlobAuthenticatedAuditor(
                     account_or_url=bucket,
                     container=req.azure_container,
@@ -203,19 +170,22 @@ def scan_authenticated(req: AuthenticatedScanRequest):
                 )
                 result = auditor.run()
                 return JSONResponse(content=result)
-
+            
             except ImportError as e:
                 print(f"Warning: Azure authenticated auditor not available: {e}")
                 print("Falling back to public scan")
                 auditor = AzureBlobAuditor(bucket, container=req.azure_container, max_objects=req.max_objects)
                 result = auditor.run()
                 return JSONResponse(content=result)
-
-        elif is_gcs:
+        
+        # ----------------------------------------------------
+        # GCS AUTENTICADO
+        # ----------------------------------------------------
+        elif "storage.googleapis.com" in bucket_lower or req.service_account_key:
             print(f"[GCS AUTH] Authenticated scan: {bucket}")
-
+            
             from auditor_gcs_authenticated import GCSAuthenticatedAuditor
-
+            
             auditor = GCSAuthenticatedAuditor(
                 bucket_name=bucket,
                 service_account_key=req.service_account_key,
@@ -223,15 +193,15 @@ def scan_authenticated(req: AuthenticatedScanRequest):
             )
             result = auditor.run()
             return JSONResponse(content=result)
-
+        
         # ----------------------------------------------------
         # AWS S3 AUTENTICADO (default)
         # ----------------------------------------------------
         else:
             print(f"[S3 AUTH] Authenticated scan: {bucket}")
-
+            
             from auditor_s3_authenticated import S3AuthenticatedAuditor
-
+            
             auditor = S3AuthenticatedAuditor(
                 bucket_name=bucket,
                 aws_access_key_id=req.aws_access_key_id,
@@ -242,7 +212,7 @@ def scan_authenticated(req: AuthenticatedScanRequest):
             )
             result = auditor.run()
             return JSONResponse(content=result)
-
+    
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -258,7 +228,7 @@ def scan_authenticated(req: AuthenticatedScanRequest):
 def generate_report_endpoint(req: ReportRequest):
     """
     Gera relatório executivo em PDF e/ou DOCX
-
+    
     Body:
     {
         "scan_data": {...},
@@ -272,32 +242,32 @@ def generate_report_endpoint(req: ReportRequest):
             status_code=503,
             detail="Gerador de relatórios não disponível. Instale: pip install reportlab python-docx"
         )
-
+    
     try:
         client_info = {
             'name': req.client_name or 'Cliente não informado',
             'contact': req.client_contact or 'Não informado'
         }
-
+        
         print(f"📊 Gerando relatório para: {client_info['name']}")
-
+        
         results = generate_executive_report(
             scan_data=req.scan_data,
             client_info=client_info,
             output_format=req.output_format
         )
-
+        
         if not results:
             raise HTTPException(status_code=500, detail="Erro ao gerar relatórios")
-
+        
         print(f"✅ Relatórios gerados: {results}")
-
+        
         return {
             "success": True,
             "files": results,
             "message": "Relatórios gerados com sucesso"
         }
-
+        
     except Exception as e:
         print(f"❌ Erro ao gerar relatório: {e}")
         import traceback
@@ -309,28 +279,29 @@ def generate_report_endpoint(req: ReportRequest):
 def download_report(filename: str):
     """
     Download de relatório gerado
-
+    
     Exemplo: GET /download-report/relatorio_growbiz_2024-12-22.pdf
     """
     try:
         report_path = Path("./reports_executive") / filename
-
+        
         if not report_path.exists():
             raise HTTPException(status_code=404, detail="Relatório não encontrado")
-
+        
+        # Detectar tipo de arquivo
         if filename.endswith('.pdf'):
             media_type = 'application/pdf'
         elif filename.endswith('.docx'):
             media_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         else:
             media_type = 'application/octet-stream'
-
+        
         return FileResponse(
             path=str(report_path),
             filename=filename,
             media_type=media_type
         )
-
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -346,7 +317,7 @@ def list_reports():
     try:
         reports_dir = Path("./reports_executive")
         reports_dir.mkdir(exist_ok=True)
-
+        
         reports = []
         for file_path in reports_dir.glob("relatorio_*"):
             reports.append({
@@ -355,15 +326,15 @@ def list_reports():
                 "created": file_path.stat().st_mtime,
                 "url": f"/download-report/{file_path.name}"
             })
-
+        
         reports.sort(key=lambda x: x['created'], reverse=True)
-
+        
         return {
             "success": True,
             "count": len(reports),
             "reports": reports
         }
-
+        
     except Exception as e:
         print(f"❌ Erro ao listar relatórios: {e}")
         raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
@@ -406,13 +377,4 @@ def root():
 
 if __name__ == "__main__":
     import uvicorn
-    print("=" * 60)
-    print("🚀 Security Multicloud Storage API v2.0.0")
-    print("=" * 60)
-    print("✅ CORS habilitado")
-    print("✅ Suporte a GCS por nome simples de bucket")
-    print("✅ Endpoint /generate-report SEM autenticação")
-    print("📁 Diretório de relatórios: ./reports_executive")
-    print("🌐 Dashboard: http://localhost:8000/dashboard")
-    print("=" * 60)
     uvicorn.run(app, host="0.0.0.0", port=8000)

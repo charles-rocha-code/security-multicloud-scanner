@@ -2164,17 +2164,10 @@ function logout() {
       const provider = document.getElementById("provider-select").value;
       const scanBtn = document.getElementById("scan-btn");
       
-      const providerMap = {        // ← LINHA NOVA
-    "s3":    "AWS_S3",         // ← LINHA NOVA
-    "gcs":   "GCS",            // ← LINHA NOVA
-    "azure": "AZURE_BLOB"      // ← LINHA NOVA
-  };                           // ← LINHA NOVA
-
-  let payload = {
-    bucket: bucket,
-    provider: providerMap[provider] || provider.toUpperCase(),  // ← LINHA NOVA
-    max_objects: 1000
-  };
+      let payload = {
+        bucket: bucket,
+        max_objects: 1000
+      };
 
       // Validação e montagem do payload por provider
       if (provider === "s3") {
@@ -3391,7 +3384,6 @@ Ou use o console web do provider.`);
           headers: {
             'Content-Type': 'application/json'
           },
-          credentials: 'include', //    
           body: JSON.stringify({
             scan_data: globalResult,
             client_name: clientName,
