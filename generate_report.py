@@ -82,7 +82,7 @@ class ChartEngine:
     def _save(self, fig, name: str) -> str:
         """Salva figura como PNG e retorna o caminho."""
         path = str(self.tmp / f'{name}.png')
-        fig.savefig(path, dpi=150, bbox_inches='tight',
+        fig.savefig(path, dpi=200, bbox_inches='tight',
                     facecolor='white', edgecolor='none')
         plt.close(fig)
         return path

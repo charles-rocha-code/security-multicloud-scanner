@@ -55,10 +55,17 @@ from auth_mfa import (  # type: ignore
 # === Auditor autenticado (AWS S3) ===
 from auditor_s3_authenticated import S3AuthenticatedAuditor  # type: ignore
 
-# === PDF/DOCX ===
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas as rl_canvas
-from docx import Document  # python-docx
+# === PDF/DOCX Profissional ===
+try:
+    from generate_report import generate_executive_report as _gen_executive_report
+    PROFESSIONAL_REPORT = True
+    print("✅ Gerador de relatórios profissional carregado")
+except ImportError as e:
+    PROFESSIONAL_REPORT = False
+    print(f"⚠️  generate_report.py não encontrado, usando fallback: {e}")
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas as rl_canvas
+    from docx import Document
 
 
 # -----------------------------------------------------------------------------
@@ -682,18 +689,39 @@ def generate_report(data: GenerateReportIn, user=Depends(require_mfa)):
     if not scan:
         raise HTTPException(status_code=400, detail="Nenhum scan disponível para gerar relatório. Execute um scan antes.")
 
-    # Normaliza pra evitar PDF vazio
+    # Normaliza pra evitar relatório vazio
     provider = scan.get("provider") or _detect_provider(str(scan.get("bucket", "")))
     target = str(scan.get("bucket") or scan.get("target") or "-")
     scan = _normalize_scan_result(scan, provider=provider, target=target)
 
-    pdf_path = _make_pdf(scan, data.report_title, data.client_name)
-    docx_path = _make_docx(scan, data.report_title, data.client_name)
+    # ── Usar gerador profissional com gráficos ────────────────────────
+    if PROFESSIONAL_REPORT:
+        try:
+            client_info = {
+                "name":    data.client_name or "Cliente",
+                "contact": email or "-",
+            }
+            results = _gen_executive_report(scan, client_info=client_info, output_format="both")
+            pdf_file  = Path(results.get("pdf",  ""))
+            docx_file = Path(results.get("docx", ""))
+            return {
+                "success": True,
+                "files": {
+                    "pdf":  f"reports_executive/{pdf_file.name}"  if pdf_file.exists()  else None,
+                    "docx": f"reports_executive/{docx_file.name}" if docx_file.exists() else None,
+                },
+                "message": "Relatórios profissionais gerados com sucesso",
+            }
+        except Exception as e:
+            print(f"⚠️  Erro no gerador profissional, usando fallback: {e}")
 
+    # ── Fallback simples ──────────────────────────────────────────────
+    pdf_path  = _make_pdf(scan, data.report_title, data.client_name)
+    docx_path = _make_docx(scan, data.report_title, data.client_name)
     return {
         "success": True,
         "files": {
-            "pdf": f"reports_executive/{pdf_path.name}",
+            "pdf":  f"reports_executive/{pdf_path.name}",
             "docx": f"reports_executive/{docx_path.name}",
         },
         "message": "Relatórios gerados com sucesso",

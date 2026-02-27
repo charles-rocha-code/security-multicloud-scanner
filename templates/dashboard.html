@@ -3730,6 +3730,12 @@ Ou use o console web do provider.`);
       await verifyAuthOrRedirect();
       loadHistory();
       loadSharedData(); // Carregar dados compartilhados se houver
+
+      // Reexibir barra de exportar se já houver scan no histórico
+      const scanHistory = JSON.parse(localStorage.getItem("scanHistory") || "[]");
+      if (scanHistory.length > 0) {
+        showActionButtons();
+      }
     };
 
   </script>

@@ -422,30 +422,31 @@ def setup_mfa(email: str) -> Dict[str, Any]:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuário não encontrado"
         )
-    
+
     user = USERS_DB[email]
-   
+
     # Gerar secret e códigos
     secret = generate_mfa_secret()
     backup_codes = generate_backup_codes()
     qr_code = generate_qr_code(email, secret)
-   
+
     # Criar URI de provisionamento
     totp = pyotp.TOTP(secret)
     provisioning_uri = totp.provisioning_uri(
         name=email,
         issuer_name="Security Scanner"
-    )    
+    )
+
     # Salvar (mas não ativar ainda)
     user["mfa_secret"] = secret
     user["backup_codes"] = backup_codes
-    
+
     # PERSISTIR MUDANÇAS
     save_db(USERS_DB_FILE, USERS_DB)
     print(f"✅ MFA configurado para {email}")
     print(f"   Secret: {secret}")
     print(f"   Código atual: {pyotp.TOTP(secret).now()}")
-    
+
     return {
         "secret": secret,
         "qr_code": qr_code,
