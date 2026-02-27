@@ -72,8 +72,9 @@ class ChartEngine:
         'LOW':      '#16a34a',
     }
 
-    # Score base por severidade (0-100)
-    SEV_BASE = {'CRITICAL': 90, 'HIGH': 68, 'MEDIUM': 42, 'LOW': 18}
+    # Score base por severidade (0-100) — cada severidade fica dentro da sua zona
+    # LOW: 0-25 | MEDIUM: 25-50 | HIGH: 50-75 | CRITICAL: 75-100
+    SEV_BASE = {'CRITICAL': 87, 'HIGH': 62, 'MEDIUM': 37, 'LOW': 12}
 
     def __init__(self, tmp_dir: Path):
         self.tmp = tmp_dir
@@ -168,16 +169,16 @@ class ChartEngine:
 
         # Zonas de fundo
         for x0, x1, c in [(0, 25, P['low']), (25, 50, P['medium']),
-                           (50, 75, P['high']), (75, 115, P['critical'])]:
+                           (50, 75, P['high']), (75, 100, P['critical'])]:
             ax.axvspan(x0, x1, alpha=0.04, color=c)
         for x, lbl, c in [(12.5,'BAIXO', P['low']), (37.5,'MÉDIO', P['medium']),
-                           (62.5,'ALTO',  P['high']), (95,'CRÍTICO', P['critical'])]:
+                           (62.5,'ALTO',  P['high']), (87.5,'CRÍTICO', P['critical'])]:
             ax.text(x, -0.8, lbl, ha='center', fontsize=7,
                     color=c, fontweight='bold', style='italic')
 
         ax.set_yticks(y)
         ax.set_yticklabels(names, fontsize=8.5, color='#374151')
-        ax.set_xlim(0, 118)
+        ax.set_xlim(0, 100)
         ax.set_xlabel('Score de Criticidade', fontsize=9, color=P['gray'])
         ax.set_title(f'Score de Criticidade por Arquivo{" — " + title if title else ""}',
                      fontsize=12, fontweight='bold', color=P['primary'], pad=10)
@@ -431,7 +432,7 @@ class ProfessionalReportGenerator:
         '.json', '.xml', '.csv',
     }
 
-    SEV_BASE = {'CRITICAL': 90, 'HIGH': 68, 'MEDIUM': 42, 'LOW': 18}
+    SEV_BASE = {'CRITICAL': 87, 'HIGH': 62, 'MEDIUM': 37, 'LOW': 12}
 
     def __init__(self, scan_data: dict, client_info: dict = None):
         print("🔧 Inicializando gerador de relatórios...")
@@ -852,9 +853,9 @@ class ProfessionalReportGenerator:
             ['Provider', self.provider_name, ''],
             ['Bucket/Container', self.scan_data.get('bucket',''), ''],
             ['Total de Arquivos', str(total), '100%'],
-            ['CRÍTICOS', str(sd.get('critical',0)),
+            ['CRÍTICO', str(sd.get('critical',0)),
              f"{self._calc_pct(sd.get('critical',0),total)}%"],
-            ['ALTOS',    str(sd.get('high',0)),
+            ['ALTO',    str(sd.get('high',0)),
              f"{self._calc_pct(sd.get('high',0),total)}%"],
             ['MÉDIOS',   str(sd.get('medium',0)),
              f"{self._calc_pct(sd.get('medium',0),total)}%"],
@@ -997,11 +998,11 @@ class ProfessionalReportGenerator:
             for lbl, prev_val, curr_val, delta in [
                 ('Total', comp['prev_total'], comp['curr_total'],
                  comp['curr_total']-comp['prev_total']),
-                ('CRÍTICOS',
+                ('CRÍTICO',
                  self.previous_scan['severity_distribution'].get('critical',0),
                  self.scan_data['severity_distribution'].get('critical',0),
                  comp['delta_critical']),
-                ('ALTOS',
+                ('ALTO',
                  self.previous_scan['severity_distribution'].get('high',0),
                  self.scan_data['severity_distribution'].get('high',0),
                  comp['delta_high']),
@@ -1237,8 +1238,8 @@ class ProfessionalReportGenerator:
         tbl.style = 'Table Grid'
         tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
         metrics = [('Arquivos', str(total), '1e3a8a'),
-                   ('CRÍTICOS', str(sd.get('critical',0)), 'dc2626'),
-                   ('ALTOS',    str(sd.get('high',0)),    'ea580c'),
+                   ('CRÍTICO', str(sd.get('critical',0)), 'dc2626'),
+                   ('ALTO',    str(sd.get('high',0)),    'ea580c'),
                    ('Tamanho',  self._format_size(self.size_distribution.get('_total_bytes',0)), '1e3a8a')]
         for i,(lbl,val,col) in enumerate(metrics):
             self._docx_set_bg(tbl.rows[0].cells[i], '1e3a8a')
@@ -1370,10 +1371,10 @@ class ProfessionalReportGenerator:
             comp_rows = [
                 ('Total', comp['prev_total'], comp['curr_total'],
                  comp['curr_total']-comp['prev_total']),
-                ('CRÍTICOS',
+                ('CRÍTICO',
                  self.previous_scan['severity_distribution'].get('critical',0),
                  sd.get('critical',0), comp['delta_critical']),
-                ('ALTOS',
+                ('ALTO',
                  self.previous_scan['severity_distribution'].get('high',0),
                  sd.get('high',0), comp['delta_high']),
                 ('Risk Score', self.previous_scan.get('risk_score',0),
