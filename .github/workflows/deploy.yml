@@ -1,0 +1,35 @@
+name: 🚀 Deploy Automático para AWS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy para Servidor AWS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🔗 Conectar e atualizar servidor
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AWS_HOST }}
+          username: ubuntu
+          key: ${{ secrets.AWS_SSH_KEY }}
+          script: |
+            echo "📦 Atualizando código..."
+            cd ~/security-multicloud-scanner
+            git pull origin main
+
+            echo "📦 Atualizando dependências..."
+            source venv/bin/activate
+            pip install -r requirements.txt -q
+
+            echo "🔄 Reiniciando aplicação..."
+            fuser -k 8000/tcp || true
+            sleep 2
+            mkdir -p logs
+            nohup python api_with_mfa.py > logs/api.log 2>&1 &
+
+            echo "✅ Deploy concluído! PID: $!"
