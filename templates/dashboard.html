@@ -2017,6 +2017,7 @@ function logout() {
       try {
         const res = await fetch("/api/dashboard", {
           method: "GET",
+          credentials: "include",
           headers: { "Authorization": `Bearer ${token}` }
         });
 
@@ -2238,6 +2239,7 @@ function logout() {
 
       fetch("/scan/authenticated", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           ...( __token ? { "Authorization": `Bearer ${__token}` } : {} )
