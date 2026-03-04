@@ -32,18 +32,10 @@ Internet
 
 | Protocolo | Porta | Origem | Finalidade |
 |---|---|---|---|
-| TCP | 22 (SSH) | `140.82.112.0/20` | GitHub Actions |
-| TCP | 22 (SSH) | `185.199.108.0/22` | GitHub Actions |
-| TCP | 22 (SSH) | `192.30.252.0/22` | GitHub Actions |
-| TCP | 22 (SSH) | `143.55.64.0/20` | GitHub Actions |
-| TCP | 22 (SSH) | IP do administrador | Acesso admin |
-| TCP | 443 (HTTPS) | `0.0.0.0/0` | Acesso à aplicação |
-| TCP | 80 (HTTP) | `0.0.0.0/0` | Redirect → HTTPS |
-| TCP | 8000 | Security Group interno | App interna |
-
-> ⚠️ A porta SSH (22) está restrita apenas aos IPs do GitHub Actions e do administrador. Nenhum acesso público é permitido.
-
----
+| TCP | 22 (SSH) | `179.228.23.2/32` | Acesso administrativo |
+| TCP | 443 (HTTPS) | `0.0.0.0/0` | Acesso público à aplicação |
+| TCP | 80 (HTTP) | `0.0.0.0/0` | Redirect HTTP → HTTPS |
+| TCP | 8000 | `security-scanner-alb-sg` | Tráfego interno do Application Load Balancer |
 
 ## 🔐 Autenticação — MFA Obrigatório
 
