@@ -54,6 +54,10 @@ from auth_mfa import (  # type: ignore
 
 # === Auditor autenticado (AWS S3) ===
 from auditor_s3_authenticated import S3AuthenticatedAuditor  # type: ignore
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.errors import RateLimitExceeded
+from fastapi.responses import JSONResponse
 
 # === PDF/DOCX Profissional ===
 try:
@@ -76,8 +80,20 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 REPORTS_DIR = BASE_DIR / "reports_executive"
 
+
+
+def get_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
 app = FastAPI(title="Security Multicloud Storage Scanner (MFA)")
 
+limiter = Limiter(key_func=get_client_ip)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 # Cache em memória do último scan por usuário (email) - ajuda a gerar relatório
 LAST_SCAN_BY_EMAIL: Dict[str, Dict[str, Any]] = {}
 
@@ -468,7 +484,10 @@ def root():
     return RedirectResponse(url="/login")
 
 
+
+
 @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
+@limiter.limit("30/minute")
 def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
@@ -510,7 +529,9 @@ def auth_register(data: UserRegisterIn):
 
 
 @app.post("/auth/login")
-def auth_login(data: UserLoginIn, response: Response):
+@limiter.limit("10/hour")
+@limiter.limit("3/minute")
+def auth_login(request: Request, data: UserLoginIn, response: Response):
     return login_user(email=data.email, password=data.password, mfa_code=data.mfa_code, response=response)
 
 
@@ -683,50 +704,78 @@ def generate_report(data: GenerateReportIn, user=Depends(require_mfa)):
     scan: Dict[str, Any] = data.scan_result or {}
     email = user.get("email") if isinstance(user, dict) else None
 
-    if not scan and email and email in LAST_SCAN_BY_EMAIL:
-        scan = LAST_SCAN_BY_EMAIL[email]
+    cached_scan = LAST_SCAN_BY_EMAIL.get(email) if email else None
+
+    # Se o frontend mandou um scan resumido/compacto, prefira o scan completo em cache
+    incoming_files = scan.get("files") if isinstance(scan, dict) else None
+    incoming_has_files = isinstance(incoming_files, list) and len(incoming_files) > 0
+
+    if cached_scan and (not scan or not incoming_has_files):
+        print("DEBUG /generate-report -> usando scan completo do cache")
+        scan = cached_scan
 
     if not scan:
         raise HTTPException(status_code=400, detail="Nenhum scan disponível para gerar relatório. Execute um scan antes.")
+
+    print("DEBUG /generate-report")
+    print("scan keys:", list(scan.keys()) if isinstance(scan, dict) else type(scan))
+    print(
+        "files count before normalize:",
+        len(scan.get("files", []))
+        if isinstance(scan, dict) and isinstance(scan.get("files"), list)
+        else 0,
+    )
+    print("provider before normalize:", scan.get("provider") if isinstance(scan, dict) else "N/A")
+    print("bucket before normalize:", scan.get("bucket") if isinstance(scan, dict) else "N/A")
 
     # Normaliza pra evitar relatório vazio
     provider = scan.get("provider") or _detect_provider(str(scan.get("bucket", "")))
     target = str(scan.get("bucket") or scan.get("target") or "-")
     scan = _normalize_scan_result(scan, provider=provider, target=target)
 
+    print(
+        "files count after normalize:",
+        len(scan.get("files", []))
+        if isinstance(scan, dict) and isinstance(scan.get("files"), list)
+        else 0,
+    )
+    print("provider after normalize:", scan.get("provider") if isinstance(scan, dict) else "N/A")
+    print("bucket after normalize:", scan.get("bucket") if isinstance(scan, dict) else "N/A")
+
     # ── Usar gerador profissional com gráficos ────────────────────────
     if PROFESSIONAL_REPORT:
         try:
             client_info = {
-                "name":    data.client_name or "Cliente",
+                "name": data.client_name or "Cliente",
                 "contact": email or "-",
             }
             results = _gen_executive_report(scan, client_info=client_info, output_format="both")
-            pdf_file  = Path(results.get("pdf",  ""))
+            pdf_file = Path(results.get("pdf", ""))
             docx_file = Path(results.get("docx", ""))
             return {
                 "success": True,
                 "files": {
-                    "pdf":  f"reports_executive/{pdf_file.name}"  if pdf_file.exists()  else None,
+                    "pdf": f"reports_executive/{pdf_file.name}" if pdf_file.exists() else None,
                     "docx": f"reports_executive/{docx_file.name}" if docx_file.exists() else None,
                 },
                 "message": "Relatórios profissionais gerados com sucesso",
             }
         except Exception as e:
-            print(f"⚠️  Erro no gerador profissional, usando fallback: {e}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Erro no gerador profissional: {e}")
 
     # ── Fallback simples ──────────────────────────────────────────────
-    pdf_path  = _make_pdf(scan, data.report_title, data.client_name)
+    pdf_path = _make_pdf(scan, data.report_title, data.client_name)
     docx_path = _make_docx(scan, data.report_title, data.client_name)
     return {
         "success": True,
         "files": {
-            "pdf":  f"reports_executive/{pdf_path.name}",
+            "pdf": f"reports_executive/{pdf_path.name}",
             "docx": f"reports_executive/{docx_path.name}",
         },
         "message": "Relatórios gerados com sucesso",
     }
-
 
 # Rota opcional (quando quiser forçar download com filename)
 @app.get("/download-report/{filename}")
@@ -743,3 +792,4 @@ def download_report(filename: str, user=Depends(require_mfa)):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api_with_mfa:app", host="0.0.0.0", port=8000, reload=False)
+
