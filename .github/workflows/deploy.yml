@@ -24,7 +24,9 @@ jobs:
             echo "📦 Atualizando código..."
             cd ~/security-multicloud-scanner
             git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd
 
             echo "📦 Atualizando dependências..."
             source venv/bin/activate
