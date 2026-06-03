@@ -13,13 +13,17 @@ jobs:
     steps:
       - name: 🔗 Conectar e atualizar servidor
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.AWS_HOST }}
           username: ubuntu
           key: ${{ secrets.AWS_SSH_KEY }}
+          envs: GH_TOKEN
           script: |
             echo "📦 Atualizando código..."
             cd ~/security-multicloud-scanner
+            git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git
             git pull origin main
 
             echo "📦 Atualizando dependências..."
@@ -34,10 +38,11 @@ jobs:
             APP_PID=$!
 
             echo "⏳ Aguardando servidor subir..."
-            sleep 5
+            sleep 8
             if curl -sf http://localhost:8000/health > /dev/null; then
               echo "✅ Deploy concluído! PID: $APP_PID — servidor respondendo."
             else
-              echo "❌ Servidor não respondeu após o deploy. Verifique logs/api.log"
+              echo "❌ Servidor não respondeu. Log de inicialização:"
+              cat logs/api.log
               exit 1
             fi
