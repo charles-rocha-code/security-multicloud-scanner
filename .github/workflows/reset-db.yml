@@ -41,7 +41,7 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids i-0d229984fa69cc430 \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=["find /home/ubuntu -name users_db.json 2>/dev/null && python3 -c \"import os; [open(f,w).write(chr(123)+chr(125)) for f in [f for r,d,files in os.walk(\x27/home/ubuntu\x27) for f in [os.path.join(r,fn) for fn in files if fn in [\x27users_db.json\x27,\x27sessions_db.json\x27]]]]\" && echo RESET_OK && find /home/ubuntu -name users_db.json -exec cat {} \\ ;"]' \
+            --parameters 'commands=["printf \"{}\" > /home/ubuntu/security-scanner/users_db.json && printf \"{}\" > /home/ubuntu/security-scanner/sessions_db.json && echo RESET_OK && cat /home/ubuntu/security-scanner/users_db.json"]' \
             --region us-east-2 \
             --query 'Command.CommandId' \
             --output text)
