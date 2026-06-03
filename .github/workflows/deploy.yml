@@ -72,7 +72,7 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids i-0d229984fa69cc430 \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=[\"cd /home/ubuntu/security-scanner && git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git && git fetch origin main && git reset --hard origin/main && git clean -fd && source venv/bin/activate && pip install -r requirements.txt -q && sudo systemctl restart security-scanner && sleep 8 && curl -sf http://localhost:8000/health && echo OK\"]" \
+            --parameters "commands=[\"git config --global --add safe.directory /home/ubuntu/security-scanner && cd /home/ubuntu/security-scanner && git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git && git fetch origin main && git reset --hard origin/main && git clean -fd && source venv/bin/activate && pip install -r requirements.txt -q && sudo systemctl restart security-scanner && sleep 8 && curl -sf http://localhost:8000/health && echo OK\"]" \
             --region us-east-2 \
             --query 'Command.CommandId' \
             --output text)
