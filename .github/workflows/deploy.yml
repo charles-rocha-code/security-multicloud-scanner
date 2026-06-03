@@ -33,14 +33,23 @@ jobs:
             pip install -r requirements.txt -q
 
             echo "🔄 Reiniciando aplicação..."
-            sudo systemctl restart security-scanner
+            if sudo systemctl is-active --quiet security-scanner 2>/dev/null; then
+              echo "Reiniciando via systemctl..."
+              sudo systemctl restart security-scanner
+            else
+              echo "Reiniciando via fuser + nohup..."
+              fuser -k 8000/tcp || true
+              sleep 2
+              mkdir -p logs
+              nohup python3 -m uvicorn api_with_mfa:app --host 0.0.0.0 --port 8000 > logs/api.log 2>&1 &
+            fi
 
             echo "⏳ Aguardando servidor subir..."
             sleep 8
             if curl -sf http://localhost:8000/health > /dev/null; then
-              echo "✅ Deploy concluído! Serviço reiniciado e servidor respondendo."
+              echo "✅ Deploy concluído! Servidor respondendo."
             else
-              echo "❌ Servidor não respondeu. Log de inicialização:"
-              sudo journalctl -u security-scanner --no-pager -n 50
+              echo "❌ Servidor não respondeu. Log:"
+              sudo journalctl -u security-scanner --no-pager -n 30 2>/dev/null || cat logs/api.log 2>/dev/null
               exit 1
             fi
