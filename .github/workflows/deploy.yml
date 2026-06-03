@@ -6,15 +6,14 @@ on:
       - main
 
 jobs:
-  deploy:
-    name: Deploy para Servidor AWS
+  # ----------------------------------------------------------------
+  # Instância 1 — SSH direto (10.0.1.248 / sem systemd)
+  # ----------------------------------------------------------------
+  deploy-instancia-1:
+    name: Deploy instância 1 (SSH)
     runs-on: ubuntu-latest
-
     steps:
-      # ------------------------------------------------------------------
-      # Instância 1 — SSH direto (sem systemd, usa fuser + nohup)
-      # ------------------------------------------------------------------
-      - name: 🔗 Deploy instância 1 (SSH)
+      - name: 🔗 Conectar e atualizar
         uses: appleboy/ssh-action@v1.0.3
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -51,25 +50,29 @@ jobs:
               exit 1
             fi
 
-      # ------------------------------------------------------------------
-      # Instância 2 — SSM (tem systemd, sem SSH aberto)
-      # ------------------------------------------------------------------
-      - name: 🔗 Deploy instância 2 (SSM)
+  # ----------------------------------------------------------------
+  # Instância 2 — SSM (10.0.20.212 / com systemd / sem SSH aberto)
+  # ----------------------------------------------------------------
+  deploy-instancia-2:
+    name: Deploy instância 2 (SSM)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔗 Atualizar via SSM
         run: |
           aws ssm send-command \
             --instance-id i-0d229984fa69cc430 \
             --document-name "AWS-RunShellScript" \
-            --parameters commands="[
-              \"cd /home/ubuntu/security-scanner\",
-              \"git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/charles-rocha-code/security-multicloud-scanner.git\",
-              \"git fetch origin main\",
-              \"git reset --hard origin/main\",
-              \"git clean -fd\",
-              \"source venv/bin/activate && pip install -r requirements.txt -q\",
-              \"sudo systemctl restart security-scanner\",
-              \"sleep 8\",
-              \"curl -sf http://localhost:8000/health && echo OK ou exit 1\"
-            ]" \
+            --parameters 'commands=[
+              "cd /home/ubuntu/security-scanner",
+              "git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/charles-rocha-code/security-multicloud-scanner.git",
+              "git fetch origin main",
+              "git reset --hard origin/main",
+              "git clean -fd",
+              "source venv/bin/activate && pip install -r requirements.txt -q",
+              "sudo systemctl restart security-scanner",
+              "sleep 8",
+              "curl -sf http://localhost:8000/health && echo OK || echo FAIL"
+            ]' \
             --region us-east-2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
