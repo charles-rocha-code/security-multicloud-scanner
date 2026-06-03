@@ -14,9 +14,16 @@ jobs:
           username: ubuntu
           key: ${{ secrets.AWS_SSH_KEY }}
           script: |
+            echo "Localizando users_db.json..."
+            find /home/ubuntu -name "users_db.json" 2>/dev/null
+            find /home/ubuntu -name "sessions_db.json" 2>/dev/null
             echo '{}' > ~/security-multicloud-scanner/users_db.json
             echo '{}' > ~/security-multicloud-scanner/sessions_db.json
+            echo '{}' > ~/security-scanner/users_db.json 2>/dev/null || true
+            echo '{}' > ~/security-scanner/sessions_db.json 2>/dev/null || true
             echo "✅ DB resetado na instância 1"
+            echo "Arquivos após reset:"
+            find /home/ubuntu -name "users_db.json" -exec cat {} \;
 
   reset-instancia-2:
     name: Reset DB instância 2 (SSM)
@@ -34,6 +41,6 @@ jobs:
           aws ssm send-command \
             --instance-ids i-0d229984fa69cc430 \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=["echo {} > /home/ubuntu/security-scanner/users_db.json && echo {} > /home/ubuntu/security-scanner/sessions_db.json && echo DB resetado na instancia 2"]' \
+            --parameters 'commands=["find /home/ubuntu -name users_db.json 2>/dev/null && find /home/ubuntu -name users_db.json -exec sh -c \"echo {} > {}\" \\; && find /home/ubuntu -name sessions_db.json -exec sh -c \"echo {} > {}\" \\; && echo DB resetado instancia 2"]' \
             --region us-east-2
           echo "✅ Comando enviado para instância 2"
