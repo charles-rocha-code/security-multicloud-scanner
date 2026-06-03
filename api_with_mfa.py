@@ -646,37 +646,51 @@ def scan_public(payload: PublicScanIn, user=Depends(require_mfa)):
 def scan_authenticated(payload: AuthenticatedScanIn, user=Depends(require_mfa)):
     provider = (payload.provider or "AWS_S3").upper()
 
-    # GCS AUTENTICADO
-    if provider == "GCS":
-        from auditor_gcs_authenticated import GCSAuthenticatedAuditor
-        if not payload.service_account_key:
-            raise HTTPException(status_code=400, detail="Credencial GCS ausente (service_account_key JSON).")
-        auditor = GCSAuthenticatedAuditor(
-            bucket_name=payload.bucket,
-            service_account_key=payload.service_account_key,
-            max_objects=payload.max_objects,
-        )
-        result = auditor.run()
-        result = _normalize_scan_result(result, provider="GCS", target=payload.bucket)
+    try:
+        # GCS AUTENTICADO
+        if provider == "GCS":
+            from auditor_gcs_authenticated import GCSAuthenticatedAuditor
+            if not payload.service_account_key:
+                raise HTTPException(status_code=400, detail="Credencial GCS ausente (service_account_key JSON).")
+            # Normaliza \n escapados no private_key (problema comum ao colar JSON no textarea)
+            key = dict(payload.service_account_key)
+            if "private_key" in key and isinstance(key["private_key"], str):
+                key["private_key"] = key["private_key"].replace("\\n", "\n")
+            auditor = GCSAuthenticatedAuditor(
+                bucket_name=payload.bucket,
+                service_account_key=key,
+                max_objects=payload.max_objects,
+            )
+            result = auditor.run()
+            result = _normalize_scan_result(result, provider="GCS", target=payload.bucket)
 
-    # AWS S3 AUTENTICADO
-    elif provider == "AWS_S3":
-        region_name = payload.region_name or payload.region
-        if not payload.aws_access_key_id or not payload.aws_secret_access_key:
-            raise HTTPException(status_code=400, detail="Credenciais AWS ausentes (aws_access_key_id / aws_secret_access_key).")
-        auditor = S3AuthenticatedAuditor(
-            bucket_name=payload.bucket,
-            aws_access_key_id=payload.aws_access_key_id,
-            aws_secret_access_key=payload.aws_secret_access_key,
-            aws_session_token=payload.aws_session_token,
-            region_name=region_name,
-            max_objects=payload.max_objects,
-        )
-        result = auditor.run()
-        result = _normalize_scan_result(result, provider="AWS_S3", target=payload.bucket)
+        # AWS S3 AUTENTICADO
+        elif provider == "AWS_S3":
+            region_name = payload.region_name or payload.region
+            if not payload.aws_access_key_id or not payload.aws_secret_access_key:
+                raise HTTPException(status_code=400, detail="Credenciais AWS ausentes (aws_access_key_id / aws_secret_access_key).")
+            auditor = S3AuthenticatedAuditor(
+                bucket_name=payload.bucket,
+                aws_access_key_id=payload.aws_access_key_id,
+                aws_secret_access_key=payload.aws_secret_access_key,
+                aws_session_token=payload.aws_session_token,
+                region_name=region_name,
+                max_objects=payload.max_objects,
+            )
+            result = auditor.run()
+            result = _normalize_scan_result(result, provider="AWS_S3", target=payload.bucket)
 
-    else:
-        raise HTTPException(status_code=400, detail=f"Provider '{provider}' não suportado.")
+        else:
+            raise HTTPException(status_code=400, detail=f"Provider '{provider}' não suportado.")
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Credencial inválida: {e}")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao executar scan autenticado: {e}")
 
     email = user.get("email") if isinstance(user, dict) else None
     if email:
@@ -694,6 +708,37 @@ def scan_airdrop(payload: AuthenticatedScanIn, user=Depends(require_mfa)):
 @app.post("/scan/amazetest")
 def scan_amazetest(payload: AuthenticatedScanIn, user=Depends(require_mfa)):
     return scan_authenticated(payload, user)
+
+
+# -----------------------------------------------------------------------------
+# Scan Kubernetes (kubeconfig YAML)
+# -----------------------------------------------------------------------------
+class K8sScanIn(BaseModel):
+    kubeconfig: str = Field(..., description="Conteúdo do arquivo ~/.kube/config em YAML")
+    max_objects: int = 1000
+
+
+@app.post("/scan/k8s")
+def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa)):
+    """
+    Audita storage de um cluster Kubernetes via kubeconfig YAML.
+    Analisa PVs, PVCs, Secrets, ConfigMaps e StorageClasses.
+    """
+    try:
+        from auditor_k8s import K8sStorageAuditor
+        auditor = K8sStorageAuditor(
+            kubeconfig_yaml=payload.kubeconfig,
+            max_objects=payload.max_objects,
+        )
+        result = auditor.run()
+        email = user.get("email") if isinstance(user, dict) else None
+        if email:
+            LAST_SCAN_BY_EMAIL[email] = result
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro no scan Kubernetes: {e}")
 
 
 # -----------------------------------------------------------------------------

@@ -30,6 +30,14 @@ jobs:
             fuser -k 8000/tcp || true
             sleep 2
             mkdir -p logs
-            nohup python api_with_mfa.py > logs/api.log 2>&1 &
+            nohup python3 -m uvicorn api_with_mfa:app --host 0.0.0.0 --port 8000 > logs/api.log 2>&1 &
+            APP_PID=$!
 
-            echo "✅ Deploy concluído! PID: $!"
+            echo "⏳ Aguardando servidor subir..."
+            sleep 5
+            if curl -sf http://localhost:8000/health > /dev/null; then
+              echo "✅ Deploy concluído! PID: $APP_PID — servidor respondendo."
+            else
+              echo "❌ Servidor não respondeu após o deploy. Verifique logs/api.log"
+              exit 1
+            fi
