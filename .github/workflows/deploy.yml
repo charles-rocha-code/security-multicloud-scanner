@@ -60,7 +60,7 @@ jobs:
               --document-name "AWS-RunShellScript" \
               --timeout-seconds 180 \
               --parameters "commands=[\
-                \"set -euo pipefail\",\
+                \"set -eu\",\
                 \"export HOME=/root\",\
                 \"git config --global --add safe.directory $APP_DIR\",\
                 \"cd $APP_DIR\",\
