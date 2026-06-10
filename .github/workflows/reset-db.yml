@@ -23,6 +23,7 @@ jobs:
             --parameters 'commands=[
               "printf \"{}\" > /home/ubuntu/security-multicloud-scanner/users_db.json",
               "printf \"{}\" > /home/ubuntu/security-multicloud-scanner/sessions_db.json",
+              "sudo systemctl restart security-scanner || pkill -f uvicorn || true",
               "echo RESET_OK",
               "cat /home/ubuntu/security-multicloud-scanner/users_db.json"
             ]' \
@@ -59,6 +60,7 @@ jobs:
             --parameters 'commands=[
               "printf \"{}\" > /home/ubuntu/security-scanner/users_db.json",
               "printf \"{}\" > /home/ubuntu/security-scanner/sessions_db.json",
+              "sudo systemctl restart security-scanner || pkill -f uvicorn || true",
               "echo RESET_OK",
               "cat /home/ubuntu/security-scanner/users_db.json"
             ]' \
