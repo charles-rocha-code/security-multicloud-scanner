@@ -21,11 +21,11 @@ jobs:
             --instance-ids i-0ce809776e285c1b2 \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
-              "printf \"{}\" > /home/ubuntu/security-multicloud-scanner/users_db.json",
-              "printf \"{}\" > /home/ubuntu/security-multicloud-scanner/sessions_db.json",
+              "printf \"{}\" > /home/ubuntu/security-scanner/users_db.json",
+              "printf \"{}\" > /home/ubuntu/security-scanner/sessions_db.json",
               "sudo systemctl restart security-scanner || pkill -f uvicorn || true",
               "echo RESET_OK",
-              "cat /home/ubuntu/security-multicloud-scanner/users_db.json"
+              "cat /home/ubuntu/security-scanner/users_db.json"
             ]' \
             --region us-east-2 \
             --query 'Command.CommandId' \
