@@ -36,7 +36,7 @@ jobs:
           script: |
             set -euo pipefail
 
-            APP_DIR=~/security-multicloud-scanner
+            APP_DIR=~/security-scanner
 
             echo "--- Updating code ---"
             cd "$APP_DIR"
@@ -168,3 +168,5 @@ jobs:
 
           echo "❌ Timed out waiting for SSM command"
           exit 1
+
+          
