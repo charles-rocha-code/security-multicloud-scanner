@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  reset-instancia-1:
-    name: Reset DB instância 1 (SSM — security-scanner-green)
+  reset-all-instances:
+    name: Reset DB — todas as instâncias (ASG dinâmico)
     runs-on: ubuntu-latest
     steps:
       - name: Configurar credenciais AWS
@@ -15,10 +15,28 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-2
 
-      - name: Reset via SSM
+      - name: Reset via SSM em todas as instâncias do ASG
         run: |
+          set -euo pipefail
+
+          REGION="us-east-2"
+
+          # Descobre dinamicamente todas as instâncias healthy do ASG
+          INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+            --region "$REGION" \
+            --query "AutoScalingGroups[].Instances[?HealthStatus=='Healthy'].InstanceId" \
+            --output text | tr '\t' ' ')
+
+          echo "Instâncias encontradas: $INSTANCE_IDS"
+
+          if [ -z "$INSTANCE_IDS" ]; then
+            echo "❌ Nenhuma instância encontrada no ASG"
+            exit 1
+          fi
+
+          # Envia o comando para todas as instâncias de uma vez
           COMMAND_ID=$(aws ssm send-command \
-            --instance-ids i-0ce809776e285c1b2 \
+            --instance-ids $INSTANCE_IDS \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "printf \"{}\" > /home/ubuntu/security-scanner/users_db.json",
@@ -27,53 +45,35 @@ jobs:
               "echo RESET_OK",
               "cat /home/ubuntu/security-scanner/users_db.json"
             ]' \
-            --region us-east-2 \
+            --region "$REGION" \
             --query 'Command.CommandId' \
             --output text)
 
           echo "Command ID: $COMMAND_ID"
-          sleep 15
-          aws ssm get-command-invocation \
-            --command-id $COMMAND_ID \
-            --instance-id i-0ce809776e285c1b2 \
-            --region us-east-2 \
-            --query '[Status,StandardOutputContent,StandardErrorContent]' \
-            --output text
-          echo "✅ Reset instância 1 concluído"
 
-  reset-instancia-2:
-    name: Reset DB instância 2 (SSM — security-scanner-instance)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configurar credenciais AWS
-        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6.2.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
+          # Aguarda e verifica resultado em cada instância
+          FAILED=0
+          for ID in $INSTANCE_IDS; do
+            for i in $(seq 1 12); do
+              sleep 5
+              STATUS=$(aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "$ID" \
+                --region "$REGION" \
+                --query 'Status' --output text 2>/dev/null || echo "Pending")
 
-      - name: Reset via SSM
-        run: |
-          COMMAND_ID=$(aws ssm send-command \
-            --instance-ids i-01d5f2a3614e7d4a7 \
-            --document-name "AWS-RunShellScript" \
-            --parameters 'commands=[
-              "printf \"{}\" > /home/ubuntu/security-scanner/users_db.json",
-              "printf \"{}\" > /home/ubuntu/security-scanner/sessions_db.json",
-              "sudo systemctl restart security-scanner || pkill -f uvicorn || true",
-              "echo RESET_OK",
-              "cat /home/ubuntu/security-scanner/users_db.json"
-            ]' \
-            --region us-east-2 \
-            --query 'Command.CommandId' \
-            --output text)
+              case "$STATUS" in
+                Success)
+                  echo "✅ $ID — reset concluído"
+                  break
+                  ;;
+                Failed|Cancelled|TimedOut|DeliveryTimedOut)
+                  echo "❌ $ID — falhou (Status: $STATUS)"
+                  FAILED=1
+                  break
+                  ;;
+              esac
+            done
+          done
 
-          echo "Command ID: $COMMAND_ID"
-          sleep 15
-          aws ssm get-command-invocation \
-            --command-id $COMMAND_ID \
-            --instance-id i-01d5f2a3614e7d4a7 \
-            --region us-east-2 \
-            --query '[Status,StandardOutputContent,StandardErrorContent]' \
-            --output text
-          echo "✅ Reset instância 2 concluído"
+          [ $FAILED -eq 0 ] && echo "✅ Todas as instâncias resetadas" || exit 1
