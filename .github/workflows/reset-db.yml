@@ -1,36 +1,15 @@
-name: 🗑️ Reset banco de usuários (teste)
+name: Reset banco de usuários
 
 on:
   workflow_dispatch:
 
 jobs:
   reset-instancia-1:
-    name: Reset DB instância 1 (SSH)
+    name: Reset DB instância 1 (SSM — security-scanner-green)
     runs-on: ubuntu-latest
     steps:
-      - uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.AWS_HOST }}
-          username: ubuntu
-          key: ${{ secrets.AWS_SSH_KEY }}
-          script: |
-            echo "Localizando users_db.json..."
-            find /home/ubuntu -name "users_db.json" 2>/dev/null
-            find /home/ubuntu -name "sessions_db.json" 2>/dev/null
-            echo '{}' > ~/security-multicloud-scanner/users_db.json
-            echo '{}' > ~/security-multicloud-scanner/sessions_db.json
-            echo '{}' > ~/security-scanner/users_db.json 2>/dev/null || true
-            echo '{}' > ~/security-scanner/sessions_db.json 2>/dev/null || true
-            echo "✅ DB resetado na instância 1"
-            echo "Arquivos após reset:"
-            find /home/ubuntu -name "users_db.json" -exec cat {} \;
-
-  reset-instancia-2:
-    name: Reset DB instância 2 (SSM)
-    runs-on: ubuntu-latest
-    steps:
-      - name: 🔑 Configurar credenciais AWS
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -39,17 +18,59 @@ jobs:
       - name: Reset via SSM
         run: |
           COMMAND_ID=$(aws ssm send-command \
-            --instance-ids i-0d229984fa69cc430 \
+            --instance-ids i-0ce809776e285c1b2 \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=["printf \"{}\" > /home/ubuntu/security-scanner/users_db.json && printf \"{}\" > /home/ubuntu/security-scanner/sessions_db.json && echo RESET_OK && cat /home/ubuntu/security-scanner/users_db.json"]' \
+            --parameters 'commands=[
+              "printf \"{}\" > /home/ubuntu/security-multicloud-scanner/users_db.json",
+              "printf \"{}\" > /home/ubuntu/security-multicloud-scanner/sessions_db.json",
+              "echo RESET_OK",
+              "cat /home/ubuntu/security-multicloud-scanner/users_db.json"
+            ]' \
             --region us-east-2 \
             --query 'Command.CommandId' \
             --output text)
+
           echo "Command ID: $COMMAND_ID"
           sleep 15
           aws ssm get-command-invocation \
             --command-id $COMMAND_ID \
-            --instance-id i-0d229984fa69cc430 \
+            --instance-id i-0ce809776e285c1b2 \
+            --region us-east-2 \
+            --query '[Status,StandardOutputContent,StandardErrorContent]' \
+            --output text
+          echo "✅ Reset instância 1 concluído"
+
+  reset-instancia-2:
+    name: Reset DB instância 2 (SSM — security-scanner-instance)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+
+      - name: Reset via SSM
+        run: |
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids i-01d5f2a3614e7d4a7 \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "printf \"{}\" > /home/ubuntu/security-scanner/users_db.json",
+              "printf \"{}\" > /home/ubuntu/security-scanner/sessions_db.json",
+              "echo RESET_OK",
+              "cat /home/ubuntu/security-scanner/users_db.json"
+            ]' \
+            --region us-east-2 \
+            --query 'Command.CommandId' \
+            --output text)
+
+          echo "Command ID: $COMMAND_ID"
+          sleep 15
+          aws ssm get-command-invocation \
+            --command-id $COMMAND_ID \
+            --instance-id i-01d5f2a3614e7d4a7 \
             --region us-east-2 \
             --query '[Status,StandardOutputContent,StandardErrorContent]' \
             --output text
