@@ -62,6 +62,7 @@ jobs:
               --parameters "commands=[\
                 \"set -eu\",\
                 \"export HOME=/root\",\
+                \"if [ ! -d $APP_DIR ]; then echo 'SKIP - app nao instalado nesta instancia'; exit 0; fi\",\
                 \"git config --global --add safe.directory $APP_DIR\",\
                 \"cd $APP_DIR\",\
                 \"git remote set-url origin 'https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git'\",\
