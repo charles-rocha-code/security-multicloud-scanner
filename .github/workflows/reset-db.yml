@@ -21,9 +21,10 @@ jobs:
 
           REGION="us-east-2"
 
-          # Descobre dinamicamente todas as instâncias healthy do ASG
+          # Descobre instâncias healthy apenas do ASG principal
           INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
             --region "$REGION" \
+            --auto-scaling-group-names "security-scanner-asg" \
             --query "AutoScalingGroups[].Instances[?HealthStatus=='Healthy'].InstanceId" \
             --output text | tr '\t' ' ')
 
