@@ -22,28 +22,61 @@ import secrets
 import hashlib
 import json
 import os
+import boto3
+from botocore.exceptions import ClientError
 
 # ==================== CONFIGURAÇÃO ====================
 
-# Arquivos de persistência
 USERS_DB_FILE = "users_db.json"
 SESSIONS_DB_FILE = "sessions_db.json"
 
-# Carregar dados existentes ou criar novos
+S3_BUCKET = os.environ.get("DB_S3_BUCKET", "security-scanner-db-442042548551")
+S3_PREFIX = "db/"
+
+def _s3_key(filename: str) -> str:
+    return S3_PREFIX + os.path.basename(filename)
+
 def load_db(filename: str) -> Dict:
-    """Carrega banco de dados do arquivo JSON"""
+    """Carrega banco de dados do S3 (com fallback para arquivo local)"""
+    if S3_BUCKET:
+        try:
+            s3 = boto3.client("s3", region_name="us-east-2")
+            response = s3.get_object(Bucket=S3_BUCKET, Key=_s3_key(filename))
+            return json.loads(response["Body"].read().decode("utf-8"))
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "NoSuchKey":
+                print(f"⚠️ S3 load error: {e}")
+        except Exception as e:
+            print(f"⚠️ S3 load error: {e}")
     if os.path.exists(filename):
         try:
-            with open(filename, 'r') as f:
+            with open(filename, "r") as f:
                 return json.load(f)
-        except:
-            return {}
+        except Exception:
+            pass
     return {}
 
 def save_db(filename: str, data: Dict):
-    """Salva banco de dados no arquivo JSON"""
-    with open(filename, 'w') as f:
+    """Salva banco de dados no S3 e arquivo local"""
+    if S3_BUCKET:
+        try:
+            s3 = boto3.client("s3", region_name="us-east-2")
+            s3.put_object(
+                Bucket=S3_BUCKET,
+                Key=_s3_key(filename),
+                Body=json.dumps(data, indent=2).encode("utf-8"),
+                ContentType="application/json"
+            )
+        except Exception as e:
+            print(f"⚠️ S3 save error: {e}")
+    with open(filename, "w") as f:
         json.dump(data, f, indent=2)
+
+def sync_from_s3():
+    """Recarrega USERS_DB e ACTIVE_SESSIONS do S3 para garantir consistência entre instâncias"""
+    global USERS_DB, ACTIVE_SESSIONS
+    USERS_DB = load_db(USERS_DB_FILE)
+    ACTIVE_SESSIONS = load_db(SESSIONS_DB_FILE)
 
 # Carregar bancos de dados
 USERS_DB: Dict[str, Dict[str, Any]] = load_db(USERS_DB_FILE)
@@ -278,6 +311,7 @@ def require_mfa(user: Dict[str, Any] = Depends(get_current_user_from_cookie)) ->
 
 def register_user(email: str, password: str, full_name: Optional[str] = None) -> Dict[str, Any]:
     """Registra novo usuário"""
+    sync_from_s3()
     if email in USERS_DB:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -306,6 +340,7 @@ def register_user(email: str, password: str, full_name: Optional[str] = None) ->
 
 def login_user(email: str, password: str, mfa_code: Optional[str] = None, response: Optional[Response] = None) -> Dict[str, Any]:
     """Login de usuário"""
+    sync_from_s3()
     if email not in USERS_DB:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
