@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy — todas as instâncias via SSM (ASG dinâmico)
+    name: Deploy — rolling zero-downtime via SSM + ALB draining
     runs-on: ubuntu-latest
 
     steps:
@@ -26,7 +26,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-2
 
-      - name: Deploy via SSM em todas as instâncias do ASG
+      - name: Rolling deploy via SSM com ALB draining
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -34,27 +34,71 @@ jobs:
 
           REGION="us-east-2"
           APP_DIR="/home/ubuntu/security-scanner"
+          ASG_NAME="security-scanner-asg"
+          TG_ARNS=(
+            "arn:aws:elasticloadbalancing:us-east-2:442042548551:targetgroup/security-scanner-tg/87dec1f4eeb87cc8"
+            "arn:aws:elasticloadbalancing:us-east-2:442042548551:targetgroup/security-scanner-tg-green/c45365c904a3218c"
+          )
 
-          # Descobre dinamicamente todas as instâncias healthy do ASG
+          # Descobre instâncias healthy do ASG
           INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
             --region "$REGION" \
+            --auto-scaling-group-names "$ASG_NAME" \
             --query "AutoScalingGroups[].Instances[?HealthStatus=='Healthy'].InstanceId" \
             --output text | tr '\t' ' ')
 
           echo "Instâncias encontradas: $INSTANCE_IDS"
+          TOTAL=$(echo $INSTANCE_IDS | wc -w)
 
           if [ -z "$INSTANCE_IDS" ]; then
             echo "❌ Nenhuma instância encontrada no ASG"
             exit 1
           fi
 
+          if [ "$TOTAL" -lt 2 ]; then
+            echo "⚠️  Apenas $TOTAL instância — deploy sem draining para evitar downtime total"
+          fi
+
           FAILED=0
 
-          # Deploy sequencial para evitar downtime (rolling deploy)
           for INSTANCE_ID in $INSTANCE_IDS; do
             echo ""
             echo "=== Deployando em $INSTANCE_ID ==="
 
+            # Deregistra do ALB (apenas se houver mais de 1 instância)
+            if [ "$TOTAL" -gt 1 ]; then
+              for TG_ARN in "${TG_ARNS[@]}"; do
+                REGISTERED=$(aws elbv2 describe-target-health \
+                  --target-group-arn "$TG_ARN" \
+                  --region "$REGION" \
+                  --query "TargetHealthDescriptions[?Target.Id=='$INSTANCE_ID'].Target.Id" \
+                  --output text 2>/dev/null || echo "")
+
+                if [ -n "$REGISTERED" ]; then
+                  echo "Deregistrando $INSTANCE_ID do ALB ($TG_ARN)..."
+                  aws elbv2 deregister-targets \
+                    --target-group-arn "$TG_ARN" \
+                    --targets Id="$INSTANCE_ID" \
+                    --region "$REGION"
+
+                  # Aguarda draining (até 45s)
+                  for d in $(seq 1 9); do
+                    sleep 5
+                    STATE=$(aws elbv2 describe-target-health \
+                      --target-group-arn "$TG_ARN" \
+                      --targets Id="$INSTANCE_ID" \
+                      --region "$REGION" \
+                      --query "TargetHealthDescriptions[0].TargetHealth.State" \
+                      --output text 2>/dev/null || echo "unused")
+                    echo "  Draining [$d] — State: $STATE"
+                    [ "$STATE" = "unused" ] || [ "$STATE" = "None" ] && break
+                  done
+                  echo "✅ Draining concluído"
+                fi
+              done
+            fi
+
+            # Deploy via SSM
             COMMAND_ID=$(aws ssm send-command \
               --instance-ids "$INSTANCE_ID" \
               --document-name "AWS-RunShellScript" \
@@ -62,7 +106,7 @@ jobs:
               --parameters "commands=[\
                 \"set -eu\",\
                 \"export HOME=/root\",\
-                \"if [ ! -d $APP_DIR ]; then echo 'SKIP - app nao instalado nesta instancia'; exit 0; fi\",\
+                \"if [ ! -d $APP_DIR ]; then echo 'SKIP - app nao instalado'; exit 0; fi\",\
                 \"git config --global --add safe.directory $APP_DIR\",\
                 \"cd $APP_DIR\",\
                 \"git remote set-url origin 'https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git'\",\
@@ -82,7 +126,6 @@ jobs:
 
             echo "SSM Command ID: $COMMAND_ID"
 
-            # Poll com timeout
             STATUS="Pending"
             for i in $(seq 1 24); do
               sleep 5
@@ -92,29 +135,53 @@ jobs:
                 --region "$REGION" \
                 --query 'Status' \
                 --output text 2>/dev/null || echo "Pending")
-
               echo "[${i}] $INSTANCE_ID — Status: $STATUS"
-
               case "$STATUS" in
-                Success)
-                  echo "✅ $INSTANCE_ID — deploy concluído"
-                  break
-                  ;;
+                Success) echo "✅ $INSTANCE_ID — deploy concluído"; break ;;
                 Failed|Cancelled|TimedOut|DeliveryTimedOut|ExecutionTimedOut)
-                  echo "❌ $INSTANCE_ID — falhou (Status: $STATUS)"
+                  echo "❌ $INSTANCE_ID — falhou"
                   aws ssm get-command-invocation \
-                    --command-id "$COMMAND_ID" \
-                    --instance-id "$INSTANCE_ID" \
-                    --region "$REGION" \
-                    --query 'StandardErrorContent' \
-                    --output text || true
-                  FAILED=1
-                  break
-                  ;;
+                    --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+                    --region "$REGION" --query 'StandardErrorContent' --output text || true
+                  FAILED=1; break ;;
               esac
             done
 
             [ "$STATUS" = "Success" ] || { echo "❌ Timeout em $INSTANCE_ID"; FAILED=1; }
+
+            # Re-registra no ALB após deploy bem-sucedido
+            if [ "$TOTAL" -gt 1 ] && [ "$STATUS" = "Success" ]; then
+              for TG_ARN in "${TG_ARNS[@]}"; do
+                WAS_REGISTERED=$(aws elbv2 describe-target-health \
+                  --target-group-arn "$TG_ARN" \
+                  --targets Id="$INSTANCE_ID" \
+                  --region "$REGION" \
+                  --query "TargetHealthDescriptions[0].TargetHealth.State" \
+                  --output text 2>/dev/null || echo "")
+
+                # Re-registra apenas nos TGs onde estava antes (draining = estava lá)
+                if [ "$WAS_REGISTERED" = "draining" ] || [ -n "$WAS_REGISTERED" ]; then
+                  aws elbv2 register-targets \
+                    --target-group-arn "$TG_ARN" \
+                    --targets Id="$INSTANCE_ID" \
+                    --region "$REGION" || true
+
+                  # Aguarda healthy no ALB
+                  for h in $(seq 1 12); do
+                    sleep 5
+                    STATE=$(aws elbv2 describe-target-health \
+                      --target-group-arn "$TG_ARN" \
+                      --targets Id="$INSTANCE_ID" \
+                      --region "$REGION" \
+                      --query "TargetHealthDescriptions[0].TargetHealth.State" \
+                      --output text 2>/dev/null || echo "unknown")
+                    echo "  ALB health [$h] — State: $STATE"
+                    [ "$STATE" = "healthy" ] && break
+                  done
+                fi
+              done
+              echo "✅ $INSTANCE_ID re-registrado no ALB"
+            fi
           done
 
           [ $FAILED -eq 0 ] && echo "" && echo "✅ Deploy concluído em todas as instâncias" || exit 1
