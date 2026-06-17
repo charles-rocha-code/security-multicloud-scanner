@@ -1894,16 +1894,20 @@
             </div>
           </div>
 
-          <div style="display: flex; gap: 20px; align-items: center;">
-            <!-- Gráfico -->
-            <div class="chart-container" style="flex: 1; min-width: 300px;">
-              <canvas id="severityChart"></canvas>
+          <!-- Donut centralizado -->
+          <div style="position:relative; width:200px; height:200px; margin:16px auto 20px;">
+            <canvas id="severityChart"></canvas>
+            <div id="donut-center" style="
+              position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+              text-align:center; pointer-events:none;">
+              <div id="donut-score" style="font-size:28px; font-weight:800; color:#fff; line-height:1;"></div>
+              <div id="donut-label" style="font-size:11px; color:#9ca3af; margin-top:3px; text-transform:uppercase; letter-spacing:1px;"></div>
             </div>
+          </div>
 
-            <!-- Sumário de Porcentagens -->
-            <div id="severity-summary" style="flex: 0 0 220px; display: flex; flex-direction: column; gap: 12px;">
-              <!-- Cards serão inseridos via JavaScript -->
-            </div>
+          <!-- Cards de severidade -->
+          <div id="severity-summary" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 4px 8px;">
+            <!-- Populado via JS -->
           </div>
         </div>
 
@@ -2521,7 +2525,6 @@ function logout() {
     // ============================================================
     function updateSeverityChart(dist) {
       const ctx = document.getElementById("severityChart");
-
       if (!ctx) return;
 
       const values = [
@@ -2530,179 +2533,74 @@ function logout() {
         dist.medium || 0,
         dist.low || 0
       ];
+      const total = values.reduce((a, b) => a + b, 0);
 
       if (severityChart) severityChart.destroy();
 
-      // Verificar se há grande disparidade nos valores (para decidir usar log ou não)
-      const maxValue = Math.max(...values);
-      const minValue = Math.min(...values.filter(v => v > 0));
-      const useLogScale = maxValue > 0 && minValue > 0 && (maxValue / minValue) > 20;
+      // Donut chart profissional
+      const colors     = ['#ef4444', '#f97316', '#3b82f6', '#22c55e'];
+      const colorsDark = ['#991b1b', '#c2410c', '#1d4ed8', '#15803d'];
+      const hasData = total > 0;
 
       severityChart = new Chart(ctx, {
-        type: "bar",
+        type: 'doughnut',
         data: {
-          labels: ["Critical", "High", "Medium", "Low"],
-          datasets: [
-            {
-              label: "Vulnerabilidades",
-              data: values,
-              backgroundColor: [
-                "#dc2626",
-                "#f59e0b",
-                "#3b82f6",
-                "#22c55e"
-              ],
-              borderColor: [
-                "#b91c1c",
-                "#d97706",
-                "#2563eb",
-                "#16a34a"
-              ],
-              borderWidth: 2,
-              borderRadius: 8,
-              borderSkipped: false,
-              minBarLength: 5  // Altura mínima para barras pequenas serem visíveis
-            }
-          ]
+          labels: ['Critical', 'High', 'Medium', 'Low'],
+          datasets: [{
+            data: hasData ? values : [1, 1, 1, 1],
+            backgroundColor: hasData
+              ? colors.map(c => c + 'cc')
+              : ['#1f2937', '#1f2937', '#1f2937', '#1f2937'],
+            borderColor: hasData ? colorsDark : ['#374151','#374151','#374151','#374151'],
+            borderWidth: 2,
+            hoverOffset: 6,
+            hoverBorderWidth: 3,
+          }]
         },
         options: {
-          indexAxis: 'x',
           responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            y: {
-              type: useLogScale ? 'logarithmic' : 'linear',
-              beginAtZero: true,
-              ticks: {
-                color: '#9ca3af',
-                font: {
-                  size: 11,
-                  family: "'Segoe UI', Roboto, sans-serif"
-                },
-                callback: function(value, index, ticks) {
-                  // Formatar números inteiros apenas
-                  if (Number.isInteger(value) || value < 1) {
-                    return value;
-                  }
-                  return '';
-                }
-              },
-              grid: {
-                color: 'rgba(255, 255, 255, 0.05)',
-                drawBorder: false
-              },
-              title: {
-                display: true,
-                text: useLogScale ? 'Quantidade de Arquivos (escala log)' : 'Quantidade de Arquivos',
-                color: '#e5e7eb',
-                font: {
-                  size: 12,
-                  weight: '600',
-                  family: "'Segoe UI', Roboto, sans-serif"
-                },
-                padding: { top: 0, bottom: 8 }
-              }
-            },
-            x: {
-              ticks: {
-                color: '#ffffff',
-                font: {
-                  size: 13,
-                  weight: '600',
-                  family: "'Segoe UI', Roboto, sans-serif"
-                },
-                padding: 8
-              },
-              grid: {
-                display: false,
-                drawBorder: false
-              }
-            }
-          },
+          maintainAspectRatio: true,
+          cutout: '70%',
+          animation: { animateRotate: true, duration: 800 },
           plugins: {
-            legend: {
-              display: false
-            },
+            legend: { display: false },
             tooltip: {
-              backgroundColor: 'rgba(0, 0, 0, 0.9)',
+              enabled: hasData,
+              backgroundColor: 'rgba(10,12,20,0.95)',
               titleColor: '#fff',
-              bodyColor: '#fff',
+              bodyColor: '#d1d5db',
               borderColor: '#374151',
               borderWidth: 1,
               padding: 12,
-              displayColors: true,
               callbacks: {
-                label: function(context) {
-                  let label = context.label || '';
-                  let value = context.parsed.y || 0;
-                  const total = values.reduce((a, b) => a + b, 0);
-                  let percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                  return `${label}: ${value} arquivo${value !== 1 ? 's' : ''} (${percentage}%)`;
+                label: ctx => {
+                  const v = ctx.parsed;
+                  const pct = total > 0 ? ((v / total) * 100).toFixed(1) : 0;
+                  return `  ${ctx.label}: ${v} arquivo${v !== 1 ? 's' : ''} (${pct}%)`;
                 }
               }
             },
-            datalabels: {
-              color: function(context) {
-                // Cor branca para todas as barras
-                return '#ffffff';
-              },
-              font: function(context) {
-                const value = context.dataset.data[context.dataIndex];
-                const total = values.reduce((a, b) => a + b, 0);
-                const percentage = (value / total) * 100;
-                
-                // Tamanho menor para barras pequenas
-                return {
-                  weight: 'bold',
-                  size: percentage < 5 ? 13 : 15,
-                  family: "'Segoe UI', Roboto, sans-serif"
-                };
-              },
-              anchor: 'end',
-              align: function(context) {
-                const value = context.dataset.data[context.dataIndex];
-                const total = values.reduce((a, b) => a + b, 0);
-                const percentage = (value / total) * 100;
-                
-                // Para valores muito pequenos, colocar acima da barra
-                return percentage < 3 ? 'top' : 'top';
-              },
-              offset: function(context) {
-                const value = context.dataset.data[context.dataIndex];
-                const total = values.reduce((a, b) => a + b, 0);
-                const percentage = (value / total) * 100;
-                
-                // Offset maior para valores pequenos
-                return percentage < 3 ? 8 : 4;
-              },
-              formatter: function(value, context) {
-                const total = values.reduce((a, b) => a + b, 0);
-                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                
-                if (value === 0) return '';
-                
-                // Retorna porcentagem + quantidade de arquivos
-                return `${percentage}%\n${value} arquivo${value !== 1 ? 's' : ''}`;
-              },
-              textAlign: 'center',
-              textStrokeColor: 'rgba(0, 0, 0, 0.8)',
-              textStrokeWidth: 3,
-              clip: false
-            }
-          },
-          layout: {
-            padding: {
-              top: 50,  // Mais espaço no topo para os labels
-              right: 15,
-              bottom: 10,
-              left: 15
-            }
+            datalabels: { display: false }
           }
         },
         plugins: [ChartDataLabels]
       });
 
-      // Atualizar sumário de cards ao lado do gráfico
+      // Centro do donut: Risk Score
+      const riskScore = document.getElementById('donut-score');
+      const riskLabel = document.getElementById('donut-label');
+      if (riskScore && riskLabel) {
+        const critPct = total > 0 ? Math.round((values[0] / total) * 100) : 0;
+        const highPct = total > 0 ? Math.round((values[1] / total) * 100) : 0;
+        const riskVal = critPct > 0 ? critPct : (highPct > 0 ? highPct : (total > 0 ? Math.round((values[2]/total)*100) : 0));
+        const riskLevel = values[0] > 0 ? 'CRITICAL' : values[1] > 0 ? 'HIGH' : values[2] > 0 ? 'MEDIUM' : 'LOW';
+        const riskColor = { CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#3b82f6', LOW: '#22c55e' }[riskLevel];
+        riskScore.textContent = total > 0 ? total.toLocaleString() : '–';
+        riskScore.style.color = riskColor;
+        riskLabel.textContent = riskLevel;
+        riskLabel.style.color = riskColor + 'cc';
+      }
+
       updateSeveritySummary(dist, values);
     }
 
@@ -2716,54 +2614,28 @@ function logout() {
       const total = values.reduce((a, b) => a + b, 0);
 
       const data = [
-        { 
-          label: 'Critical', 
-          value: dist.critical || 0, 
-          class: 'critical', 
-          icon: '🔴',
-          color: '#dc2626'
-        },
-        { 
-          label: 'High', 
-          value: dist.high || 0, 
-          class: 'high', 
-          icon: '🟠',
-          color: '#f59e0b'
-        },
-        { 
-          label: 'Medium', 
-          value: dist.medium || 0, 
-          class: 'medium', 
-          icon: '🔵',
-          color: '#3b82f6'
-        },
-        { 
-          label: 'Low', 
-          value: dist.low || 0, 
-          class: 'low', 
-          icon: '🟢',
-          color: '#22c55e'
-        }
+        { label: 'Critical', value: dist.critical || 0, color: '#ef4444', bg: '#450a0a' },
+        { label: 'High',     value: dist.high     || 0, color: '#f97316', bg: '#431407' },
+        { label: 'Medium',   value: dist.medium   || 0, color: '#3b82f6', bg: '#172554' },
+        { label: 'Low',      value: dist.low      || 0, color: '#22c55e', bg: '#052e16' },
       ];
 
-      container.innerHTML = '';
-
-      data.forEach(item => {
-        const percentage = total > 0 ? ((item.value / total) * 100).toFixed(1) : 0;
-        
-        const card = document.createElement('div');
-        card.className = `severity-card ${item.class}`;
-        card.innerHTML = `
-          <div class="severity-card-header">
-            <span class="severity-card-label">${item.label}</span>
-            <span class="severity-card-icon">${item.icon}</span>
-          </div>
-          <div class="severity-card-percentage" style="color: ${item.color}">${percentage}%</div>
-          <div class="severity-card-count"><strong>${item.value}</strong> arquivo${item.value !== 1 ? 's' : ''}</div>
-        `;
-        
-        container.appendChild(card);
-      });
+      container.innerHTML = data.map(item => {
+        const pct = total > 0 ? ((item.value / total) * 100).toFixed(1) : '0.0';
+        const barW = total > 0 ? Math.max((item.value / total) * 100, item.value > 0 ? 4 : 0) : 0;
+        return `
+          <div style="background:${item.bg}33; border:1px solid ${item.color}33; border-radius:10px; padding:12px 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-size:12px; font-weight:600; color:${item.color}; text-transform:uppercase; letter-spacing:0.5px;">${item.label}</span>
+              <span style="font-size:18px; font-weight:800; color:#fff;">${item.value.toLocaleString()}</span>
+            </div>
+            <div style="background:#1f2937; border-radius:4px; height:5px; overflow:hidden; margin-bottom:6px;">
+              <div style="height:100%; width:${barW}%; background:${item.color}; border-radius:4px;
+                transition:width 0.8s ease; box-shadow:0 0 6px ${item.color}88;"></div>
+            </div>
+            <div style="font-size:11px; color:#6b7280;">${pct}% do total</div>
+          </div>`;
+      }).join('');
     }
 
     // ============================================================
