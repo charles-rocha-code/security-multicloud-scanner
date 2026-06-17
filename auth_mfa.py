@@ -74,9 +74,13 @@ def save_db(filename: str, data: Dict):
 
 def sync_from_s3():
     """Recarrega USERS_DB e ACTIVE_SESSIONS do S3 para garantir consistência entre instâncias"""
-    global USERS_DB, ACTIVE_SESSIONS
-    USERS_DB = load_db(USERS_DB_FILE)
-    ACTIVE_SESSIONS = load_db(SESSIONS_DB_FILE)
+    # Atualiza in-place para que referências já importadas (api_with_mfa.USERS_DB) vejam os dados frescos
+    fresh_users = load_db(USERS_DB_FILE)
+    fresh_sessions = load_db(SESSIONS_DB_FILE)
+    USERS_DB.clear()
+    USERS_DB.update(fresh_users)
+    ACTIVE_SESSIONS.clear()
+    ACTIVE_SESSIONS.update(fresh_sessions)
 
 # Carregar bancos de dados
 USERS_DB: Dict[str, Dict[str, Any]] = load_db(USERS_DB_FILE)

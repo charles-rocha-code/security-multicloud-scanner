@@ -334,8 +334,7 @@
       console.log("🔐 [MFA Setup] Iniciando...");
       addDebug('[MFA Setup] Iniciando configuração de MFA');
 
-      // Tentar obter email de várias fontes
-      const email = localStorage.getItem('user_email') || 
+      const email = localStorage.getItem('user_email') ||
                     sessionStorage.getItem('user_email') ||
                     localStorage.getItem('scanner_user');
 
@@ -343,23 +342,32 @@
         console.error("❌ Email não encontrado");
         addDebug('❌ Email não encontrado em nenhuma fonte');
         showAlert('❌ Email não encontrado. Faça login novamente.', 'error');
-        setTimeout(() => {
-          window.location.href = '/login';
-        }, 2000);
+        setTimeout(() => { window.location.href = '/login'; }, 2000);
         return;
       }
 
       console.log("👤 Email encontrado:", email);
       addDebug(`👤 Email recuperado: ${email}`);
 
+      // Caminho rápido: usar QR Code já retornado pelo /auth/register (evita chamada extra e problema cross-instância)
+      const cachedQr = localStorage.getItem('mfa_qr');
+      if (cachedQr) {
+        qrImg.src = cachedQr;
+        localStorage.setItem('mfa_email', email);
+        sessionStorage.setItem('mfa_email', email);
+        console.log("✅ QR Code carregado do cache de registro");
+        addDebug('✅ QR Code exibido (cache do registro)');
+        return;
+      }
+
+      // Fallback: buscar QR Code via API (fluxo direto para /mfa/setup sem passar pelo registro)
       try {
-        // ✅ Requisição para gerar QR Code
-        console.log("📡 Solicitando QR Code...");
+        console.log("📡 Solicitando QR Code via API...");
         addDebug('📡 Enviando requisição para /auth/mfa/setup');
-        
+
         const res = await fetch(`${API_URL}/auth/mfa/setup`, {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
           },
@@ -367,54 +375,40 @@
           credentials: 'include'
         });
 
-        const statusCode = res.status;
-        console.log(`📊 Resposta: ${statusCode}`);
-        addDebug(`📊 Status HTTP: ${statusCode}`);
+        addDebug(`📊 Status HTTP: ${res.status}`);
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({detail: 'Erro desconhecido'}));
           console.error("❌ Erro ao gerar QR:", errData);
           addDebug(`❌ Erro na geração do QR: ${errData.detail}`);
-          
           showAlert(`❌ Erro: ${errData.detail || "Erro ao gerar QR Code"}`, 'error');
-          setTimeout(() => {
-            window.location.href = '/login';
-          }, 2000);
+          setTimeout(() => { window.location.href = '/login'; }, 2000);
           return;
         }
 
         const data = await res.json();
-        console.log("✅ QR Code recebido");
-        addDebug('✅ Resposta do servidor recebida com sucesso');
+        console.log("✅ QR Code recebido da API");
+        addDebug('✅ Resposta do servidor recebida');
 
-        // ✅ Armazenar QR Code
         if (data.qr_code) {
           localStorage.setItem('mfa_qr', data.qr_code);
           qrImg.src = data.qr_code;
-          console.log("✅ QR Code exibido");
           addDebug('✅ QR Code exibido na página');
         }
 
-        // ✅ Armazenar secret (opcional, para recuperação)
         if (data.secret) {
           localStorage.setItem('mfa_secret', data.secret);
-          console.log("✅ Secret armazenado");
-          addDebug('✅ Secret de backup armazenado');
         }
 
-        // ✅ Armazenar email para usar na validação
         localStorage.setItem('mfa_email', email);
         sessionStorage.setItem('mfa_email', email);
-        console.log("✅ Setup pronto para validação");
         addDebug('✅ Setup pronto - aguardando validação do código');
 
       } catch (error) {
         console.error("❌ Erro na requisição:", error);
         addDebug(`❌ Exceção ao gerar QR: ${error.message}`);
         showAlert('❌ Erro ao conectar com o servidor.', 'error');
-        setTimeout(() => {
-          window.location.href = '/login';
-        }, 2000);
+        setTimeout(() => { window.location.href = '/login'; }, 2000);
       }
     }
 

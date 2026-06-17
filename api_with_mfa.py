@@ -49,6 +49,7 @@ from auth_mfa import (  # type: ignore
     register_user,
     require_mfa,
     setup_mfa,
+    sync_from_s3,
     verify_and_activate_mfa,
 )
 
@@ -150,7 +151,10 @@ def auth_mfa_setup(data: MFASetupIn):
     """Gera QR Code para MFA após o login"""
     try:
         email = str(data.email).lower().strip()
-        
+
+        # Sincroniza do S3 antes de buscar — garante visibilidade de usuários criados em outra instância
+        sync_from_s3()
+
         # Validar se usuário existe
         user = USERS_DB.get(email)
         if not user:
