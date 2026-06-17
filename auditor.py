@@ -4,7 +4,7 @@ from __future__ import annotations
 import requests
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk, build_recommendations
 
@@ -134,7 +134,7 @@ class S3Auditor:
                 while len(files) < self.max_objects:
                     url = base_url
                     if continuation_token:
-                        url += f"&continuation-token={continuation_token}"
+                        url += f"&continuation-token={quote(continuation_token, safe='')}"
 
                     r = self.session.get(url, timeout=self.timeout, verify=True)
 
