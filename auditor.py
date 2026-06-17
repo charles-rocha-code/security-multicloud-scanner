@@ -126,9 +126,9 @@ class S3Auditor:
         for base in endpoints:
             # Para path-style, não adiciona barra extra
             if base.endswith(f"/{bucket}"):
-                url = f"{base}?list-type=2&max-keys={min(self.max_objects, 1000)}"
+                url = f"{base}?list-type=2&max-keys={min(self.max_objects, 5000)}"
             else:
-                url = f"{base}/?list-type=2&max-keys={min(self.max_objects, 1000)}"
+                url = f"{base}/?list-type=2&max-keys={min(self.max_objects, 5000)}"
             
             try:
                 r = self.session.get(url, timeout=self.timeout, verify=True)
