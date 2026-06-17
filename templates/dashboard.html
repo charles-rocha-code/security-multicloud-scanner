@@ -291,29 +291,67 @@
       border-top: 1px solid #1f2531;
     }
 
-    .sidebar-recommendations h3 {
-      font-size: 14px;
-      color: #fff;
-      margin-bottom: 10px;
-    }
-
     .sidebar-recommendations ul {
       list-style: none;
       padding: 0;
       margin: 0;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 7px;
     }
 
-    .sidebar-recommendations li {
-      background: #1b2331;
-      padding: 8px 10px;
-      border-radius: 6px;
+    /* Base item */
+    .rec-item {
+      background: #161c27;
+      padding: 9px 11px;
+      border-radius: 8px;
       border-left: 3px solid #3b82f6;
       font-size: 11px;
-      color: #e5e7eb;
-      line-height: 1.4;
+      color: #cbd5e1;
+      line-height: 1.5;
+      transition: background 0.15s;
+    }
+    .rec-item:hover { background: #1e2a3a; }
+
+    /* Prioridade URGENTE */
+    .rec-item.rec-urgent {
+      border-left-color: #ef4444;
+      background: #1a0f0f;
+    }
+    .rec-item.rec-urgent:hover { background: #221212; }
+
+    /* Prioridade CRÍTICO */
+    .rec-item.rec-critical {
+      border-left-color: #f97316;
+      background: #1a1108;
+    }
+    .rec-item.rec-critical:hover { background: #22180a; }
+
+    /* Badge de prioridade */
+    .rec-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+    }
+    .rec-badge-urgent   { background: rgba(239,68,68,0.2);  color: #f87171; }
+    .rec-badge-critical { background: rgba(249,115,22,0.2); color: #fb923c; }
+    .rec-badge-info     { background: rgba(59,130,246,0.2); color: #60a5fa; }
+
+    /* Contador no header */
+    .rec-count-badge {
+      margin-left: auto;
+      background: rgba(59,130,246,0.15);
+      color: #60a5fa;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 10px;
+      border: 1px solid rgba(59,130,246,0.25);
     }
 
     /* ============================
@@ -1559,6 +1597,7 @@
       <div class="sidebar-recommendations">
         <div class="sidebar-header">
           <h3>Recomendações</h3>
+          <span class="rec-count-badge" id="rec-count" style="display:none;"></span>
           <button class="btn-clear-history" onclick="clearRecommendations()">
             🗑️ Limpar
           </button>
@@ -2722,10 +2761,32 @@ function logout() {
         return;
       }
 
+      // Contador
+      const countEl = document.getElementById("rec-count");
+      if (countEl) { countEl.textContent = list.length; countEl.style.display = "inline-block"; }
+
       list.forEach(rec => {
-        const liSidebar = document.createElement("li");
-        liSidebar.textContent = rec;
-        ulSidebar.appendChild(liSidebar);
+        const text = rec || "";
+        const upper = text.toUpperCase();
+
+        // Detecta prioridade pelo texto
+        const isUrgent   = upper.includes("URGENTE") || upper.includes("IMEDIATAMENTE");
+        const isCritical = upper.includes("CRÍTICO") || upper.includes("CRITICO") ||
+                           upper.includes("PASSWORD") || upper.includes("SECRET") ||
+                           upper.includes("CREDENTIAL") || upper.includes("CHAVE") ||
+                           upper.includes("VAZAMENTO");
+
+        const itemClass  = isUrgent ? "rec-urgent" : isCritical ? "rec-critical" : "";
+        const badgeClass = isUrgent ? "rec-badge-urgent" : isCritical ? "rec-badge-critical" : "rec-badge-info";
+        const badgeText  = isUrgent ? "⚠ Urgente" : isCritical ? "● Crítico" : "ℹ Info";
+
+        const li = document.createElement("li");
+        li.className = `rec-item ${itemClass}`;
+        li.innerHTML = `
+          <div class="rec-badge ${badgeClass}">${badgeText}</div>
+          <div>${text}</div>
+        `;
+        ulSidebar.appendChild(li);
       });
     }
 
