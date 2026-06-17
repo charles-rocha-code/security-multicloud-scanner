@@ -376,40 +376,177 @@
       gap: 10px;
     }
 
+    /* Toggle de modo de scan melhorado */
     .scan-mode-toggle {
       display: flex;
-      gap: 10px;
-      background: #0f131b;
+      gap: 4px;
+      background: rgba(255,255,255,0.04);
       padding: 4px;
-      border-radius: 8px;
+      border-radius: 10px;
       width: fit-content;
+      border: 1px solid rgba(255,255,255,0.06);
     }
 
     .toggle-btn {
-      padding: 6px 14px;
+      padding: 7px 16px;
       background: transparent;
-      color: #9ca3af;
+      color: #6b7280;
       border: none;
-      border-radius: 6px;
+      border-radius: 7px;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 500;
-      transition: 0.2s;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
 
-    .toggle-btn:hover {
-      color: #e5e7eb;
-    }
+    .toggle-btn:hover { color: #e5e7eb; background: rgba(255,255,255,0.05); }
 
     .toggle-btn.active {
-      background: #1e90ff;
+      background: #1e40af;
       color: #fff;
+      box-shadow: 0 0 14px rgba(30,64,175,0.4);
     }
+
+    /* Wrapper do campo de scan profissional */
+    .scan-target-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .scan-target-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .scan-input-row {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      background: #0d1521;
+      border: 1px solid #1e2d45;
+      border-radius: 10px;
+      overflow: hidden;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .scan-input-row:focus-within {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+    }
+
+    .scan-provider-icon {
+      padding: 0 14px;
+      font-size: 20px;
+      border-right: 1px solid #1e2d45;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      background: rgba(255,255,255,0.02);
+      min-width: 52px;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    #bucket-input {
+      background: transparent !important;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      padding: 12px 14px !important;
+      font-size: 14px !important;
+      flex: 1;
+      color: #e5e7eb;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    #bucket-input:focus { outline: none; }
+
+    .scan-valid-indicator {
+      padding: 0 14px;
+      font-size: 8px;
+      flex-shrink: 0;
+      transition: color 0.2s;
+    }
+
+    /* Chips de exemplo */
+    .scan-examples {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .scan-example-label {
+      font-size: 11px;
+      color: #4b5563;
+    }
+
+    .scan-chip {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 5px;
+      border: 1px solid #1e2d45;
+      color: #6b7280;
+      cursor: pointer;
+      background: transparent;
+      transition: all 0.15s;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .scan-chip:hover {
+      border-color: #3b82f6;
+      color: #93c5fd;
+      background: rgba(59,130,246,0.08);
+    }
+
+    /* Botão scan melhorado */
+    .btn-scan-pro {
+      background: linear-gradient(135deg, #1d4ed8, #2563eb);
+      color: #fff;
+      padding: 10px 22px;
+      border: none;
+      cursor: pointer;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+      white-space: nowrap;
+      box-shadow: 0 2px 12px rgba(37,99,235,0.35);
+      letter-spacing: 0.2px;
+    }
+    .btn-scan-pro:hover {
+      background: linear-gradient(135deg, #2563eb, #3b82f6);
+      box-shadow: 0 4px 18px rgba(59,130,246,0.45);
+      transform: translateY(-1px);
+    }
+    .btn-scan-pro:active { transform: translateY(0); }
+    .btn-scan-pro:disabled {
+      background: #1f2937;
+      color: #6b7280;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    @keyframes scan-pulse {
+      0%, 100% { box-shadow: 0 2px 12px rgba(37,99,235,0.35); }
+      50%       { box-shadow: 0 4px 24px rgba(59,130,246,0.6); }
+    }
+    .btn-scan-pro.scanning { animation: scan-pulse 1.2s ease-in-out infinite; }
 
     .scan-form-row {
       display: flex;
       gap: 10px;
-      align-items: flex-start;
+      align-items: flex-end;
       flex-wrap: wrap;
     }
 
@@ -1693,25 +1830,48 @@
       <div class="scan-area-sticky">
         <div class="scan-input-area">
           <!-- Toggle Modo de Scan -->
-          <div class="scan-mode-toggle">
-            <button class="toggle-btn active" onclick="setScanMode('public')" id="btn-mode-public">
-              🌐 Scan Público
-            </button>
-            <button class="toggle-btn" onclick="setScanMode('private')" id="btn-mode-private">
-              🔐 Scan Privado
-            </button>
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <div class="scan-mode-toggle">
+              <button class="toggle-btn active" onclick="setScanMode('public')" id="btn-mode-public">
+                🌐 Scan Público
+              </button>
+              <button class="toggle-btn" onclick="setScanMode('private')" id="btn-mode-private">
+                🔐 Scan Privado
+              </button>
+            </div>
+            <span style="font-size:12px; color:#4b5563;">|</span>
+            <span id="scan-mode-hint" style="font-size:12px; color:#6b7280;">
+              Sem credenciais — detecta exposição pública
+            </span>
           </div>
 
-          <!-- Formulário Principal -->
+          <!-- Campo de scan profissional -->
           <div class="scan-form-row" id="scan-form-row">
-            <input
-              id="bucket-input"
-              class="input-field"
-              placeholder="Ex.: my-bucket.s3.amazonaws.com, bucket.storage.googleapis.com, growbiz.blob.core.windows.net"
-            />
+            <div class="scan-target-wrapper" style="flex:1; min-width:280px;">
+              <div class="scan-target-label">Target</div>
+              <div class="scan-input-row">
+                <div class="scan-provider-icon" id="scan-provider-icon" title="Provider detectado">☁️</div>
+                <input
+                  id="bucket-input"
+                  class="input-field"
+                  placeholder="my-bucket.s3.amazonaws.com"
+                  oninput="onScanInputChange(this.value)"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <span class="scan-valid-indicator" id="scan-valid-dot" style="color:#4b5563;">●</span>
+              </div>
+              <div class="scan-examples">
+                <span class="scan-example-label">Ex:</span>
+                <button class="scan-chip" onclick="setScanExample('my-bucket.s3.amazonaws.com')">AWS S3</button>
+                <button class="scan-chip" onclick="setScanExample('storage.googleapis.com/my-bucket')">GCS</button>
+                <button class="scan-chip" onclick="setScanExample('account.blob.core.windows.net/container')">Azure</button>
+              </div>
+            </div>
 
-            <button class="btn-primary" onclick="startScan()" id="scan-btn">
-              ▶ Iniciar Scan
+            <button class="btn-scan-pro" onclick="startScan()" id="scan-btn">
+              <span id="scan-btn-icon">▶</span>
+              <span id="scan-btn-text">Iniciar Scan</span>
             </button>
           </div>
 
@@ -2264,21 +2424,67 @@ function logout() {
     // ============================================================
     // 0. SCAN MODE TOGGLE
     // ============================================================
+    // Detecção de provider pelo valor digitado no input
+    function onScanInputChange(value) {
+      const v = value.trim().toLowerCase();
+      const iconEl  = document.getElementById("scan-provider-icon");
+      const dotEl   = document.getElementById("scan-valid-dot");
+      const hintEl  = document.getElementById("scan-mode-hint");
+
+      if (!iconEl) return;
+
+      let icon = '☁️';
+      if (v.includes('.s3.') || v.includes('s3.amazonaws') || v.includes('s3-') || v.endsWith('.s3')) {
+        icon = '🟠'; // AWS
+      } else if (v.includes('googleapis') || v.includes('storage.google') || v.includes('gcs')) {
+        icon = '🟢'; // GCS
+      } else if (v.includes('blob.core.windows') || v.includes('azure')) {
+        icon = '🔵'; // Azure
+      } else if (v.includes('k8s') || v.includes('kube')) {
+        icon = '🟣'; // K8s
+      }
+      iconEl.textContent = icon;
+
+      // Indicador de validade
+      if (!dotEl) return;
+      if (v.length === 0) {
+        dotEl.style.color = '#4b5563';
+      } else if (v.length > 5 && (v.includes('.') || v.includes('/'))) {
+        dotEl.style.color = '#22c55e';
+        dotEl.title = 'Target válido';
+      } else {
+        dotEl.style.color = '#f59e0b';
+        dotEl.title = 'Digite o endereço completo';
+      }
+    }
+
+    function setScanExample(example) {
+      const input = document.getElementById("bucket-input");
+      if (input) {
+        input.value = example;
+        onScanInputChange(example);
+        input.focus();
+      }
+    }
+
     function setScanMode(mode) {
       scanMode = mode;
-      
+
       const publicBtn = document.getElementById("btn-mode-public");
       const privateBtn = document.getElementById("btn-mode-private");
       const credentialsContainer = document.getElementById("credentials-container");
-      
+      const hintEl = document.getElementById("scan-mode-hint");
+
       if (mode === "public") {
         publicBtn.classList.add("active");
         privateBtn.classList.remove("active");
         credentialsContainer.classList.remove("active");
+        if (hintEl) hintEl.textContent = "Sem credenciais — detecta exposição pública";
       } else {
         privateBtn.classList.add("active");
         publicBtn.classList.remove("active");
         credentialsContainer.classList.add("active");
+        if (hintEl) hintEl.textContent = "Com credenciais — acesso autenticado ao bucket";
       }
     }
 
@@ -2325,36 +2531,34 @@ function logout() {
     }
 
     function startPublicScan(bucket) {
-      const scanBtn = document.getElementById("scan-btn");
+      const scanBtn  = document.getElementById("scan-btn");
+      const btnIcon  = document.getElementById("scan-btn-icon");
+      const btnText  = document.getElementById("scan-btn-text");
       scanBtn.disabled = true;
-      scanBtn.textContent = "⏳ Scaneando...";
-      
-      // Reset filtros antes do scan
+      scanBtn.classList.add("scanning");
+      if (btnIcon) btnIcon.textContent = "⏳";
+      if (btnText) btnText.textContent = "Scaneando...";
+
       resetFilters();
-      
       animateScanStart();
 
       fetch("/scan/" + encodeURIComponent(bucket), { headers: { "Authorization": `Bearer ${getAuthToken()}` }, credentials: "include" })
         .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
         .then(({ ok, status, data }) => {
-          console.log("SCAN RESULT:", data);
           if (!ok || data.error || data.detail) {
             alert(data.error || data.detail || `Erro HTTP ${status}: falha no scan.`);
             return;
           }
           updateUI(data);
           saveScanToHistory(data);
-
-          // Mostrar botões de relatório após scan bem-sucedido
           showActionButtons();
         })
-        .catch(err => {
-          console.error(err);
-          alert("Erro ao conectar com a API /scan.");
-        })
+        .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan."); })
         .finally(() => {
           scanBtn.disabled = false;
-          scanBtn.textContent = "▶ Iniciar Scan";
+          scanBtn.classList.remove("scanning");
+          if (btnIcon) btnIcon.textContent = "▶";
+          if (btnText) btnText.textContent = "Iniciar Scan";
         });
     }
 
