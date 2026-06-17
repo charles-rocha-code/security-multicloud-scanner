@@ -3457,9 +3457,8 @@ Ou use o console web do provider.`);
           },
           credentials: 'include', //    
           body: JSON.stringify({
-            scan_data: globalResult,
+            scan_result: globalResult,
             client_name: clientName,
-            client_contact: clientContact,
             output_format: 'both'  // PDF + DOCX
           })
         });

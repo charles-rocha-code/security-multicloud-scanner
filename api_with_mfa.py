@@ -226,6 +226,7 @@ class AuthenticatedScanIn(BaseModel):
 
 class GenerateReportIn(BaseModel):
     scan_result: Dict[str, Any] = Field(default_factory=dict)
+    scan_data: Dict[str, Any] = Field(default_factory=dict)  # alias frontend legacy
     report_title: str = "Relatório Executivo de Segurança"
     client_name: Optional[str] = None
 
@@ -774,7 +775,8 @@ def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa)):
 # -----------------------------------------------------------------------------
 @app.post("/generate-report")
 def generate_report(data: GenerateReportIn, user=Depends(require_mfa)):
-    scan: Dict[str, Any] = data.scan_result or {}
+    # Aceita scan_result ou scan_data (chave legacy do frontend)
+    scan: Dict[str, Any] = data.scan_result or data.scan_data or {}
     email = user.get("email") if isinstance(user, dict) else None
 
     cached_scan = LAST_SCAN_BY_EMAIL.get(email) if email else None
