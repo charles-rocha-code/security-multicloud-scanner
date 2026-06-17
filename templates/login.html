@@ -367,18 +367,27 @@
 
             } else {
                 console.error("❌ Erro:", data.detail);
-                
-                if (data.detail === 'MFA code required') {
+
+                // Pydantic v2 retorna detail como array de objetos [{loc, msg, type}]
+                const detailMsg = Array.isArray(data.detail)
+                    ? data.detail.map(e => `[${(e.loc || []).slice(1).join('.')}] ${e.msg}`).join(' | ')
+                    : (data.detail || 'Erro ao fazer login');
+
+                console.error("❌ Detail:", detailMsg);
+                addDebug(`Erro: ${detailMsg}`);
+
+                if (response.status === 422) {
+                    showAlert(`Erro de validação: ${detailMsg}`, 'error');
+                } else if (data.detail === 'MFA code required') {
                     mfaGroup.classList.remove('hidden');
                     showAlert('Digite o código MFA do Google Authenticator', 'info');
-                } else if (data.detail === 'Invalid credentials') {
+                } else if (data.detail === 'Invalid credentials' || data.detail === 'Credenciais inválidas') {
                     showAlert('Email ou senha incorretos!', 'error');
-                } else if (data.detail === 'Invalid MFA code') {
+                } else if (data.detail === 'Invalid MFA code' || data.detail === 'Código MFA inválido') {
                     showAlert('Código MFA incorreto ou expirado!', 'error');
                 } else {
-                    showAlert(data.detail || 'Erro ao fazer login', 'error');
+                    showAlert(detailMsg, 'error');
                 }
-                addDebug(`Erro: ${data.detail}`);
             }
 
         } catch (error) {
