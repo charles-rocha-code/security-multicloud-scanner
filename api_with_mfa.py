@@ -29,9 +29,11 @@ Obs:
 
 from __future__ import annotations
 
+import time
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import Depends, FastAPI, HTTPException, Request , Response
 from fastapi.exceptions import RequestValidationError
@@ -104,6 +106,22 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return JSONResponse(status_code=422, content={"detail": errors})
 # Cache em memória do último scan por usuário (email) - ajuda a gerar relatório
 LAST_SCAN_BY_EMAIL: Dict[str, Dict[str, Any]] = {}
+
+# Rate limiting manual para /auth/login — os decorators @limiter.limit encadeados
+# corrompem a inspeção de assinatura do FastAPI e causam 422 "Field required"
+_login_ts_minute: Dict[str, List[float]] = defaultdict(list)
+_login_ts_hour: Dict[str, List[float]] = defaultdict(list)
+
+def _check_login_rate(ip: str) -> None:
+    now = time.time()
+    _login_ts_minute[ip] = [t for t in _login_ts_minute[ip] if now - t < 60]
+    _login_ts_hour[ip]   = [t for t in _login_ts_hour[ip]   if now - t < 3600]
+    if len(_login_ts_minute[ip]) >= 3:
+        raise HTTPException(status_code=429, detail="Muitas tentativas. Aguarde 1 minuto.")
+    if len(_login_ts_hour[ip]) >= 10:
+        raise HTTPException(status_code=429, detail="Limite por hora atingido. Aguarde antes de tentar novamente.")
+    _login_ts_minute[ip].append(now)
+    _login_ts_hour[ip].append(now)
 
 app.add_middleware(
     CORSMiddleware,
@@ -540,9 +558,8 @@ def auth_register(data: UserRegisterIn):
 
 
 @app.post("/auth/login")
-@limiter.limit("10/hour")
-@limiter.limit("3/minute")
 def auth_login(request: Request, data: UserLoginIn, response: Response):
+    _check_login_rate(get_client_ip(request))
     return login_user(email=data.email, password=data.password, mfa_code=data.mfa_code, response=response)
 
 
