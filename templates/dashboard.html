@@ -1848,6 +1848,18 @@
           </div>
 
           <!-- ============================
+               RESUMO EXECUTIVO
+               ============================ -->
+          <div id="executive-summary" style="display:none; margin-bottom:16px; border:1px solid #1f2937; border-radius:10px; overflow:hidden;">
+            <div style="background:#161b26; padding:10px 16px; border-bottom:1px solid #1f2937; display:flex; align-items:center; gap:8px;">
+              <span style="font-size:16px;">🚨</span>
+              <span style="font-weight:600; color:#e5e7eb; font-size:14px;">Achados Críticos</span>
+              <span id="exec-total-badge" style="margin-left:auto; font-size:12px; color:#9ca3af;"></span>
+            </div>
+            <div id="exec-findings" style="display:flex; flex-wrap:wrap; gap:0; background:#0e1117;"></div>
+          </div>
+
+          <!-- ============================
                TABELA DE ARQUIVOS
                ============================ -->
           <table class="file-table">
@@ -2080,7 +2092,7 @@ function logout() {
 
     // Paginação
     let currentPage = 1;
-    let itemsPerPage = 10;  // Reduzido para 10 itens por página para melhor visibilidade
+    let itemsPerPage = 50;
 
     // Modo de scan (public ou private)
     let scanMode = "public";
@@ -2381,6 +2393,56 @@ function logout() {
 
       // Tabela de arquivos (salva base + aplica filtros)
       updateFileList(files);
+
+      // Resumo executivo de achados
+      renderExecutiveSummary(files, data);
+    }
+
+    // ============================================================
+    // RESUMO EXECUTIVO
+    // ============================================================
+    function renderExecutiveSummary(files, data) {
+      const summary = document.getElementById('executive-summary');
+      const findingsDiv = document.getElementById('exec-findings');
+      const totalBadge = document.getElementById('exec-total-badge');
+      if (!summary || !files || files.length === 0) { summary && (summary.style.display = 'none'); return; }
+
+      // Grupos de arquivos sensíveis
+      const groups = [
+        { label: '🔑 Credenciais', exts: ['.env', '.env.local', '.env.prod', '.credentials', '.secret'], color: '#ef4444', bg: '#450a0a' },
+        { label: '🗝️ Chaves', exts: ['.pem', '.key', '.p12', '.pfx', '.crt', '.cer', '.ppk'], color: '#f97316', bg: '#431407' },
+        { label: '🗄️ Backups SQL', exts: ['.sql', '.dump', '.bak', '.backup', '.db', '.sqlite', '.mdb'], color: '#eab308', bg: '#422006' },
+        { label: '📄 Configs', exts: ['.config', '.conf', '.cfg', '.ini', '.yaml', '.yml', '.toml'], color: '#a78bfa', bg: '#2e1065' },
+        { label: '📦 Código-fonte', exts: ['.py', '.js', '.ts', '.php', '.rb', '.go', '.java', '.sh', '.bash'], color: '#38bdf8', bg: '#082f49' },
+        { label: '📋 Documentos', exts: ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.csv'], color: '#34d399', bg: '#052e16' },
+      ];
+
+      const getExt = f => {
+        const k = (f.key || '').toLowerCase();
+        const dot = k.lastIndexOf('.');
+        return dot >= 0 ? k.substring(dot) : '';
+      };
+
+      const cards = groups.map(g => {
+        const matches = files.filter(f => g.exts.some(e => getExt(f) === e || (f.key||'').toLowerCase().includes(e)));
+        return { ...g, count: matches.length };
+      }).filter(g => g.count > 0);
+
+      if (cards.length === 0) { summary.style.display = 'none'; return; }
+
+      const publicAccess = data && data.public_access;
+      const totalSize = files.reduce((a, f) => a + (f.size || 0), 0);
+      totalBadge.textContent = `${files.length} arquivos · ${formatBytes(totalSize)} · ${publicAccess ? '⚠️ Público' : '🔒 Privado'}`;
+
+      findingsDiv.innerHTML = cards.map(g => `
+        <div style="flex:1; min-width:160px; padding:14px 16px; border-right:1px solid #1f2937; background:${g.bg}20;">
+          <div style="font-size:20px; margin-bottom:6px;">${g.label.split(' ')[0]}</div>
+          <div style="font-size:22px; font-weight:700; color:${g.color};">${g.count}</div>
+          <div style="font-size:12px; color:#9ca3af; margin-top:2px;">${g.label.split(' ').slice(1).join(' ')}</div>
+        </div>
+      `).join('');
+
+      summary.style.display = 'block';
     }
 
     // ============================================================
@@ -2873,10 +2935,21 @@ function logout() {
       const endItem = Math.min(currentPage * itemsPerPage, totalItems);
       
       paginationDiv.innerHTML = `
-        <div style="color: #9ca3af; font-size: 14px;">
-          Mostrando <strong style="color: #e5e7eb;">${startItem}-${endItem}</strong> de <strong style="color: #e5e7eb;">${totalItems}</strong> arquivos
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="color: #9ca3af; font-size: 14px;">
+            Mostrando <strong style="color: #e5e7eb;">${startItem}-${endItem}</strong> de <strong style="color: #e5e7eb;">${totalItems}</strong> arquivos
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; font-size:13px; color:#9ca3af;">
+            Itens/pág:
+            ${[25, 50, 100].map(n => `
+              <button onclick="changeItemsPerPage(${n})"
+                style="padding:3px 9px; border-radius:5px; border:1px solid #4b5563; cursor:pointer; font-size:12px;
+                  background:${itemsPerPage===n?'#1e90ff':'#374151'}; color:${itemsPerPage===n?'#fff':'#e5e7eb'};">
+                ${n}
+              </button>`).join('')}
+          </div>
         </div>
-        
+
         <div style="display: flex; gap: 8px; align-items: center;">
           <button 
             onclick="goToPage(1)" 
@@ -2921,6 +2994,12 @@ function logout() {
       `;
     }
     
+    function changeItemsPerPage(n) {
+      itemsPerPage = n;
+      currentPage = 1;
+      applyFilters();
+    }
+
     function goToPage(pageNumber) {
       // Armazenar os arquivos filtrados atuais
       let filtered = fullFileList.slice();
