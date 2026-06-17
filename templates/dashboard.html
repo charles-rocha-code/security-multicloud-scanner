@@ -815,43 +815,97 @@
       margin-right: 4px;
     }
 
+    /* Botões de severidade — ghost quando inativo, solid+glow quando ativo */
     .filter-btn {
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 600;
-      border: none;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
       cursor: pointer;
-      background: #1f2937;
+      transition: all 0.18s;
+      letter-spacing: 0.3px;
+      background: transparent;
+      opacity: 0.45;
+    }
+
+    .filter-btn.active { opacity: 1; transform: scale(1.05); }
+
+    /* Severidade: border + cor de texto no estado base */
+    .sev-critical {
+      border: 1.5px solid #ef4444;
+      color: #f87171;
+    }
+    .sev-critical.active {
+      background: #ef4444;
       color: #fff;
-      transition: .2s;
+      box-shadow: 0 0 10px #ef444488;
     }
 
-    .filter-btn.active {
-      box-shadow: 0 0 10px rgba(255,255,255,0.3);
-      transform: scale(1.05);
+    .sev-high {
+      border: 1.5px solid #f97316;
+      color: #fb923c;
+    }
+    .sev-high.active {
+      background: #f97316;
+      color: #fff;
+      box-shadow: 0 0 10px #f9731688;
     }
 
-    .sev-critical { background: #b91c1c; }
-    .sev-high     { background: #b45309; }
-    .sev-medium   { background: #1d4ed8; }
-    .sev-low      { background: #15803d; }
+    .sev-medium {
+      border: 1.5px solid #3b82f6;
+      color: #60a5fa;
+    }
+    .sev-medium.active {
+      background: #3b82f6;
+      color: #fff;
+      box-shadow: 0 0 10px #3b82f688;
+    }
+
+    .sev-low {
+      border: 1.5px solid #22c55e;
+      color: #4ade80;
+    }
+    .sev-low.active {
+      background: #22c55e;
+      color: #fff;
+      box-shadow: 0 0 10px #22c55e88;
+    }
 
     .filter-reset {
-      background: #475569;
+      border: 1.5px solid #475569;
+      color: #94a3b8;
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      background: transparent;
+      transition: all 0.18s;
+      opacity: 1;
+    }
+    .filter-reset:hover {
+      border-color: #64748b;
+      color: #e2e8f0;
+      background: rgba(100,116,139,0.1);
     }
 
     .filter-input {
       padding: 6px 10px;
       border-radius: 6px;
-      background: #0f131b;
+      background: rgba(255,255,255,0.03);
       border: 1px solid #2a3140;
-      color: #fff;
+      color: #e5e7eb;
       font-size: 12px;
+      transition: border-color 0.2s;
+    }
+    .filter-input:focus {
+      outline: none;
+      border-color: #3b82f6;
+      background: rgba(59,130,246,0.05);
     }
 
     #ext-filter {
-      background: #0f131b;
+      background: rgba(255,255,255,0.03);
       border: 1px solid #2a3140;
       border-radius: 6px;
       color: #e5e7eb;
@@ -860,57 +914,55 @@
     }
 
     /* ============================
-       BULK ACTIONS
+       BULK ACTIONS — ghost style
        ============================ */
     .bulk-actions-header {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       align-items: center;
     }
 
     .btn-bulk-action {
-      padding: 8px 16px;
-      border: none;
-      border-radius: 6px;
+      padding: 7px 14px;
+      border-radius: 8px;
       font-size: 12px;
-      font-weight: 500;
+      font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
+      transition: all 0.18s;
+      display: inline-flex;
       align-items: center;
       gap: 6px;
     }
 
     .btn-select-all {
-      background: #1e40af;
-      color: #dbeafe;
+      background: rgba(59,130,246,0.1);
+      border: 1px solid rgba(59,130,246,0.35);
+      color: #60a5fa;
     }
-
     .btn-select-all:hover {
-      background: #1e3a8a;
+      background: rgba(59,130,246,0.2);
+      border-color: #3b82f6;
       color: #fff;
     }
 
     .btn-delete-selected {
-      background: #991b1b;
-      color: #fecaca;
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.25);
+      color: #f87171;
     }
-
     .btn-delete-selected:hover:not(:disabled) {
-      background: #7f1d1d;
+      background: rgba(239,68,68,0.18);
+      border-color: rgba(239,68,68,0.55);
       color: #fff;
     }
-
     .btn-delete-selected:disabled {
-      background: #374151;
-      color: #6b7280;
+      background: transparent;
+      border: 1px solid #1f2937;
+      color: #374151;
       cursor: not-allowed;
-      opacity: 0.5;
     }
 
-    #selected-count {
-      font-weight: 700;
-    }
+    #selected-count { font-weight: 700; }
 
     /* Checkbox styling */
     .file-table input[type="checkbox"] {
