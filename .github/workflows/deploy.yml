@@ -40,12 +40,26 @@ jobs:
             "arn:aws:elasticloadbalancing:us-east-2:442042548551:targetgroup/security-scanner-tg-green/c45365c904a3218c"
           )
 
-          # Descobre instâncias healthy do ASG
-          INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+          # Descobre instâncias healthy do ASG em estado running (exclui bootstrapping/terminating)
+          ALL_IDS=$(aws autoscaling describe-auto-scaling-groups \
             --region "$REGION" \
             --auto-scaling-group-names "$ASG_NAME" \
             --query "AutoScalingGroups[].Instances[?HealthStatus=='Healthy'].InstanceId" \
             --output text | tr '\t' ' ')
+
+          INSTANCE_IDS=""
+          for ID in $ALL_IDS; do
+            STATE=$(aws ec2 describe-instances \
+              --instance-ids "$ID" --region "$REGION" \
+              --query "Reservations[0].Instances[0].State.Name" \
+              --output text 2>/dev/null || echo "unknown")
+            if [ "$STATE" = "running" ]; then
+              INSTANCE_IDS="$INSTANCE_IDS $ID"
+            else
+              echo "⚠️ Ignorando $ID — estado: $STATE"
+            fi
+          done
+          INSTANCE_IDS=$(echo $INSTANCE_IDS | xargs)
 
           echo "Instâncias encontradas: $INSTANCE_IDS"
           TOTAL=$(echo $INSTANCE_IDS | wc -w)
@@ -153,8 +167,18 @@ jobs:
 
             [ "$STATUS" = "Success" ] || { echo "❌ Timeout em $INSTANCE_ID"; FAILED=1; }
 
-            # Re-registra no ALB sempre (sucesso ou falha) para não deixar instância fora de rotação
+            # Re-registra no ALB apenas se instância ainda está em running
             if [ "${#REGISTERED_TGS[@]}" -gt 0 ]; then
+              INST_STATE=$(aws ec2 describe-instances \
+                --instance-ids "$INSTANCE_ID" \
+                --region "$REGION" \
+                --query "Reservations[0].Instances[0].State.Name" \
+                --output text 2>/dev/null || echo "unknown")
+              echo "Estado EC2 de $INSTANCE_ID: $INST_STATE"
+
+              if [ "$INST_STATE" != "running" ]; then
+                echo "⚠️ $INSTANCE_ID não está running ($INST_STATE) — pulando re-registro no ALB"
+              else
               for TG_ARN in "${REGISTERED_TGS[@]}"; do
                 echo "Re-registrando $INSTANCE_ID em $TG_ARN..."
                 aws elbv2 register-targets \
@@ -178,6 +202,7 @@ jobs:
                 fi
               done
               echo "✅ $INSTANCE_ID re-registrado no ALB"
+              fi  # fim do check running
             fi
           done
 
