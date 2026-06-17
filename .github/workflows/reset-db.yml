@@ -34,18 +34,22 @@ jobs:
             exit 1
           fi
 
-          # Zera S3 e arquivos locais via SSM (instâncias têm IAM role com acesso ao S3)
+          # Script Python codificado em base64 para evitar problemas de quoting no JSON/SSM
+          # Decodifica e executa via boto3 (mesma lib da app, IAM role garantida)
+          RESET_SCRIPT="aW1wb3J0IGJvdG8zCnMzPWJvdG8zLmNsaWVudCgiczMiLHJlZ2lvbl9uYW1lPSJ1cy1lYXN0LTIiKQpmb3IgayBpbiBbImRiL3VzZXJzX2RiLmpzb24iLCJkYi9zZXNzaW9uc19kYi5qc29uIl06CiAgICBzMy5wdXRfb2JqZWN0KEJ1Y2tldD0ic2VjdXJpdHktc2Nhbm5lci1kYi00NDIwNDI1NDg1NTEiLEtleT1rLEJvZHk9Int9IixDb250ZW50VHlwZT0iYXBwbGljYXRpb24vanNvbiIpCnByaW50KCJTMyB6ZXJhZG8gY29tIHN1Y2Vzc28iKQo="
+
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids $INSTANCE_IDS \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=[
-              "printf \"{}\" > /home/ubuntu/security-scanner/users_db.json",
-              "printf \"{}\" > /home/ubuntu/security-scanner/sessions_db.json",
-              "aws s3 cp /home/ubuntu/security-scanner/users_db.json    s3://security-scanner-db-442042548551/db/users_db.json    --region us-east-2",
-              "aws s3 cp /home/ubuntu/security-scanner/sessions_db.json s3://security-scanner-db-442042548551/db/sessions_db.json --region us-east-2",
-              "sudo systemctl restart security-scanner || pkill -f uvicorn || true",
-              "echo RESET_OK"
-            ]' \
+            --parameters "{\"commands\":[
+              \"set -e\",
+              \"printf '{}' > /home/ubuntu/security-scanner/users_db.json\",
+              \"printf '{}' > /home/ubuntu/security-scanner/sessions_db.json\",
+              \"echo $RESET_SCRIPT | base64 -d | python3\",
+              \"sudo systemctl restart security-scanner || pkill -f uvicorn || true\",
+              \"sleep 6\",
+              \"curl -sf http://127.0.0.1:8000/health && echo RESET_OK\"
+            ]}" \
             --region "$REGION" \
             --query 'Command.CommandId' \
             --output text)
