@@ -1719,10 +1719,14 @@
        ============================================================ -->
   <header class="main-header">
     <div class="logo-area">
-      <div class="logo-icon">🛡️</div>
+      <div style="width:32px; height:32px; border-radius:8px; background:linear-gradient(135deg,#1d4ed8,#4f46e5); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </div>
       <div>
         <div class="logo-text">Security Multicloud Dashboard</div>
-        <div style="font-size: 12px; color: #9ca3af;">
+        <div style="font-size: 11px; color: #6b7280; letter-spacing:0.3px;">
           CSPM & CWPP — AWS · Google Cloud · Azure · Kubernetes
         </div>
       </div>
@@ -1861,11 +1865,8 @@
                 />
                 <span class="scan-valid-indicator" id="scan-valid-dot" style="color:#4b5563;">●</span>
               </div>
-              <div class="scan-examples">
-                <span class="scan-example-label">Ex:</span>
-                <button class="scan-chip" onclick="setScanExample('my-bucket.s3.amazonaws.com')">AWS S3</button>
-                <button class="scan-chip" onclick="setScanExample('storage.googleapis.com/my-bucket')">GCS</button>
-                <button class="scan-chip" onclick="setScanExample('account.blob.core.windows.net/container')">Azure</button>
+              <div style="font-size:11px; color:#4b5563; padding:2px 0;" id="scan-format-hint">
+                Formato: <span id="scan-format-example" style="color:#374151; font-family:monospace;">bucket.s3.amazonaws.com · storage.googleapis.com/bucket · account.blob.core.windows.net/container</span>
               </div>
             </div>
 
@@ -2224,55 +2225,81 @@
              BOTÕES DE AÇÃO / RELATÓRIOS
              ============================================================ -->
         <div class="action-buttons-container" id="action-buttons" style="display: none;">
-          <div class="action-buttons-header">
-            <h3>📊 Exportar Resultados</h3>
-            <p>Gere relatórios profissionais ou exporte os dados do scan</p>
-          </div>
-          
-          <div class="action-buttons-grid">
-            <!-- Botão: Relatório Executivo -->
-            <button class="action-btn action-btn-primary" onclick="generateExecutiveReport()">
-              <div class="action-btn-icon">📄</div>
-              <div class="action-btn-content">
-                <div class="action-btn-title">Relatório Executivo</div>
-                <div class="action-btn-desc">PDF + DOCX profissional para cliente</div>
-              </div>
-            </button>
 
-            <!-- Botão: Exportar JSON -->
-            <button class="action-btn action-btn-secondary" onclick="exportJSON()">
-              <div class="action-btn-icon">💾</div>
-              <div class="action-btn-content">
-                <div class="action-btn-title">Exportar JSON</div>
-                <div class="action-btn-desc">Dados completos do scan em JSON</div>
-              </div>
-            </button>
-
-            <!-- Botão: Exportar CSV -->
-            <button class="action-btn action-btn-secondary" onclick="exportCSV()">
-              <div class="action-btn-icon">📊</div>
-              <div class="action-btn-content">
-                <div class="action-btn-title">Exportar CSV</div>
-                <div class="action-btn-desc">Tabela de arquivos em CSV</div>
-              </div>
-            </button>
-
-            <!-- Botão: Compartilhar -->
-            <button class="action-btn action-btn-secondary" onclick="shareResults()">
-              <div class="action-btn-icon">🔗</div>
-              <div class="action-btn-content">
-                <div class="action-btn-title">Compartilhar</div>
-                <div class="action-btn-desc">Gerar link para compartilhamento</div>
-              </div>
-            </button>
-          </div>
-
-          <!-- Status da geração de relatório -->
-          <div class="report-status" id="report-status" style="display: none;">
-            <div class="report-status-content">
-              <div class="spinner"></div>
+          <!-- Header compacto com metadados do scan -->
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+            <div>
+              <div style="font-size:15px; font-weight:600; color:#e5e7eb;">Exportar Resultados</div>
+              <div style="font-size:12px; color:#6b7280; margin-top:2px;" id="export-meta">Scan concluído</div>
+            </div>
+            <div id="report-status" style="display:none; align-items:center; gap:8px; font-size:13px; color:#60a5fa;">
+              <div class="spinner" style="width:14px;height:14px;border-width:2px;"></div>
               <span id="report-status-text">Gerando relatório...</span>
             </div>
+          </div>
+
+          <!-- Grid de ações compacto -->
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px;">
+
+            <!-- Relatório Executivo — CTA principal -->
+            <button onclick="generateExecutiveReport()" style="
+              grid-column: span 2;
+              display:flex; align-items:center; gap:14px;
+              padding:16px 20px; border-radius:10px; border:none; cursor:pointer; text-align:left;
+              background:linear-gradient(135deg,#1d4ed8,#4f46e5);
+              color:#fff; transition:all 0.2s;
+              box-shadow:0 4px 14px rgba(79,70,229,0.35);"
+              onmouseover="this.style.boxShadow='0 6px 20px rgba(79,70,229,0.5)'; this.style.transform='translateY(-1px)'"
+              onmouseout="this.style.boxShadow='0 4px 14px rgba(79,70,229,0.35)'; this.style.transform='translateY(0)'">
+              <div style="width:40px;height:40px;border-radius:8px;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+                </svg>
+              </div>
+              <div>
+                <div style="font-size:14px;font-weight:700;margin-bottom:2px;">Relatório Executivo</div>
+                <div style="font-size:11px;opacity:0.8;">PDF + DOCX para cliente</div>
+              </div>
+            </button>
+
+            <!-- Exportar JSON -->
+            <button onclick="exportJSON()" style="
+              display:flex; align-items:center; gap:12px;
+              padding:16px; border-radius:10px; cursor:pointer; text-align:left;
+              background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);
+              color:#e5e7eb; transition:all 0.2s;"
+              onmouseover="this.style.borderColor='#3b82f6'; this.style.background='rgba(59,130,246,0.08)'"
+              onmouseout="this.style.borderColor='rgba(255,255,255,0.08)'; this.style.background='rgba(255,255,255,0.03)'">
+              <div style="width:36px;height:36px;border-radius:8px;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+                </svg>
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:600;">JSON</div>
+                <div style="font-size:11px;color:#6b7280;">Dados completos</div>
+              </div>
+            </button>
+
+            <!-- Exportar CSV -->
+            <button onclick="exportCSV()" style="
+              display:flex; align-items:center; gap:12px;
+              padding:16px; border-radius:10px; cursor:pointer; text-align:left;
+              background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);
+              color:#e5e7eb; transition:all 0.2s;"
+              onmouseover="this.style.borderColor='#22c55e'; this.style.background='rgba(34,197,94,0.08)'"
+              onmouseout="this.style.borderColor='rgba(255,255,255,0.08)'; this.style.background='rgba(255,255,255,0.03)'">
+              <div style="width:36px;height:36px;border-radius:8px;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>
+                </svg>
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:600;">CSV</div>
+                <div style="font-size:11px;color:#6b7280;">Tabela de achados</div>
+              </div>
+            </button>
+
           </div>
         </div>
 
@@ -2427,35 +2454,34 @@ function logout() {
     // Detecção de provider pelo valor digitado no input
     function onScanInputChange(value) {
       const v = value.trim().toLowerCase();
-      const iconEl  = document.getElementById("scan-provider-icon");
-      const dotEl   = document.getElementById("scan-valid-dot");
-      const hintEl  = document.getElementById("scan-mode-hint");
+      const iconEl   = document.getElementById("scan-provider-icon");
+      const dotEl    = document.getElementById("scan-valid-dot");
+      const inputEl  = document.getElementById("bucket-input");
+      const hintEl   = document.getElementById("scan-format-example");
 
-      if (!iconEl) return;
+      const providers = {
+        aws:   { icon: '🟠', label: 'AWS S3',   placeholder: 'my-bucket.s3.amazonaws.com',                hint: 'bucket.s3.region.amazonaws.com' },
+        gcs:   { icon: '🟢', label: 'GCS',      placeholder: 'storage.googleapis.com/my-bucket',          hint: 'storage.googleapis.com/bucket-name' },
+        azure: { icon: '🔵', label: 'Azure',    placeholder: 'account.blob.core.windows.net/container',   hint: 'account.blob.core.windows.net/container' },
+        k8s:   { icon: '🟣', label: 'K8s',      placeholder: 'kubernetes-cluster.endpoint',               hint: 'kubernetes cluster endpoint' },
+      };
 
-      let icon = '☁️';
-      if (v.includes('.s3.') || v.includes('s3.amazonaws') || v.includes('s3-') || v.endsWith('.s3')) {
-        icon = '🟠'; // AWS
-      } else if (v.includes('googleapis') || v.includes('storage.google') || v.includes('gcs')) {
-        icon = '🟢'; // GCS
-      } else if (v.includes('blob.core.windows') || v.includes('azure')) {
-        icon = '🔵'; // Azure
-      } else if (v.includes('k8s') || v.includes('kube')) {
-        icon = '🟣'; // K8s
-      }
-      iconEl.textContent = icon;
+      let detected = null;
+      if (v.includes('.s3.') || v.includes('s3.amazonaws') || v.includes('s3-'))   detected = 'aws';
+      else if (v.includes('googleapis') || v.includes('storage.google'))             detected = 'gcs';
+      else if (v.includes('blob.core.windows') || v.includes('azure'))              detected = 'azure';
+      else if (v.includes('k8s') || v.includes('kube'))                             detected = 'k8s';
+
+      if (iconEl) iconEl.textContent = detected ? providers[detected].icon : '☁️';
+      if (hintEl) hintEl.textContent = detected
+        ? providers[detected].hint
+        : 'bucket.s3.amazonaws.com · storage.googleapis.com/bucket · account.blob.core.windows.net/container';
 
       // Indicador de validade
       if (!dotEl) return;
-      if (v.length === 0) {
-        dotEl.style.color = '#4b5563';
-      } else if (v.length > 5 && (v.includes('.') || v.includes('/'))) {
-        dotEl.style.color = '#22c55e';
-        dotEl.title = 'Target válido';
-      } else {
-        dotEl.style.color = '#f59e0b';
-        dotEl.title = 'Digite o endereço completo';
-      }
+      if (v.length === 0) { dotEl.style.color = '#4b5563'; }
+      else if (v.length > 5 && (v.includes('.') || v.includes('/'))) { dotEl.style.color = '#22c55e'; }
+      else { dotEl.style.color = '#f59e0b'; }
     }
 
     function setScanExample(example) {
