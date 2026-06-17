@@ -2197,8 +2197,8 @@ function logout() {
 
   let payload = {
     bucket: bucket,
-    provider: providerMap[provider] || provider.toUpperCase(),  // ← LINHA NOVA
-    max_objects: 1000
+    provider: providerMap[provider] || provider.toUpperCase(),
+    max_objects: 5000
   };
 
       // Validação e montagem do payload por provider
@@ -2269,7 +2269,7 @@ function logout() {
             "Content-Type": "application/json",
             ...(__k8sToken ? { "Authorization": `Bearer ${__k8sToken}` } : {})
           },
-          body: JSON.stringify({ kubeconfig: kubeconfig, max_objects: 1000 })
+          body: JSON.stringify({ kubeconfig: kubeconfig, max_objects: 5000 })
         })
           .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
           .then(({ ok, status, data }) => {
