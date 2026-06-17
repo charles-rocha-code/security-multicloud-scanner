@@ -20,14 +20,6 @@ jobs:
           set -euo pipefail
 
           REGION="us-east-2"
-          S3_BUCKET="security-scanner-db-442042548551"
-
-          # Zera os arquivos no S3 PRIMEIRO (fonte primária de dados da app)
-          echo "Zerando banco no S3..."
-          echo '{}' | aws s3 cp - "s3://${S3_BUCKET}/db/users_db.json"    --content-type application/json --region "$REGION"
-          echo '{}' | aws s3 cp - "s3://${S3_BUCKET}/db/sessions_db.json" --content-type application/json --region "$REGION"
-          echo "✅ S3 zerado"
-
           # Descobre instâncias healthy apenas do ASG principal
           INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
             --region "$REGION" \
@@ -42,13 +34,15 @@ jobs:
             exit 1
           fi
 
-          # Reinicia o serviço nas instâncias para recarregar o DB do S3 zerado
+          # Zera S3 e arquivos locais via SSM (instâncias têm IAM role com acesso ao S3)
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids $INSTANCE_IDS \
             --document-name "AWS-RunShellScript" \
             --parameters 'commands=[
               "printf \"{}\" > /home/ubuntu/security-scanner/users_db.json",
               "printf \"{}\" > /home/ubuntu/security-scanner/sessions_db.json",
+              "aws s3 cp /home/ubuntu/security-scanner/users_db.json    s3://security-scanner-db-442042548551/db/users_db.json    --region us-east-2",
+              "aws s3 cp /home/ubuntu/security-scanner/sessions_db.json s3://security-scanner-db-442042548551/db/sessions_db.json --region us-east-2",
               "sudo systemctl restart security-scanner || pkill -f uvicorn || true",
               "echo RESET_OK"
             ]' \
