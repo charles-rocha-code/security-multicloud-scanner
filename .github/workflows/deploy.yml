@@ -65,7 +65,9 @@ jobs:
             echo ""
             echo "=== Deployando em $INSTANCE_ID ==="
 
-            # Deregistra do ALB (apenas se houver mais de 1 instância)
+            # Rastreia quais TGs tinham esta instância ANTES de deregistrar
+            REGISTERED_TGS=()
+
             if [ "$TOTAL" -gt 1 ]; then
               for TG_ARN in "${TG_ARNS[@]}"; do
                 REGISTERED=$(aws elbv2 describe-target-health \
@@ -75,6 +77,7 @@ jobs:
                   --output text 2>/dev/null || echo "")
 
                 if [ -n "$REGISTERED" ]; then
+                  REGISTERED_TGS+=("$TG_ARN")
                   echo "Deregistrando $INSTANCE_ID do ALB ($TG_ARN)..."
                   aws elbv2 deregister-targets \
                     --target-group-arn "$TG_ARN" \
@@ -116,6 +119,7 @@ jobs:
                 \"git remote set-url origin 'https://github.com/charles-rocha-code/security-multicloud-scanner.git'\",\
                 \"chown -R ubuntu:ubuntu $APP_DIR\",\
                 \"sudo -u ubuntu $APP_DIR/venv/bin/pip install -r $APP_DIR/requirements.txt -q\",\
+                \"grep -q 'api_with_mfa_fix' /etc/systemd/system/security-scanner.service 2>/dev/null && sed -i 's/api_with_mfa_fix/api_with_mfa/g' /etc/systemd/system/security-scanner.service && systemctl daemon-reload && echo 'ExecStart corrigido' || true\",\
                 \"sudo systemctl restart security-scanner\",\
                 \"sleep 8\",\
                 \"curl -sf http://127.0.0.1:8000/health && echo HEALTH_OK\"\
@@ -149,24 +153,17 @@ jobs:
 
             [ "$STATUS" = "Success" ] || { echo "❌ Timeout em $INSTANCE_ID"; FAILED=1; }
 
-            # Re-registra no ALB após deploy bem-sucedido
-            if [ "$TOTAL" -gt 1 ] && [ "$STATUS" = "Success" ]; then
-              for TG_ARN in "${TG_ARNS[@]}"; do
-                WAS_REGISTERED=$(aws elbv2 describe-target-health \
+            # Re-registra no ALB sempre (sucesso ou falha) para não deixar instância fora de rotação
+            if [ "${#REGISTERED_TGS[@]}" -gt 0 ]; then
+              for TG_ARN in "${REGISTERED_TGS[@]}"; do
+                echo "Re-registrando $INSTANCE_ID em $TG_ARN..."
+                aws elbv2 register-targets \
                   --target-group-arn "$TG_ARN" \
                   --targets Id="$INSTANCE_ID" \
-                  --region "$REGION" \
-                  --query "TargetHealthDescriptions[0].TargetHealth.State" \
-                  --output text 2>/dev/null || echo "")
+                  --region "$REGION" || true
 
-                # Re-registra apenas nos TGs onde estava antes (draining = estava lá)
-                if [ "$WAS_REGISTERED" = "draining" ] || [ -n "$WAS_REGISTERED" ]; then
-                  aws elbv2 register-targets \
-                    --target-group-arn "$TG_ARN" \
-                    --targets Id="$INSTANCE_ID" \
-                    --region "$REGION" || true
-
-                  # Aguarda healthy no ALB
+                # Aguarda healthy apenas se o deploy teve sucesso
+                if [ "$STATUS" = "Success" ]; then
                   for h in $(seq 1 12); do
                     sleep 5
                     STATE=$(aws elbv2 describe-target-health \
