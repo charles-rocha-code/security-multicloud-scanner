@@ -41,16 +41,15 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids $INSTANCE_IDS \
             --document-name "AWS-RunShellScript" \
-            --parameters "{\"commands\":[
-              \"set -e\",
-              \"PYTHON=/home/ubuntu/security-scanner/venv/bin/python3\",
-              \"printf '{}' > /home/ubuntu/security-scanner/users_db.json\",
-              \"printf '{}' > /home/ubuntu/security-scanner/sessions_db.json\",
-              \"echo $RESET_SCRIPT | base64 -d | \\\$PYTHON\",
-              \"sudo systemctl restart security-scanner || pkill -f uvicorn || true\",
-              \"sleep 6\",
-              \"curl -sf http://127.0.0.1:8000/health && echo RESET_OK\"
-            ]}" \
+            --parameters 'commands=[
+              "set -e",
+              "printf \"{}\" > /home/ubuntu/security-scanner/users_db.json",
+              "printf \"{}\" > /home/ubuntu/security-scanner/sessions_db.json",
+              "echo '"$RESET_SCRIPT"' | base64 -d | /home/ubuntu/security-scanner/venv/bin/python3",
+              "sudo systemctl restart security-scanner || pkill -f uvicorn || true",
+              "sleep 6",
+              "curl -sf http://127.0.0.1:8000/health && echo RESET_OK"
+            ]' \
             --region "$REGION" \
             --query 'Command.CommandId' \
             --output text)
