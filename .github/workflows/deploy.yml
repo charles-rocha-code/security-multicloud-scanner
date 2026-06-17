@@ -115,6 +115,17 @@ jobs:
               done
             fi
 
+            # Verifica estado da instância antes de enviar SSM (pode ter sido terminada pelo ASG durante o deploy anterior)
+            PRE_SSM_STATE=$(aws ec2 describe-instances \
+              --instance-ids "$INSTANCE_ID" \
+              --region "$REGION" \
+              --query "Reservations[0].Instances[0].State.Name" \
+              --output text 2>/dev/null || echo "unknown")
+            if [ "$PRE_SSM_STATE" != "running" ]; then
+              echo "⚠️ $INSTANCE_ID não está running ($PRE_SSM_STATE) antes do SSM — ignorando (ASG substituirá a instância)"
+              continue
+            fi
+
             # Deploy via SSM
             COMMAND_ID=$(aws ssm send-command \
               --instance-ids "$INSTANCE_ID" \
@@ -204,6 +215,94 @@ jobs:
               echo "✅ $INSTANCE_ID re-registrado no ALB"
               fi  # fim do check running
             fi
+          done
+
+          # Detecta instâncias novas lançadas pelo ASG durante o deploy e deploya nelas
+          # (instâncias novas sobem com código da AMI — precisam receber o deploy via SSM)
+          echo ""
+          echo "=== Verificando instâncias novas lançadas pelo ASG durante o deploy ==="
+
+          CURRENT_IDS=$(aws autoscaling describe-auto-scaling-groups \
+            --region "$REGION" \
+            --auto-scaling-group-names "$ASG_NAME" \
+            --query "AutoScalingGroups[].Instances[?HealthStatus=='Healthy'].InstanceId" \
+            --output text | tr '\t' ' ')
+
+          for NEW_ID in $CURRENT_IDS; do
+            echo "$INSTANCE_IDS" | grep -qw "$NEW_ID" && continue
+            echo "Nova instância detectada: $NEW_ID"
+
+            # Aguarda até 3 minutos para ficar running
+            NEW_READY=0
+            for w in $(seq 1 18); do
+              sleep 10
+              NEW_STATE=$(aws ec2 describe-instances \
+                --instance-ids "$NEW_ID" --region "$REGION" \
+                --query "Reservations[0].Instances[0].State.Name" \
+                --output text 2>/dev/null || echo "unknown")
+              echo "  [$w] $NEW_ID — Estado: $NEW_STATE"
+              if [ "$NEW_STATE" = "running" ]; then NEW_READY=1; break; fi
+            done
+
+            if [ $NEW_READY -eq 0 ]; then
+              echo "⚠️ $NEW_ID não ficou running em tempo hábil — ignorando"
+              continue
+            fi
+
+            # Aguarda SSM agent inicializar na nova instância
+            echo "  Aguardando SSM agent em $NEW_ID (30s)..."
+            sleep 30
+
+            echo "=== Deployando em nova instância $NEW_ID ==="
+            NEW_CMD_ID=$(aws ssm send-command \
+              --instance-ids "$NEW_ID" \
+              --document-name "AWS-RunShellScript" \
+              --timeout-seconds 180 \
+              --parameters "commands=[\
+                \"set -eu\",\
+                \"export HOME=/root\",\
+                \"if [ ! -d $APP_DIR ]; then echo 'SKIP - app nao instalado'; exit 0; fi\",\
+                \"git config --global --add safe.directory $APP_DIR\",\
+                \"cd $APP_DIR\",\
+                \"git remote set-url origin 'https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git'\",\
+                \"git fetch origin main\",\
+                \"git reset --hard origin/main\",\
+                \"git clean -fd\",\
+                \"git remote set-url origin 'https://github.com/charles-rocha-code/security-multicloud-scanner.git'\",\
+                \"chown -R ubuntu:ubuntu $APP_DIR\",\
+                \"sudo -u ubuntu $APP_DIR/venv/bin/pip install -r $APP_DIR/requirements.txt -q\",\
+                \"grep -q 'api_with_mfa_fix' /etc/systemd/system/security-scanner.service 2>/dev/null && sed -i 's/api_with_mfa_fix/api_with_mfa/g' /etc/systemd/system/security-scanner.service && systemctl daemon-reload && echo 'ExecStart corrigido' || true\",\
+                \"sudo systemctl restart security-scanner\",\
+                \"sleep 8\",\
+                \"curl -sf http://127.0.0.1:8000/health && echo HEALTH_OK\"\
+              ]" \
+              --region "$REGION" \
+              --query 'Command.CommandId' \
+              --output text)
+
+            echo "SSM Command ID: $NEW_CMD_ID"
+
+            NEW_STATUS="Pending"
+            for i in $(seq 1 24); do
+              sleep 5
+              NEW_STATUS=$(aws ssm get-command-invocation \
+                --command-id "$NEW_CMD_ID" \
+                --instance-id "$NEW_ID" \
+                --region "$REGION" \
+                --query 'Status' \
+                --output text 2>/dev/null || echo "Pending")
+              echo "[$i] $NEW_ID — Status: $NEW_STATUS"
+              case "$NEW_STATUS" in
+                Success) echo "✅ $NEW_ID — deploy concluído"; break ;;
+                Failed|Cancelled|TimedOut|DeliveryTimedOut|ExecutionTimedOut)
+                  echo "❌ $NEW_ID — falhou"
+                  aws ssm get-command-invocation \
+                    --command-id "$NEW_CMD_ID" --instance-id "$NEW_ID" \
+                    --region "$REGION" --query 'StandardErrorContent' --output text || true
+                  FAILED=1; break ;;
+              esac
+            done
+            [ "$NEW_STATUS" = "Success" ] || { echo "❌ Timeout em $NEW_ID"; FAILED=1; }
           done
 
           [ $FAILED -eq 0 ] && echo "" && echo "✅ Deploy concluído em todas as instâncias" || exit 1
