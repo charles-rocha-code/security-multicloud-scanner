@@ -1972,19 +1972,6 @@
         <!-- Populado via JS -->
       </div>
 
-      <!-- Recomendações -->
-      <div class="sidebar-recommendations">
-        <div class="sidebar-header">
-          <h3>Recomendações</h3>
-          <span class="rec-count-badge" id="rec-count" style="display:none;"></span>
-          <button class="btn-clear-history" onclick="clearRecommendations()">
-            🗑️ Limpar
-          </button>
-        </div>
-        <ul id="recommendation-list-sidebar">
-          <!-- Populado via JS -->
-        </ul>
-      </div>
     </aside>
 
     <!-- ============================
@@ -2399,18 +2386,6 @@
           </div>
 
           <!-- ============================
-               RECOMENDAÇÕES
-               ============================ -->
-          <div id="rec-panel" style="display:none; margin-bottom:16px;">
-            <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              <span style="font-size:14px; font-weight:700; color:#e5e7eb;">Recomendações de Segurança</span>
-              <span id="rec-count-main" style="background:rgba(245,158,11,0.15); color:#f59e0b; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; border:1px solid rgba(245,158,11,0.3);"></span>
-            </div>
-            <div id="rec-cards-main" style="display:flex; flex-direction:column; gap:8px;"></div>
-          </div>
-
-          <!-- ============================
                RESUMO EXECUTIVO
                ============================ -->
           <div id="executive-summary" style="display:none; margin-bottom:16px; border:1px solid #1f2937; border-radius:10px; overflow:hidden;">
@@ -2471,6 +2446,18 @@
           <!-- Cards de severidade -->
           <div id="severity-summary" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 4px 8px;">
             <!-- Populado via JS -->
+          </div>
+
+          <!-- ============================
+               RECOMENDAÇÕES
+               ============================ -->
+          <div id="rec-panel" style="display:none; margin-top:16px; border-top:1px solid #1f2937; padding-top:16px;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span style="font-size:14px; font-weight:700; color:#e5e7eb;">Recomendações de Segurança</span>
+              <span id="rec-count-main" style="background:rgba(245,158,11,0.15); color:#f59e0b; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; border:1px solid rgba(245,158,11,0.3);"></span>
+            </div>
+            <div id="rec-cards-main" style="display:flex; flex-direction:column; gap:8px;"></div>
           </div>
         </div>
 
@@ -3502,28 +3489,18 @@ function logout() {
     // 6. RECOMMENDATIONS
     // ============================================================
     function updateRecommendations(list) {
-      const ulSidebar    = document.getElementById("recommendation-list-sidebar");
       const mainPanel    = document.getElementById("rec-panel");
       const mainCards    = document.getElementById("rec-cards-main");
       const mainCount    = document.getElementById("rec-count-main");
-      const sideCount    = document.getElementById("rec-count");
 
-      if (ulSidebar) ulSidebar.innerHTML = "";
       if (mainCards) mainCards.innerHTML = "";
 
       if (!list.length) {
         if (mainPanel) mainPanel.style.display = "none";
-        if (ulSidebar) {
-          const li = document.createElement("li");
-          li.textContent = "Nenhuma recomendação.";
-          li.style.cssText = "font-size:10px;color:#9ca3af;border-left:3px solid #4b5563;padding:6px 8px;border-radius:4px;";
-          ulSidebar.appendChild(li);
-        }
         return;
       }
 
       // Contadores
-      if (sideCount) { sideCount.textContent = list.length; sideCount.style.display = "inline-block"; }
       if (mainCount) mainCount.textContent = list.length;
       if (mainPanel) mainPanel.style.display = "block";
 
@@ -3574,14 +3551,7 @@ function logout() {
           mainCards.appendChild(card);
         }
 
-        // Item compacto na sidebar
-        if (ulSidebar) {
-          const li = document.createElement("li");
-          li.className = `rec-item`;
-          li.style.borderLeftColor = prio.color;
-          li.innerHTML = `<div class="rec-badge" style="background:${prio.iconBg};color:${prio.color};">${prio.label}</div><div>${clean}</div>`;
-          ulSidebar.appendChild(li);
-        }
+
       });
     }
 
@@ -4113,19 +4083,12 @@ function logout() {
 
     function clearRecommendations() {
       if (confirm("Deseja realmente limpar todas as recomendações?")) {
-        const sidebarList = document.getElementById("recommendation-list-sidebar");
-        if (sidebarList) {
-          const li = document.createElement("li");
-          li.textContent = "Nenhuma recomendação.";
-          li.style.fontSize = "10px";
-          li.style.color = "#9ca3af";
-          li.style.borderLeft = "3px solid #4b5563";
-          li.style.padding = "8px";
-          
-          sidebarList.innerHTML = "";
-          sidebarList.appendChild(li);
-        }
-        
+        const mainCards = document.getElementById("rec-cards-main");
+        const mainPanel = document.getElementById("rec-panel");
+        const mainCount = document.getElementById("rec-count-main");
+        if (mainCards) mainCards.innerHTML = "";
+        if (mainCount) mainCount.textContent = "";
+        if (mainPanel) mainPanel.style.display = "none";
         console.log("Recomendações limpas com sucesso");
       }
     }
