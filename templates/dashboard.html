@@ -2400,6 +2400,7 @@
           <!-- ============================
                TABELA DE ARQUIVOS
                ============================ -->
+          <div id="table-result-count" style="display:none; font-size:12px; color:#9ca3af; margin-bottom:8px;"></div>
           <table class="file-table">
             <thead>
               <tr>
@@ -3596,6 +3597,20 @@ function logout() {
       }
       
       tbody.innerHTML = "";
+
+      const countEl = document.getElementById("table-result-count");
+      if (countEl) {
+        if (files.length > 0) {
+          const total = fullFileList.length;
+          const filtered = files.length;
+          countEl.style.display = "block";
+          countEl.innerHTML = filtered === total
+            ? `Exibindo <strong style="color:#e5e7eb;">${filtered.toLocaleString('pt-BR')}</strong> resultados`
+            : `Exibindo <strong style="color:#e5e7eb;">${filtered.toLocaleString('pt-BR')}</strong> de <strong style="color:#e5e7eb;">${total.toLocaleString('pt-BR')}</strong> resultados`;
+        } else {
+          countEl.style.display = "none";
+        }
+      }
 
       if (!files.length) {
         console.log("No files to display");
