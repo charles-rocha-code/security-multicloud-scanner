@@ -3323,10 +3323,10 @@ function logout() {
 
       if (severityChart) severityChart.destroy();
 
-      // Donut chart profissional
       const colors     = ['#ef4444', '#f97316', '#3b82f6', '#22c55e'];
       const colorsDark = ['#991b1b', '#c2410c', '#1d4ed8', '#15803d'];
       const hasData = total > 0;
+      const ANIM_MS  = 1100;
 
       severityChart = new Chart(ctx, {
         type: 'doughnut',
@@ -3339,7 +3339,7 @@ function logout() {
               : ['#1f2937', '#1f2937', '#1f2937', '#1f2937'],
             borderColor: hasData ? colorsDark : ['#374151','#374151','#374151','#374151'],
             borderWidth: 2,
-            hoverOffset: 6,
+            hoverOffset: 8,
             hoverBorderWidth: 3,
           }]
         },
@@ -3347,7 +3347,12 @@ function logout() {
           responsive: true,
           maintainAspectRatio: true,
           cutout: '70%',
-          animation: { animateRotate: true, duration: 800 },
+          animation: {
+            animateRotate: true,
+            animateScale: false,
+            duration: ANIM_MS,
+            easing: 'easeOutQuart',
+          },
           plugins: {
             legend: { display: false },
             tooltip: {
@@ -3372,28 +3377,41 @@ function logout() {
         plugins: [ChartDataLabels]
       });
 
-      // Centro do donut: Risk Score
+      // Centro do donut — conta de 0 até total em sincronia com a animação
       const riskScore = document.getElementById('donut-score');
       const riskLabel = document.getElementById('donut-label');
       if (riskScore && riskLabel) {
-        const critPct = total > 0 ? Math.round((values[0] / total) * 100) : 0;
-        const highPct = total > 0 ? Math.round((values[1] / total) * 100) : 0;
-        const riskVal = critPct > 0 ? critPct : (highPct > 0 ? highPct : (total > 0 ? Math.round((values[2]/total)*100) : 0));
         const riskLevel = values[0] > 0 ? 'CRITICAL' : values[1] > 0 ? 'HIGH' : values[2] > 0 ? 'MEDIUM' : 'LOW';
         const riskColor = { CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#3b82f6', LOW: '#22c55e' }[riskLevel];
-        riskScore.textContent = total > 0 ? total.toLocaleString() : '–';
         riskScore.style.color = riskColor;
-        riskLabel.textContent = riskLevel;
-        riskLabel.style.color = riskColor + 'cc';
+        riskLabel.textContent  = riskLevel;
+        riskLabel.style.color  = riskColor + 'cc';
+        if (total > 0) {
+          animateSevCounter(riskScore, 0, total, ANIM_MS);
+        } else {
+          riskScore.textContent = '–';
+        }
       }
 
-      updateSeveritySummary(dist, values);
+      updateSeveritySummary(dist, values, ANIM_MS);
     }
 
     // ============================================================
     // 5b. SEVERITY SUMMARY CARDS
     // ============================================================
-    function updateSeveritySummary(dist, values) {
+    // easeOutQuart para barras e contadores
+    function animateSevCounter(el, from, to, duration) {
+      const start = performance.now();
+      const tick  = now => {
+        const t    = Math.min((now - start) / duration, 1);
+        const ease = 1 - Math.pow(1 - t, 4); // easeOutQuart
+        el.textContent = Math.round(from + (to - from) * ease).toLocaleString();
+        if (t < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+
+    function updateSeveritySummary(dist, values, animMs = 900) {
       const container = document.getElementById("severity-summary");
       if (!container) return;
 
@@ -3406,22 +3424,34 @@ function logout() {
         { label: 'Low',      value: dist.low      || 0, color: '#22c55e', bg: '#052e16' },
       ];
 
-      container.innerHTML = data.map(item => {
-        const pct = total > 0 ? ((item.value / total) * 100).toFixed(1) : '0.0';
+      container.innerHTML = data.map((item, i) => {
+        const pct  = total > 0 ? ((item.value / total) * 100).toFixed(1) : '0.0';
         const barW = total > 0 ? Math.max((item.value / total) * 100, item.value > 0 ? 4 : 0) : 0;
         return `
           <div style="background:${item.bg}33; border:1px solid ${item.color}33; border-radius:10px; padding:12px 14px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
               <span style="font-size:12px; font-weight:600; color:${item.color}; text-transform:uppercase; letter-spacing:0.5px;">${item.label}</span>
-              <span style="font-size:18px; font-weight:800; color:#fff;">${item.value.toLocaleString()}</span>
+              <span class="sev-num" data-target="${item.value}" style="font-size:18px; font-weight:800; color:#fff;">0</span>
             </div>
             <div style="background:#1f2937; border-radius:4px; height:5px; overflow:hidden; margin-bottom:6px;">
-              <div style="height:100%; width:${barW}%; background:${item.color}; border-radius:4px;
-                transition:width 0.8s ease; box-shadow:0 0 6px ${item.color}88;"></div>
+              <div class="sev-bar" data-w="${barW}"
+                style="height:100%; width:0%; background:${item.color}; border-radius:4px;
+                transition:width ${animMs}ms cubic-bezier(0.4,0,0.2,1);
+                box-shadow:0 0 8px ${item.color}99;"></div>
             </div>
             <div style="font-size:11px; color:#6b7280;">${pct}% do total</div>
           </div>`;
       }).join('');
+
+      // Dispara animações no próximo frame (dá tempo ao DOM renderizar width:0)
+      requestAnimationFrame(() => {
+        container.querySelectorAll('.sev-bar').forEach(bar => {
+          bar.style.width = bar.dataset.w + '%';
+        });
+        container.querySelectorAll('.sev-num').forEach(el => {
+          animateSevCounter(el, 0, parseInt(el.dataset.target) || 0, animMs);
+        });
+      });
     }
 
     // ============================================================
