@@ -941,24 +941,30 @@ class ProfessionalReportGenerator:
         sev_keys   = ['critical', 'high', 'medium', 'low']
         sev_vals   = [sd.get(k, 0) for k in sev_keys]
 
-        card_row = Table(
-            [[Paragraph(f"<b>{lbl}</b>", ParagraphStyle('cl2',fontSize=10,textColor=col,
-                        fontName='Helvetica-Bold',alignment=TA_CENTER)),
-              Paragraph(f"<b>{val:,}</b>", ParagraphStyle('cn2',fontSize=24,textColor=col,
-                        fontName='Helvetica-Bold',alignment=TA_CENTER)),
-              Paragraph(f"{val/total*100:.1f}%" if total else "0.0%",
-                        ParagraphStyle('cp2',fontSize=9,textColor=colors.HexColor('#64748b'),
-                        alignment=TA_CENTER))]
-             for lbl, val, col in zip(sev_labels, sev_vals, sev_colors)],
-            colWidths=[1.55*inch]*4
-        )
+        ST = ParagraphStyle
+        row_lbl = [Paragraph(f"<b>{lbl}</b>",
+                              ST('cl2', fontSize=10, textColor=col,
+                                 fontName='Helvetica-Bold', alignment=TA_CENTER))
+                   for lbl, col in zip(sev_labels, sev_colors)]
+        row_val = [Paragraph(f"<b>{val:,}</b>",
+                              ST('cn2', fontSize=26, textColor=col,
+                                 fontName='Helvetica-Bold', alignment=TA_CENTER, leading=30))
+                   for val, col in zip(sev_vals, sev_colors)]
+        row_pct = [Paragraph(f"{val/total*100:.1f}%" if total else "0.0%",
+                              ST('cp2', fontSize=9, textColor=colors.HexColor('#64748b'),
+                                 alignment=TA_CENTER))
+                   for val in sev_vals]
+
+        card_row = Table([row_lbl, row_val, row_pct], colWidths=[1.58*inch]*4)
         card_row.setStyle(TableStyle([
-            *[('BACKGROUND',(i,0),(i,-1), sev_bgs[i]) for i in range(4)],
-            *[('LINEBELOW',(i,0),(i,-1), 3, sev_colors[i]) for i in range(4)],
-            ('PADDING',(0,0),(-1,-1), 10),
-            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-            ('BOX',(0,0),(-1,-1), 0.5, colors.HexColor('#e2e8f0')),
-            ('INNERGRID',(0,0),(-1,-1), 0.5, colors.white),
+            *[('BACKGROUND', (i, 0), (i, -1), sev_bgs[i])   for i in range(4)],
+            *[('LINEBELOW',  (i,-1), (i,-1),  3, sev_colors[i]) for i in range(4)],
+            ('PADDING',   (0,0), (-1,-1), 10),
+            ('VALIGN',    (0,0), (-1,-1), 'MIDDLE'),
+            ('BOX',       (0,0), (-1,-1), 0.5, colors.HexColor('#e2e8f0')),
+            ('LINEAFTER', (0,0), (2,-1),  0.5, colors.white),
+            ('TOPPADDING',(0,0), (-1, 0), 14),
+            ('BOTTOMPADDING',(0,-1),(-1,-1), 14),
         ]))
         story.append(card_row)
         story.append(Spacer(1, 0.18*inch))
