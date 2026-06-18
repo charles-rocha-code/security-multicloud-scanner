@@ -234,6 +234,49 @@
       opacity: 1;
     }
 
+    /* Mini severity bar no histórico */
+    .history-sev-bar {
+      display: flex;
+      height: 3px;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 6px;
+      gap: 1px;
+    }
+    .history-sev-bar span { display: block; height: 100%; min-width: 2px; border-radius: 2px; }
+
+    /* Copy button na tabela */
+    .btn-copy-key {
+      background: none; border: none; cursor: pointer; padding: 3px 5px;
+      color: #4b5563; border-radius: 4px; transition: color 0.15s, background 0.15s;
+      vertical-align: middle; line-height: 1;
+    }
+    .btn-copy-key:hover { color: #60a5fa; background: rgba(59,130,246,0.1); }
+    .btn-copy-key.copied { color: #34d399; }
+
+    /* Toast notifications */
+    #toast-container {
+      position: fixed; bottom: 24px; right: 24px;
+      display: flex; flex-direction: column; gap: 10px;
+      z-index: 9999; pointer-events: none;
+    }
+    .toast {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px; border-radius: 10px; min-width: 260px; max-width: 360px;
+      font-size: 13px; font-weight: 500; pointer-events: all;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      animation: toastIn 0.25s ease;
+      border-left: 3px solid;
+    }
+    .toast.success { background: #0d1f17; color: #6ee7b7; border-color: #10b981; }
+    .toast.error   { background: #1f0d0d; color: #fca5a5; border-color: #ef4444; }
+    .toast.info    { background: #0d1429; color: #93c5fd; border-color: #3b82f6; }
+    .toast.warning { background: #1f1707; color: #fcd34d; border-color: #f59e0b; }
+    .toast-close { margin-left: auto; cursor: pointer; opacity: 0.5; font-size: 16px; line-height: 1; padding: 0 2px; }
+    .toast-close:hover { opacity: 1; }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toastOut { to { opacity: 0; transform: translateY(12px); } }
+
     .btn-delete-item {
       padding: 4px 8px;
       background: #7f1d1d;
@@ -3747,7 +3790,12 @@ function logout() {
                    data-file-index="${startIndex + index}"
                    onchange="updateSelectedCount()">
           </td>
-          <td>${escapeHtml(fileKey)}</td>
+          <td style="max-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            ${escapeHtml(fileKey)}
+            <button class="btn-copy-key" title="Copiar caminho" onclick="copyFileKey('${escapeHtml(fileKey).replace(/'/g,"\\'")}', this)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+          </td>
           <td>${formatBytes(f.size || 0)}</td>
           <td><span class="severity-tag ${sevClass}">${sev || "-"}</span></td>
           <td>
@@ -4166,12 +4214,24 @@ function logout() {
 
         const contentDiv = document.createElement("div");
         contentDiv.className = "history-item-content";
+        const sd = (item.data && item.data.severity_distribution) || {};
+        const c = sd.critical || 0, h = sd.high || 0, m = sd.medium || 0, l = sd.low || 0;
+        const total = c + h + m + l || 1;
+        const pct = v => Math.max(v / total * 100, v > 0 ? 4 : 0).toFixed(1);
+        const barHtml = (c + h + m + l) > 0 ? `
+          <div class="history-sev-bar">
+            ${c > 0 ? `<span style="width:${pct(c)}%;background:#ef4444;" title="Critical: ${c}"></span>` : ''}
+            ${h > 0 ? `<span style="width:${pct(h)}%;background:#f97316;" title="High: ${h}"></span>` : ''}
+            ${m > 0 ? `<span style="width:${pct(m)}%;background:#eab308;" title="Medium: ${m}"></span>` : ''}
+            ${l > 0 ? `<span style="width:${pct(l)}%;background:#3b82f6;" title="Low: ${l}"></span>` : ''}
+          </div>` : '';
         contentDiv.innerHTML = `
           <div class="history-bucket">${escapeHtml(item.bucket)}</div>
           <div class="history-meta">
-            Provider: ${item.provider} · Risco: ${item.risk_score}%<br/>
+            ${item.provider} · Risco: ${item.risk_score}%<br/>
             ${item.timestamp}
           </div>
+          ${barHtml}
         `;
 
         // Área de ações (botão deletar)
@@ -4402,19 +4462,8 @@ Tem certeza que deseja continuar?`;
         totalFiles.textContent = fullFileList.length;
       }
       
-      // Feedback visual
-      alert(`✅ ${fileKeys.length} arquivo(s) removido(s) da visualização com sucesso!
-
-⚠️ IMPORTANTE: Esta é apenas uma remoção da INTERFACE.
-Para excluir os arquivos PERMANENTEMENTE do bucket, você deve:
-
-AWS S3:
-  aws s3 rm s3://BUCKET/${fileKeys[0]}
-
-GCS:
-  gsutil rm gs://BUCKET/${fileKeys[0]}
-
-Ou use o console web do provider.`);
+      showToast(`${fileKeys.length} arquivo(s) removido(s) da visualização.`, 'success');
+      showToast('Para excluir permanentemente, use o console do provider (AWS/GCS/Azure).', 'warning', 6000);
       
       // Limpa seleção
       const selectAllCheckbox = document.getElementById("checkbox-select-all");
@@ -4426,6 +4475,34 @@ Ou use o console web do provider.`);
     // ============================================================
     // 11. HELPERS
     // ============================================================
+    // ── Toast notifications ──────────────────────────────────────
+    function showToast(message, type = 'info', duration = 3500) {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const icons = { success: '✓', error: '✕', info: 'ℹ', warning: '⚠' };
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `<span style="font-size:14px;">${icons[type] || 'ℹ'}</span><span>${message}</span><span class="toast-close" onclick="this.parentElement.remove()">×</span>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.animation = 'toastOut 0.25s ease forwards';
+        setTimeout(() => toast.remove(), 250);
+      }, duration);
+    }
+
+    // ── Copy to clipboard ────────────────────────────────────────
+    function copyFileKey(key, btn) {
+      navigator.clipboard.writeText(key).then(() => {
+        btn.classList.add('copied');
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+        showToast('Caminho copiado!', 'success', 2000);
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+        }, 2000);
+      }).catch(() => showToast('Falha ao copiar.', 'error'));
+    }
+
     function formatBytes(bytes) {
       if (!bytes || bytes <= 0) return "0 B";
       const units = ["B", "KB", "MB", "GB", "TB"];
@@ -4500,6 +4577,7 @@ Ou use o console web do provider.`);
         const result = await response.json();
 
         statusText.textContent = '✅ Relatório gerado com sucesso!';
+        showToast('Relatório gerado com sucesso! Download iniciando...', 'success');
 
         // Download automático dos arquivos
         setTimeout(() => {
@@ -4523,6 +4601,7 @@ Ou use o console web do provider.`);
       } catch (error) {
         console.error('Erro ao gerar relatório:', error);
         statusText.textContent = `❌ Erro: ${error.message}`;
+        showToast(`Erro ao gerar relatório: ${error.message}`, 'error', 5000);
         
         // Se endpoint não existe, oferecer download manual
         if (error.message.includes('404')) {
@@ -4850,7 +4929,9 @@ Ou use o console web do provider.`);
     if (btn) btn.addEventListener('click', refreshDashboard);
   });
 </script>
-<!-- Tooltip global — deve estar no body, fora de qualquer container com display:none -->
+<!-- Tooltip global -->
 <div id="rich-tooltip"><div class="tt-header" id="tt-header"></div><div id="tt-body"></div></div>
+<!-- Toast container -->
+<div id="toast-container"></div>
 </body>
 </html>
