@@ -432,6 +432,7 @@ class ProfessionalReportGenerator:
         'GCS':         'Google Cloud Storage',
         'AZURE':       'Azure Blob Storage',
         'AZURE_BLOB':  'Azure Blob Storage',
+        'KUBERNETES':  'Kubernetes Cluster',
         'UNIVERSAL':   'Multi-Cloud',
     }
 
@@ -586,62 +587,98 @@ class ProfessionalReportGenerator:
         high = sd.get('high', 0)
         recs = []
 
-        if crit > 0 or high > 0:
-            actions_map = {
-                'AWS_S3': ["Bloquear acesso público via 'Block Public Access'",
-                           "Revisar bucket policies e ACLs no console AWS",
-                           "Implementar bucket encryption (AES-256 ou KMS)",
-                           "Habilitar versioning para recovery",
-                           "Configurar logging para auditoria"],
-                'GCS':    ["Remover 'allUsers' e 'allAuthenticatedUsers' das permissões",
-                           "Ativar 'Uniform bucket-level access'",
-                           "Implementar IAM Conditions",
-                           "Habilitar 'Object versioning'",
-                           "Configurar 'Audit logs'"],
-            }
-            if 'AZURE' in prov:
-                actions = ["Revisar IAM no Azure Portal",
-                           "Configurar 'Private endpoints'",
-                           "Habilitar 'SAS' com expiração",
-                           "Implementar Azure AD",
-                           "Configurar 'Network rules'"]
-            else:
-                actions = actions_map.get(prov, ["Revisar políticas de acesso",
-                                                  "Remover permissões públicas",
-                                                  "Implementar autenticação forte",
-                                                  "Habilitar criptografia em repouso",
-                                                  "Configurar logs de auditoria"])
-            recs.append({'priority':'CRÍTICA','title':'Restringir Acesso Público ao Storage',
-                         'description':f'{crit+high} arquivo(s) com exposição pública detectados.',
-                         'actions':actions,'timeline':'0-24 horas',
-                         'responsible':'Equipe de Segurança / DevOps'})
+        if 'KUBERNETES' in prov:
+            if crit > 0:
+                recs.append({'priority':'CRÍTICA','title':'Remover Credenciais Expostas em Secrets',
+                             'description':f'{crit} Secret(s) com credenciais de storage em texto plano detectados.',
+                             'actions':["Rotacionar imediatamente todas as credenciais expostas",
+                                        "Migrar segredos para um Vault (HashiCorp Vault ou AWS Secrets Manager)",
+                                        "Revogar tokens e chaves comprometidas no provedor cloud",
+                                        "Auditar quem teve acesso aos Secrets afetados",
+                                        "Ativar criptografia de Secrets em repouso no etcd"],
+                             'timeline':'0-24 horas','responsible':'Equipe de Segurança / SRE'})
+            if high > 0:
+                recs.append({'priority':'ALTA','title':'Corrigir PersistentVolumes Inseguros',
+                             'description':f'{high} PV(s)/PVC(s) com configuração de risco (hostPath, ReadWriteMany ou Retain).',
+                             'actions':["Remover ou substituir volumes hostPath por CSI drivers seguros",
+                                        "Alterar ReclaimPolicy de Retain para Delete onde aplicável",
+                                        "Restringir AccessMode ReadWriteMany a workloads que realmente precisam",
+                                        "Auditar permissões RBAC sobre PersistentVolumes",
+                                        "Implementar PodSecurityAdmission para bloquear hostPath"],
+                             'timeline':'24-72 horas','responsible':'Equipe de Infraestrutura / SRE'})
+            recs.append({'priority':'MÉDIA','title':'Mover Dados Sensíveis de ConfigMaps para Secrets',
+                         'description':'ConfigMaps não são criptografados; dados sensíveis devem estar em Secrets ou Vault.',
+                         'actions':["Identificar todos os ConfigMaps com chaves sensíveis",
+                                    "Migrar para Secrets Kubernetes ou solução de Vault externa",
+                                    "Aplicar RBAC restritivo nos Secrets criados",
+                                    "Habilitar auditoria no Kubernetes API Server para Secrets",
+                                    "Rever pipelines CI/CD que injetam segredos via ConfigMap"],
+                         'timeline':'7-14 dias','responsible':'Equipe de DevSecOps'})
+            recs.append({'priority':'MÉDIA','title':'Fortalecer RBAC e Auditoria do Cluster',
+                         'description':'Controle de acesso granular e logs de auditoria são essenciais para conformidade.',
+                         'actions':["Aplicar princípio do menor privilégio em todos os ServiceAccounts",
+                                    "Habilitar Kubernetes Audit Logs para operações em Secrets e PVs",
+                                    "Revisar ClusterRoleBindings com permissões excessivas",
+                                    "Implementar Network Policies para isolar namespaces",
+                                    "Realizar revisões trimestrais de permissões RBAC"],
+                         'timeline':'14-30 dias','responsible':'CISO / Equipe de Plataforma'})
+        else:
+            if crit > 0 or high > 0:
+                actions_map = {
+                    'AWS_S3': ["Bloquear acesso público via 'Block Public Access'",
+                               "Revisar bucket policies e ACLs no console AWS",
+                               "Implementar bucket encryption (AES-256 ou KMS)",
+                               "Habilitar versioning para recovery",
+                               "Configurar logging para auditoria"],
+                    'GCS':    ["Remover 'allUsers' e 'allAuthenticatedUsers' das permissões",
+                               "Ativar 'Uniform bucket-level access'",
+                               "Implementar IAM Conditions",
+                               "Habilitar 'Object versioning'",
+                               "Configurar 'Audit logs'"],
+                }
+                if 'AZURE' in prov:
+                    actions = ["Revisar IAM no Azure Portal",
+                               "Configurar 'Private endpoints'",
+                               "Habilitar 'SAS' com expiração",
+                               "Implementar Azure AD",
+                               "Configurar 'Network rules'"]
+                else:
+                    actions = actions_map.get(prov, ["Revisar políticas de acesso",
+                                                      "Remover permissões públicas",
+                                                      "Implementar autenticação forte",
+                                                      "Habilitar criptografia em repouso",
+                                                      "Configurar logs de auditoria"])
+                recs.append({'priority':'CRÍTICA','title':'Restringir Acesso Público ao Storage',
+                             'description':f'{crit+high} arquivo(s) com exposição pública detectados.',
+                             'actions':actions,'timeline':'0-24 horas',
+                             'responsible':'Equipe de Segurança / DevOps'})
 
-        recs.append({'priority':'ALTA','title':'Implementar Criptografia de Dados',
-                     'description':'Garantir criptografia em repouso e em trânsito.',
-                     'actions':["Habilitar criptografia server-side",
-                                "Implementar HTTPS/TLS para transferências",
-                                "Rotacionar chaves regularmente",
-                                "Usar CMK quando possível",
-                                "Documentar gestão de chaves"],
-                     'timeline':'7-14 dias','responsible':'Equipe de Segurança'})
+            recs.append({'priority':'ALTA','title':'Implementar Criptografia de Dados',
+                         'description':'Garantir criptografia em repouso e em trânsito.',
+                         'actions':["Habilitar criptografia server-side",
+                                    "Implementar HTTPS/TLS para transferências",
+                                    "Rotacionar chaves regularmente",
+                                    "Usar CMK quando possível",
+                                    "Documentar gestão de chaves"],
+                         'timeline':'7-14 dias','responsible':'Equipe de Segurança'})
 
-        recs.append({'priority':'MÉDIA','title':'Implementar Monitoramento Contínuo',
-                     'description':'Detectar acessos suspeitos e mudanças de configuração.',
-                     'actions':["Configurar alertas para acessos anômalos",
-                                "Implementar SIEM para análise de logs",
-                                "Criar dashboards de segurança",
-                                "Estabelecer processo de resposta a incidentes",
-                                "Realizar auditorias regulares"],
-                     'timeline':'14-30 dias','responsible':'Equipe de SecOps'})
+            recs.append({'priority':'MÉDIA','title':'Implementar Monitoramento Contínuo',
+                         'description':'Detectar acessos suspeitos e mudanças de configuração.',
+                         'actions':["Configurar alertas para acessos anômalos",
+                                    "Implementar SIEM para análise de logs",
+                                    "Criar dashboards de segurança",
+                                    "Estabelecer processo de resposta a incidentes",
+                                    "Realizar auditorias regulares"],
+                         'timeline':'14-30 dias','responsible':'Equipe de SecOps'})
 
-        recs.append({'priority':'MÉDIA','title':'Estabelecer Políticas de Governança',
-                     'description':'Classificação e proteção de dados com políticas claras.',
-                     'actions':["Classificar dados por sensibilidade",
-                                "Definir políticas de retenção",
-                                "Implementar DLP",
-                                "Treinar equipes",
-                                "Revisões trimestrais de acessos"],
-                     'timeline':'30-60 dias','responsible':'CISO / Compliance'})
+            recs.append({'priority':'MÉDIA','title':'Estabelecer Políticas de Governança',
+                         'description':'Classificação e proteção de dados com políticas claras.',
+                         'actions':["Classificar dados por sensibilidade",
+                                    "Definir políticas de retenção",
+                                    "Implementar DLP",
+                                    "Treinar equipes",
+                                    "Revisões trimestrais de acessos"],
+                         'timeline':'30-60 dias','responsible':'CISO / Compliance'})
         return recs
 
     def _analyze_extensions(self):
