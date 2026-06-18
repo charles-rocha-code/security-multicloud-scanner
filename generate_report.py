@@ -788,6 +788,88 @@ class ProfessionalReportGenerator:
         canvas.drawRightString(A4[0]-0.55*inch, 0.25*inch, f"Página {doc.page}")
         canvas.restoreState()
 
+    def _create_cover_page(self, canvas, doc):
+        """Capa: painel escuro superior + área de dados branca."""
+        canvas.saveState()
+        w, h = A4
+
+        # Painel escuro superior (65% da altura)
+        canvas.setFillColor(self.COLOR_PRIMARY)
+        canvas.rect(0, h * 0.35, w, h * 0.65, fill=True, stroke=False)
+
+        # Faixa de acento secondary
+        canvas.setFillColor(self.COLOR_SECONDARY)
+        canvas.rect(0, h * 0.35 - 0.06*inch, w, 0.06*inch, fill=True, stroke=False)
+
+        # Círculos decorativos no canto superior direito
+        for r, alpha_col in [(0.55*inch,'#1d4ed8'), (0.30*inch,'#2563eb'), (0.14*inch,'#3b82f6')]:
+            canvas.setFillColor(colors.HexColor(alpha_col))
+            canvas.circle(w - 0.5*inch, h - 0.5*inch, r, fill=True, stroke=False)
+
+        # Título em branco
+        canvas.setFillColor(colors.white)
+        canvas.setFont('Helvetica-Bold', 34)
+        canvas.drawCentredString(w / 2, h * 0.71, 'RELATÓRIO DE SEGURANÇA')
+        canvas.setFillColor(colors.HexColor('#93c5fd'))
+        canvas.setFont('Helvetica-Bold', 34)
+        canvas.drawCentredString(w / 2, h * 0.64, 'EXECUTIVO')
+
+        # Subtítulo
+        canvas.setFillColor(colors.HexColor('#bfdbfe'))
+        canvas.setFont('Helvetica', 12)
+        canvas.drawCentredString(w / 2, h * 0.57,
+                                 f'Auditoria de Storage Multicloud  ·  {self.provider_name}')
+
+        # Linha separadora
+        canvas.setStrokeColor(colors.HexColor('#3b82f6'))
+        canvas.setLineWidth(1.5)
+        canvas.line(1.8*inch, h * 0.52, w - 1.8*inch, h * 0.52)
+
+        # Data centralizada
+        canvas.setFillColor(colors.HexColor('#94a3b8'))
+        canvas.setFont('Helvetica', 10)
+        canvas.drawCentredString(w / 2, h * 0.46,
+                                 self.report_date.strftime('%d/%m/%Y  ·  %H:%M'))
+
+        # Caixa de dados do cliente
+        box_x, box_w = 0.9*inch, w - 1.8*inch
+        box_y, box_h = h * 0.12, h * 0.22
+        canvas.setFillColor(colors.HexColor('#f8fafc'))
+        canvas.rect(box_x, box_y, box_w, box_h, fill=True, stroke=False)
+        canvas.setStrokeColor(colors.HexColor('#e2e8f0'))
+        canvas.setLineWidth(0.8)
+        canvas.rect(box_x, box_y, box_w, box_h, fill=False, stroke=True)
+        # Borda esquerda colorida
+        canvas.setFillColor(self.COLOR_SECONDARY)
+        canvas.rect(box_x, box_y, 0.06*inch, box_h, fill=True, stroke=False)
+
+        info_x   = box_x + 0.25*inch
+        val_x    = box_x + 1.5*inch
+        info_y   = box_y + box_h - 0.28*inch
+        line_gap = 0.045*inch * 1.2 * 25.4 / 25.4  # espaçamento entre linhas
+
+        rows = [
+            ('Cliente:', self.client_info.get('name', '')),
+            ('Contato:', self.client_info.get('contact', '')),
+            ('Alvo:',    self.scan_data.get('bucket', '')),
+            ('Data:',    self.report_date.strftime('%d/%m/%Y às %H:%M')),
+        ]
+        for label, value in rows:
+            canvas.setFillColor(self.COLOR_PRIMARY)
+            canvas.setFont('Helvetica-Bold', 10.5)
+            canvas.drawString(info_x, info_y, label)
+            canvas.setFillColor(colors.HexColor('#1e293b'))
+            canvas.setFont('Helvetica', 10.5)
+            canvas.drawString(val_x, info_y, str(value)[:55])
+            info_y -= 0.052 * h
+
+        # Rodapé da capa
+        canvas.setFillColor(colors.HexColor('#94a3b8'))
+        canvas.setFont('Helvetica', 8)
+        canvas.drawCentredString(w / 2, 0.28*inch,
+                                 'Security Multicloud Scanner  ·  Documento Confidencial')
+        canvas.restoreState()
+
     def generate_pdf(self) -> str:
         print("📄 Gerando PDF...")
         bucket   = self.scan_data.get('bucket','scan').replace('.','_').replace('/','_')
@@ -795,8 +877,8 @@ class ProfessionalReportGenerator:
         filepath = self.output_dir / filename
 
         doc   = SimpleDocTemplate(str(filepath), pagesize=A4,
-                                  topMargin=0.8*inch, bottomMargin=0.8*inch,
-                                  leftMargin=0.7*inch, rightMargin=0.7*inch)
+                                  topMargin=0.75*inch, bottomMargin=0.75*inch,
+                                  leftMargin=0.65*inch, rightMargin=0.65*inch)
         story = []
         styles = getSampleStyleSheet()
 
@@ -829,135 +911,119 @@ class ProfessionalReportGenerator:
         total  = len(self.scan_data.get('files', []))
         risk   = self.risk_level
 
-        # ── CAPA ──────────────────────────────────────────────────────
-        # Banner superior colorido via canvas (DrawingObject workaround: usar Table colorida)
-        banner = Table([[''], ['']], colWidths=[7.1*inch], rowHeights=[1.6*inch, 0.08*inch])
-        banner.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (0,0), self.COLOR_PRIMARY),
-            ('BACKGROUND', (0,1), (0,1), self.COLOR_SECONDARY),
-        ]))
-        story.append(banner)
-
-        story.append(Spacer(1, 0.5*inch))
-        story.append(Paragraph("RELATÓRIO DE SEGURANÇA",
-                                ParagraphStyle('T1', fontSize=28, alignment=TA_CENTER,
-                                               textColor=self.COLOR_PRIMARY,
-                                               fontName='Helvetica-Bold', spaceAfter=4, leading=34)))
-        story.append(Paragraph("EXECUTIVO",
-                                ParagraphStyle('T2', fontSize=28, alignment=TA_CENTER,
-                                               textColor=self.COLOR_SECONDARY,
-                                               fontName='Helvetica-Bold', spaceAfter=20, leading=34)))
-        story.append(Paragraph(f"Auditoria de Storage Multicloud  ·  {self.provider_name}",
-                                ParagraphStyle('S', fontSize=13, alignment=TA_CENTER,
-                                               textColor=colors.HexColor('#64748b'), spaceAfter=40)))
-
-        # Linha divisória
-        div = Table([['']], colWidths=[5*inch], rowHeights=[0.03*inch])
-        div.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(0,0), self.COLOR_SECONDARY),
-            ('ALIGN',(0,0),(0,0),'CENTER'),
-        ]))
-        story.append(div)
-        story.append(Spacer(1, 0.4*inch))
-
-        if self.client_info.get('name'):
-            ct = Table([
-                ['Cliente:',    self.client_info.get('name','')],
-                ['Contato:',    self.client_info.get('contact','')],
-                ['Data:',       self.report_date.strftime('%d/%m/%Y às %H:%M')],
-                ['Alvo:',       self.scan_data.get('bucket','')],
-            ], colWidths=[1.6*inch, 3.8*inch])
-            ct.setStyle(TableStyle([
-                ('FONTNAME',(0,0),(0,-1),'Helvetica-Bold'),
-                ('FONTSIZE',(0,0),(-1,-1),11),
-                ('TEXTCOLOR',(0,0),(0,-1),self.COLOR_PRIMARY),
-                ('TEXTCOLOR',(1,0),(1,-1),colors.HexColor('#1e293b')),
-                ('PADDING',(0,0),(-1,-1),9),
-                ('LINEBELOW',(0,0),(-1,-2),0.5,colors.HexColor('#e2e8f0')),
-                ('ROWBACKGROUNDS',(0,0),(-1,-1),[colors.white, colors.HexColor('#f8fafc')]),
-            ]))
-            story.append(ct)
+        # ── CAPA — desenhada inteiramente via canvas (_create_cover_page) ──
         story.append(PageBreak())
 
         # ── 1. RESUMO EXECUTIVO ────────────────────────────────────────
         story.append(Paragraph("1. RESUMO EXECUTIVO", H1))
-        story.append(Spacer(1, 0.1*inch))
-        # Risk indicator — barra de 4 zonas + marcador
-        rb = Table([[
-            Paragraph(f"<b>NÍVEL DE RISCO</b>",
-                      ParagraphStyle('RL', fontSize=11, textColor=colors.HexColor('#475569'),
-                                     alignment=TA_LEFT, fontName='Helvetica-Bold')),
-            Paragraph(f"<b>{risk['level']}</b>",
-                      ParagraphStyle('RS', fontSize=16, textColor=risk['color'],
-                                     alignment=TA_RIGHT, fontName='Helvetica-Bold')),
-        ]], colWidths=[3*inch, 3.3*inch])
-        rb.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(-1,-1), colors.HexColor('#f8fafc')),
-            ('PADDING',(0,0),(-1,-1), 14),
-            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
-            ('LINEBELOW',(0,0),(-1,-1), 3, risk['color']),
-            ('BOX',(0,0),(-1,-1), 0.5, colors.HexColor('#e2e8f0')),
-        ]))
-        story.append(rb)
-        story.append(Spacer(1, 0.2*inch))
+        story.append(Spacer(1, 0.12*inch))
 
-        # Métricas
-        mt = Table([
-            ['Métrica','Valor','% do Total'],
-            ['Provider', self.provider_name, ''],
-            ['Bucket/Container', self.scan_data.get('bucket',''), ''],
-            ['Total de Arquivos', str(total), '100%'],
-            ['CRÍTICO', str(sd.get('critical',0)),
-             f"{self._calc_pct(sd.get('critical',0),total)}%"],
-            ['ALTO',    str(sd.get('high',0)),
-             f"{self._calc_pct(sd.get('high',0),total)}%"],
-            ['MÉDIOS',   str(sd.get('medium',0)),
-             f"{self._calc_pct(sd.get('medium',0),total)}%"],
-            ['BAIXOS',   str(sd.get('low',0)),
-             f"{self._calc_pct(sd.get('low',0),total)}%"],
-            ['Tamanho Total', self._format_size(self.size_distribution.get('_total_bytes',0)), ''],
-        ], colWidths=[3*inch, 2*inch, 1.2*inch])
-        mt.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(-1,0),self.COLOR_PRIMARY),
-            ('TEXTCOLOR',(0,0),(-1,0),colors.white),
-            ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
-            ('FONTSIZE',(0,0),(-1,-1),10),
-            ('PADDING',(0,0),(-1,-1),10),
-            ('GRID',(0,0),(-1,-1),0.5,self.COLOR_PRIMARY),
-            ('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,self.COLOR_BG_LIGHT]),
-            ('TEXTCOLOR',(1,4),(2,4),self.COLOR_CRITICAL),
-            ('TEXTCOLOR',(1,5),(2,5),self.COLOR_HIGH),
-            ('TEXTCOLOR',(1,6),(2,6),self.COLOR_MEDIUM),
-            ('TEXTCOLOR',(1,7),(2,7),self.COLOR_LOW),
-            ('FONTNAME',(1,4),(2,7),'Helvetica-Bold'),
+        # ── Cards de severidade (4 colunas coloridas) ─────────────────
+        def _sev_card(label, value, total, color, bg):
+            pct  = f"{value/total*100:.1f}%" if total else "0.0%"
+            bar_w = max(value/total, 0.02) if total and value else 0
+            return [
+                Paragraph(f"<b>{label}</b>",
+                          ParagraphStyle('cl', fontSize=10, textColor=color,
+                                         fontName='Helvetica-Bold', alignment=TA_CENTER)),
+                Paragraph(f"<b>{value:,}</b>",
+                          ParagraphStyle('cn', fontSize=22, textColor=color,
+                                         fontName='Helvetica-Bold', alignment=TA_CENTER)),
+                Paragraph(pct,
+                          ParagraphStyle('cp', fontSize=9, textColor=colors.HexColor('#6b7280'),
+                                         alignment=TA_CENTER)),
+            ]
+
+        sev_colors = [self.COLOR_CRITICAL, self.COLOR_HIGH, self.COLOR_MEDIUM, self.COLOR_LOW]
+        sev_bgs    = [colors.HexColor('#fee2e2'), colors.HexColor('#ffedd5'),
+                      colors.HexColor('#fef9c3'), colors.HexColor('#dcfce7')]
+        sev_labels = ['CRÍTICO', 'ALTO', 'MÉDIO', 'BAIXO']
+        sev_keys   = ['critical', 'high', 'medium', 'low']
+        sev_vals   = [sd.get(k, 0) for k in sev_keys]
+
+        card_row = Table(
+            [[Paragraph(f"<b>{lbl}</b>", ParagraphStyle('cl2',fontSize=10,textColor=col,
+                        fontName='Helvetica-Bold',alignment=TA_CENTER)),
+              Paragraph(f"<b>{val:,}</b>", ParagraphStyle('cn2',fontSize=24,textColor=col,
+                        fontName='Helvetica-Bold',alignment=TA_CENTER)),
+              Paragraph(f"{val/total*100:.1f}%" if total else "0.0%",
+                        ParagraphStyle('cp2',fontSize=9,textColor=colors.HexColor('#64748b'),
+                        alignment=TA_CENTER))]
+             for lbl, val, col in zip(sev_labels, sev_vals, sev_colors)],
+            colWidths=[1.55*inch]*4
+        )
+        card_row.setStyle(TableStyle([
+            *[('BACKGROUND',(i,0),(i,-1), sev_bgs[i]) for i in range(4)],
+            *[('LINEBELOW',(i,0),(i,-1), 3, sev_colors[i]) for i in range(4)],
+            ('PADDING',(0,0),(-1,-1), 10),
+            ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+            ('BOX',(0,0),(-1,-1), 0.5, colors.HexColor('#e2e8f0')),
+            ('INNERGRID',(0,0),(-1,-1), 0.5, colors.white),
         ]))
-        story.append(mt)
-        story.append(Spacer(1,0.15*inch))
+        story.append(card_row)
+        story.append(Spacer(1, 0.18*inch))
+
+        # Métricas resumidas + ação
+        mt_data = [
+            ['Métrica', 'Valor', '% do Total'],
+            ['Provider', self.provider_name, ''],
+            ['Bucket / Container', self.scan_data.get('bucket',''), ''],
+            ['Total de Arquivos', f"{total:,}", '100%'],
+            ['Tamanho Total', self._format_size(self.size_distribution.get('_total_bytes',0)), ''],
+            ['Nível de Risco', risk['level'], ''],
+        ]
+        mt = Table(mt_data, colWidths=[2.8*inch, 2.4*inch, 1.1*inch])
+        mt.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(-1,0), self.COLOR_PRIMARY),
+            ('TEXTCOLOR',(0,0),(-1,0),  colors.white),
+            ('FONTNAME',(0,0),(-1,0),   'Helvetica-Bold'),
+            ('FONTSIZE',(0,0),(-1,-1),  10),
+            ('PADDING',(0,0),(-1,-1),   9),
+            ('GRID',(0,0),(-1,-1),      0.4, colors.HexColor('#e2e8f0')),
+            ('ROWBACKGROUNDS',(0,1),(-1,-1), [colors.white, colors.HexColor('#f8fafc')]),
+            ('TEXTCOLOR',(1,-1),(2,-1), risk['color']),
+            ('FONTNAME',(1,-1),(2,-1),  'Helvetica-Bold'),
+        ]))
+
+        # Donut ao lado da tabela de métricas
+        if self.ch.get('donut'):
+            layout = Table([[
+                mt,
+                RLImage(self.ch['donut'], width=2.8*inch, height=2.8*inch*0.85),
+            ]], colWidths=[3.6*inch, 2.9*inch])
+            layout.setStyle(TableStyle([
+                ('VALIGN',(0,0),(-1,-1),'TOP'),
+                ('ALIGN',(1,0),(1,0),'CENTER'),
+            ]))
+            story.append(layout)
+        else:
+            story.append(mt)
+
+        story.append(Spacer(1, 0.12*inch))
         story.append(Paragraph(f"<b>{risk['action']}</b>",
-                                ParagraphStyle('ACT', fontSize=12, textColor=risk['color'],
+                                ParagraphStyle('ACT', fontSize=11, textColor=risk['color'],
                                                alignment=TA_CENTER, fontName='Helvetica-Bold')))
         story.append(PageBreak())
 
         # ── 2. DISTRIBUIÇÃO DE CRITICIDADE ────────────────────────────
         story.append(Paragraph("2. DISTRIBUIÇÃO DE CRITICIDADE", H1))
-
         story.append(Paragraph(
             "Distribuição dos arquivos por nível de severidade e tipo de conteúdo exposto.",
             styles['Normal']))
+        story.append(Spacer(1, 0.1*inch))
 
-        # Donut + Tipo lado a lado
-        if self.ch.get('donut') and self.ch.get('type_pie'):
+        if self.ch.get('type_pie'):
             row = Table([[
-                RLImage(self.ch['donut'],   width=2.9*inch, height=2.9*inch*0.7),
-                RLImage(self.ch['type_pie'],width=2.9*inch, height=2.9*inch*0.7),
-            ]], colWidths=[3.1*inch, 3.1*inch])
+                RLImage(self.ch.get('donut',''),   width=3.2*inch, height=3.2*inch*0.78) if self.ch.get('donut') else Paragraph('', styles['Normal']),
+                RLImage(self.ch['type_pie'], width=3.2*inch, height=3.2*inch*0.78),
+            ]], colWidths=[3.4*inch, 3.4*inch])
             row.setStyle(TableStyle([('ALIGN',(0,0),(-1,-1),'CENTER'),
                                      ('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
             story.append(row)
-            story.append(Paragraph(
-                "Figura 1 — Severidade (esq.) | Tipo de Arquivo (dir.)", NOTE))
+            story.append(Paragraph("Figura 1 — Severidade (esq.)  |  Tipo de Arquivo (dir.)", NOTE))
         elif self.ch.get('donut'):
-            add_chart(self.ch['donut'], caption="Figura 1 — Distribuição de Severidade")
+            add_chart(self.ch['donut'], width=4.5*inch,
+                      caption="Figura 1 — Distribuição de Severidade")
 
         story.append(PageBreak())
 
@@ -1160,7 +1226,7 @@ class ProfessionalReportGenerator:
             ParagraphStyle('SIG', fontSize=8, textColor=colors.grey, alignment=TA_CENTER)))
 
         print("🔨 Construindo PDF...")
-        doc.build(story, onFirstPage=self._create_header_footer,
+        doc.build(story, onFirstPage=self._create_cover_page,
                   onLaterPages=self._create_header_footer)
 
         report_hash = self._compute_hash(str(filepath))
