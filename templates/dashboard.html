@@ -2388,11 +2388,11 @@
           <!-- ============================
                RESUMO EXECUTIVO
                ============================ -->
-          <div id="executive-summary" style="display:none; margin-bottom:16px; border:1px solid #1f2937; border-radius:10px; overflow:hidden;">
-            <div style="background:#161b26; padding:10px 16px; border-bottom:1px solid #1f2937; display:flex; align-items:center; gap:8px;">
-              <span style="font-size:16px;">🚨</span>
-              <span style="font-weight:600; color:#e5e7eb; font-size:14px;">Achados Críticos</span>
-              <span id="exec-total-badge" style="margin-left:auto; font-size:12px; color:#9ca3af;"></span>
+          <div id="executive-summary" style="display:none; margin-bottom:20px; border:1px solid rgba(239,68,68,0.3); border-top:3px solid #ef4444; border-radius:10px; overflow:hidden; box-shadow:0 0 0 1px rgba(239,68,68,0.08);">
+            <div style="background:rgba(239,68,68,0.06); padding:10px 16px; border-bottom:1px solid rgba(239,68,68,0.15); display:flex; align-items:center; gap:8px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span style="font-weight:700; color:#fca5a5; font-size:13px; letter-spacing:0.3px;">Achados Críticos</span>
+              <span id="exec-total-badge" style="margin-left:auto; font-size:11px; color:#9ca3af;"></span>
             </div>
             <div id="exec-findings" style="display:flex; flex-wrap:wrap; gap:0; background:#0e1117;"></div>
           </div>
@@ -2457,7 +2457,7 @@
               <span style="font-size:14px; font-weight:700; color:#e5e7eb;">Recomendações de Segurança</span>
               <span id="rec-count-main" style="background:rgba(245,158,11,0.15); color:#f59e0b; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; border:1px solid rgba(245,158,11,0.3);"></span>
             </div>
-            <div id="rec-cards-main" style="display:flex; flex-direction:column; gap:8px;"></div>
+            <div id="rec-cards-main" style="display:flex; flex-direction:column; gap:8px; max-height:320px; overflow-y:auto; padding-right:4px;"></div>
           </div>
         </div>
 
