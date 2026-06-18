@@ -3038,17 +3038,35 @@ function logout() {
       const totalSize = files.reduce((a, f) => a + (f.size || 0), 0);
       totalBadge.textContent = `${files.length} arquivos · ${formatBytes(totalSize)} · ${publicAccess ? '⚠️ Público' : '🔒 Privado'}`;
 
-      findingsDiv.innerHTML = cards.map((g, i) => `
+      findingsDiv.innerHTML = cards.map((g, i) => {
+        const MAX_VISIBLE = 5;
+        const shown = g.files.slice(0, MAX_VISIBLE);
+        const rest  = g.files.length - shown.length;
+        const fileList = shown.map(f => {
+          const name = (f.key || '').split('/').pop() || f.key || '—';
+          const size = f.size ? ` <span style="color:#4b5563;font-size:10px;">${formatBytes(f.size)}</span>` : '';
+          return `<div style="display:flex;align-items:center;gap:5px;padding:2px 0;font-family:'SF Mono','Fira Code',monospace;font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            <span style="color:${g.color};font-size:8px;flex-shrink:0;">◆</span>
+            <span style="overflow:hidden;text-overflow:ellipsis;">${name}</span>${size}
+          </div>`;
+        }).join('');
+        const moreRow = rest > 0
+          ? `<div style="font-size:10px;color:#4b5563;font-style:italic;margin-top:3px;">+${rest} arquivo${rest>1?'s':''} a mais</div>`
+          : '';
+        return `
         <div data-card-idx="${i}"
-          style="flex:1; min-width:160px; padding:14px 16px; border-right:1px solid #1f2937; background:${g.bg}20; cursor:pointer; transition:filter 0.15s;"
-          onmouseenter="showExecTooltip(event, ${i})"
-          onmouseleave="hideTooltip()"
-          onmousemove="moveTooltip(event)">
-          <div style="font-size:20px; margin-bottom:6px;">${g.label.split(' ')[0]}</div>
-          <div style="font-size:22px; font-weight:700; color:${g.color};">${g.count}</div>
-          <div style="font-size:12px; color:#9ca3af; margin-top:2px;">${g.label.split(' ').slice(1).join(' ')}</div>
-        </div>
-      `).join('');
+          style="flex:1; min-width:200px; padding:14px 16px; border-right:1px solid #1f2937; background:${g.bg}20;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <span style="font-size:18px;">${g.label.split(' ')[0]}</span>
+            <span style="font-size:13px;color:#9ca3af;">${g.label.split(' ').slice(1).join(' ')}</span>
+            <span style="margin-left:auto;font-size:16px;font-weight:700;color:${g.color};">${g.count}</span>
+          </div>
+          <div style="border-top:1px solid #1f293740;padding-top:8px;">
+            ${fileList}
+            ${moreRow}
+          </div>
+        </div>`;
+      }).join('');
 
       // Store card data for tooltip
       window._execCards = cards;
