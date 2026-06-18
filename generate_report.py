@@ -102,40 +102,47 @@ class ChartEngine:
         keys    = ['critical', 'high', 'medium', 'low']
         pal     = [P['critical'], P['high'], P['medium'], P['low']]
         values  = [severity_dist.get(k, 0) for k in keys]
-        explode = [0.04, 0.04, 0.04, 0.01]
 
         nz_vals = [v for v in values if v > 0]
         nz_cols = [c for c, v in zip(pal, values) if v > 0]
-        nz_exp  = [e for e, v in zip(explode, values) if v > 0]
+        nz_lbls = [f'{l}: {v:,}' for l, v in zip(labels, values) if v > 0]
 
-        fig, ax = plt.subplots(figsize=(7, 4.8), facecolor='white')
+        fig, ax = plt.subplots(figsize=(6.5, 5.2), facecolor='white')
 
         if sum(nz_vals) > 0:
-            _, _, autotexts = ax.pie(
-                nz_vals, colors=nz_cols, explode=nz_exp,
-                autopct=lambda p: f'{p:.1f}%',
-                startangle=140, pctdistance=0.75,
-                wedgeprops={'linewidth': 2, 'edgecolor': 'white', 'antialiased': True}
+            wedges, _, autotexts = ax.pie(
+                nz_vals, colors=nz_cols,
+                autopct=lambda p: f'{p:.1f}%' if p > 2 else '',
+                startangle=90, pctdistance=0.78,
+                wedgeprops={'linewidth': 2.5, 'edgecolor': 'white',
+                            'antialiased': True}
             )
             for at in autotexts:
-                at.set_fontsize(11); at.set_fontweight('bold'); at.set_color('white')
+                at.set_fontsize(10); at.set_fontweight('bold'); at.set_color('white')
+            ax.legend(wedges, nz_lbls, loc='lower center',
+                      bbox_to_anchor=(0.5, -0.08), ncol=2,
+                      fontsize=9.5, frameon=False,
+                      handlelength=1.2, handleheight=1.0)
 
-        circle = plt.Circle((0, 0), 0.55, color='white')
+        # Buraco central com sombra
+        shadow = plt.Circle((0.03, -0.03), 0.56, color='#e5e7eb', zorder=1)
+        circle = plt.Circle((0, 0), 0.56, color='white', zorder=2)
+        ax.add_patch(shadow)
         ax.add_patch(circle)
-        ax.text(0,  0.08, f'{total:,}',   ha='center', va='center',
-                fontsize=20, fontweight='bold', color=P['primary'])
-        ax.text(0, -0.16, 'arquivos', ha='center', va='center',
-                fontsize=10, color=P['gray'])
 
-        patches = [mpatches.Patch(color=pal[i], label=f'{labels[i]}: {values[i]:,}')
-                   for i in range(4)]
-        ax.legend(handles=patches, loc='lower center',
-                  bbox_to_anchor=(0.5, -0.12), ncol=4, fontsize=9, frameon=False)
+        dominant_sev = labels[values.index(max(values))] if any(v > 0 for v in values) else 'BAIXO'
+        dom_col      = pal[values.index(max(values))] if any(v > 0 for v in values) else P['low']
+        ax.text(0,  0.10, f'{total:,}',   ha='center', va='center', zorder=3,
+                fontsize=22, fontweight='bold', color=P['primary'])
+        ax.text(0, -0.14, 'arquivos',    ha='center', va='center', zorder=3,
+                fontsize=9.5, color=P['gray'])
+        ax.text(0, -0.34, dominant_sev, ha='center', va='center', zorder=3,
+                fontsize=8.5, fontweight='bold', color=dom_col)
 
         ax.set_title('Distribuição de Severidade', fontsize=13,
-                     fontweight='bold', color=P['primary'], pad=12)
+                     fontweight='bold', color=P['primary'], pad=14)
         ax.axis('equal')
-        fig.tight_layout()
+        fig.tight_layout(pad=1.2)
         return self._save(fig, 'donut_severity')
 
     # ── 2. Barras — score de criticidade por arquivo ──────────────────
@@ -150,44 +157,49 @@ class ChartEngine:
         cols   = [self.SEV_COLOR.get(f.get('severity', 'LOW'), P['low']) for f in files]
 
         n = len(files)
-        fig, ax = plt.subplots(figsize=(9.5, max(3.5, n * 0.44 + 1.2)), facecolor='white')
-        ax.set_facecolor('#f9fafb')
+        fig, ax = plt.subplots(figsize=(9.5, max(4.0, n * 0.50 + 1.4)), facecolor='white')
+        ax.set_facecolor('white')
 
         y = np.arange(n)
-        bars = ax.barh(y, scores, color=cols, height=0.58,
-                       edgecolor='white', linewidth=0.8, alpha=0.92)
-        ax.grid(axis='x', color='white', linewidth=1.4)
+        # Zonas de fundo sutis primeiro
+        for x0, x1, c in [(0,25,P['low']),(25,50,P['medium']),(50,75,P['high']),(75,100,P['critical'])]:
+            ax.axvspan(x0, x1, alpha=0.055, color=c, zorder=0)
+
+        bars = ax.barh(y, scores, color=cols, height=0.62,
+                       edgecolor='none', linewidth=0, alpha=0.88, zorder=2)
+        # Linha de borda esquerda colorida
+        for bar, col in zip(bars, cols):
+            ax.barh(bar.get_y(), 0.5, height=bar.get_height(),
+                    color=col, alpha=1.0, zorder=3, left=0)
+
+        ax.grid(axis='x', color='#f3f4f6', linewidth=1.2, zorder=1)
         ax.set_axisbelow(True)
 
         for bar, score, f in zip(bars, scores, files):
             sev = f.get('severity', 'LOW')
-            ax.text(bar.get_width() + 0.6,
+            ax.text(min(bar.get_width() + 1.2, 98),
                     bar.get_y() + bar.get_height() / 2,
                     f'{sev}  {score:.0f} pts',
                     va='center', ha='left', fontsize=8,
                     fontweight='bold', color=self.SEV_COLOR.get(sev, P['low']))
 
-        # Zonas de fundo
-        for x0, x1, c in [(0, 25, P['low']), (25, 50, P['medium']),
-                           (50, 75, P['high']), (75, 100, P['critical'])]:
-            ax.axvspan(x0, x1, alpha=0.04, color=c)
-        for x, lbl, c in [(12.5,'BAIXO', P['low']), (37.5,'MÉDIO', P['medium']),
-                           (62.5,'ALTO',  P['high']), (87.5,'CRÍTICO', P['critical'])]:
-            ax.text(x, -0.8, lbl, ha='center', fontsize=7,
-                    color=c, fontweight='bold', style='italic')
+        for x, lbl, c in [(12.5,'BAIXO',P['low']),(37.5,'MÉDIO',P['medium']),
+                           (62.5,'ALTO',P['high']),(87.5,'CRÍTICO',P['critical'])]:
+            ax.text(x, n - 0.05, lbl, ha='center', fontsize=7.5,
+                    color=c, fontweight='bold', style='italic', va='bottom')
 
         ax.set_yticks(y)
         ax.set_yticklabels(names, fontsize=8.5, color='#374151')
-        ax.set_xlim(0, 100)
+        ax.set_xlim(0, 105)
         ax.set_xlabel('Score de Criticidade', fontsize=9, color=P['gray'])
-        ax.set_title(f'Score de Criticidade por Arquivo{" — " + title if title else ""}',
-                     fontsize=12, fontweight='bold', color=P['primary'], pad=10)
-        for sp in ['top', 'right']:
+        ax.set_title(f'Score de Criticidade por Arquivo — Top 20',
+                     fontsize=12, fontweight='bold', color=P['primary'], pad=12)
+        for sp in ['top', 'right', 'left']:
             ax.spines[sp].set_visible(False)
-        ax.spines['left'].set_color('#e5e7eb')
         ax.spines['bottom'].set_color('#e5e7eb')
+        ax.tick_params(left=False)
         ax.invert_yaxis()
-        fig.tight_layout()
+        fig.tight_layout(pad=1.1)
         return self._save(fig, fname)
 
     # ── 3. Barras — tamanho por arquivo ──────────────────────────────
@@ -753,22 +765,27 @@ class ProfessionalReportGenerator:
     # ══════════════════════════════════════════════════════════════════
     def _create_header_footer(self, canvas, doc):
         canvas.saveState()
+        # Header — barra primária + acento secundário
         canvas.setFillColor(self.COLOR_PRIMARY)
-        canvas.rect(0, A4[1]-0.6*inch, A4[0], 0.6*inch, fill=True, stroke=False)
+        canvas.rect(0, A4[1]-0.65*inch, A4[0], 0.65*inch, fill=True, stroke=False)
+        canvas.setFillColor(self.COLOR_SECONDARY)
+        canvas.rect(0, A4[1]-0.68*inch, A4[0], 0.04*inch, fill=True, stroke=False)
         canvas.setFillColor(colors.white)
-        canvas.setFont('Helvetica-Bold', 12)
-        canvas.drawString(0.5*inch, A4[1]-0.35*inch, "RELATORIO DE SEGURANCA EXECUTIVO")
+        canvas.setFont('Helvetica-Bold', 11)
+        canvas.drawString(0.55*inch, A4[1]-0.38*inch, "RELATÓRIO DE SEGURANÇA EXECUTIVO")
         canvas.setFont('Helvetica', 9)
-        canvas.drawRightString(A4[0]-0.5*inch, A4[1]-0.35*inch,
+        canvas.drawRightString(A4[0]-0.55*inch, A4[1]-0.38*inch,
                                self.report_date.strftime("%d/%m/%Y"))
-        canvas.setFillColor(colors.grey)
+        # Footer
+        canvas.setFillColor(colors.HexColor('#f1f5f9'))
+        canvas.rect(0, 0, A4[0], 0.65*inch, fill=True, stroke=False)
+        canvas.setFillColor(self.COLOR_PRIMARY)
+        canvas.rect(0, 0.62*inch, A4[0], 0.03*inch, fill=True, stroke=False)
+        canvas.setFillColor(colors.HexColor('#64748b'))
         canvas.setFont('Helvetica', 8)
-        canvas.drawString(0.5*inch, 0.4*inch,
-                          f"Security Multicloud Scanner | {self.provider_name}")
-        canvas.drawRightString(A4[0]-0.5*inch, 0.4*inch, f"Pagina {doc.page}")
-        canvas.setStrokeColor(self.COLOR_PRIMARY)
-        canvas.setLineWidth(2)
-        canvas.line(0.5*inch, 0.6*inch, A4[0]-0.5*inch, 0.6*inch)
+        canvas.drawString(0.55*inch, 0.25*inch,
+                          f"Security Multicloud Scanner  |  {self.provider_name}")
+        canvas.drawRightString(A4[0]-0.55*inch, 0.25*inch, f"Página {doc.page}")
         canvas.restoreState()
 
     def generate_pdf(self) -> str:
@@ -783,14 +800,21 @@ class ProfessionalReportGenerator:
         story = []
         styles = getSampleStyleSheet()
 
-        H1 = ParagraphStyle('H1', parent=styles['Heading1'], fontSize=16,
-                             textColor=self.COLOR_PRIMARY, spaceAfter=12,
-                             spaceBefore=12, fontName='Helvetica-Bold')
-        H2 = ParagraphStyle('H2', parent=styles['Heading2'], fontSize=12,
-                             textColor=self.COLOR_SECONDARY, spaceAfter=8,
-                             spaceBefore=8, fontName='Helvetica-Bold')
-        NOTE = ParagraphStyle('NOTE', fontSize=8, textColor=colors.grey,
-                              alignment=TA_CENTER, fontName='Helvetica-Oblique')
+        H1 = ParagraphStyle('H1', parent=styles['Heading1'], fontSize=15,
+                             textColor=colors.white, spaceAfter=14,
+                             spaceBefore=14, fontName='Helvetica-Bold',
+                             backColor=self.COLOR_PRIMARY,
+                             leftPadding=10, rightPadding=10,
+                             topPadding=6, bottomPadding=6, leading=20)
+        H2 = ParagraphStyle('H2', parent=styles['Heading2'], fontSize=11,
+                             textColor=self.COLOR_PRIMARY, spaceAfter=8,
+                             spaceBefore=10, fontName='Helvetica-Bold',
+                             borderPad=4, leftPadding=0,
+                             borderColor=self.COLOR_SECONDARY,
+                             borderWidth=0)
+        NOTE = ParagraphStyle('NOTE', fontSize=8, textColor=colors.HexColor('#6b7280'),
+                              alignment=TA_CENTER, fontName='Helvetica-Oblique',
+                              spaceAfter=4)
 
         def add_chart(path, width=5.8*inch, caption=None):
             if path and Path(path).exists():
@@ -806,43 +830,73 @@ class ProfessionalReportGenerator:
         risk   = self.risk_level
 
         # ── CAPA ──────────────────────────────────────────────────────
-        story.append(Spacer(1, 2*inch))
-        story.append(Paragraph("RELATORIO DE SEGURANCA EXECUTIVO",
-                                ParagraphStyle('T', fontSize=26, alignment=TA_CENTER,
+        # Banner superior colorido via canvas (DrawingObject workaround: usar Table colorida)
+        banner = Table([[''], ['']], colWidths=[7.1*inch], rowHeights=[1.6*inch, 0.08*inch])
+        banner.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,0), self.COLOR_PRIMARY),
+            ('BACKGROUND', (0,1), (0,1), self.COLOR_SECONDARY),
+        ]))
+        story.append(banner)
+
+        story.append(Spacer(1, 0.5*inch))
+        story.append(Paragraph("RELATÓRIO DE SEGURANÇA",
+                                ParagraphStyle('T1', fontSize=28, alignment=TA_CENTER,
                                                textColor=self.COLOR_PRIMARY,
-                                               fontName='Helvetica-Bold', spaceAfter=30, leading=32)))
-        story.append(Paragraph(f"Auditoria de Storage Multicloud<br/>{self.provider_name}",
-                                ParagraphStyle('S', fontSize=14, alignment=TA_CENTER,
-                                               textColor=colors.grey, spaceAfter=40)))
+                                               fontName='Helvetica-Bold', spaceAfter=4, leading=34)))
+        story.append(Paragraph("EXECUTIVO",
+                                ParagraphStyle('T2', fontSize=28, alignment=TA_CENTER,
+                                               textColor=self.COLOR_SECONDARY,
+                                               fontName='Helvetica-Bold', spaceAfter=20, leading=34)))
+        story.append(Paragraph(f"Auditoria de Storage Multicloud  ·  {self.provider_name}",
+                                ParagraphStyle('S', fontSize=13, alignment=TA_CENTER,
+                                               textColor=colors.HexColor('#64748b'), spaceAfter=40)))
+
+        # Linha divisória
+        div = Table([['']], colWidths=[5*inch], rowHeights=[0.03*inch])
+        div.setStyle(TableStyle([
+            ('BACKGROUND',(0,0),(0,0), self.COLOR_SECONDARY),
+            ('ALIGN',(0,0),(0,0),'CENTER'),
+        ]))
+        story.append(div)
+        story.append(Spacer(1, 0.4*inch))
+
         if self.client_info.get('name'):
-            ct = Table([['Cliente:', self.client_info.get('name','')],
-                        ['Contato:', self.client_info.get('contact','')],
-                        ['Data:', self.report_date.strftime('%d/%m/%Y às %H:%M')],
-                        ['Alvo:', self.scan_data.get('bucket','')]],
-                       colWidths=[1.5*inch, 3.5*inch])
+            ct = Table([
+                ['Cliente:',    self.client_info.get('name','')],
+                ['Contato:',    self.client_info.get('contact','')],
+                ['Data:',       self.report_date.strftime('%d/%m/%Y às %H:%M')],
+                ['Alvo:',       self.scan_data.get('bucket','')],
+            ], colWidths=[1.6*inch, 3.8*inch])
             ct.setStyle(TableStyle([
                 ('FONTNAME',(0,0),(0,-1),'Helvetica-Bold'),
                 ('FONTSIZE',(0,0),(-1,-1),11),
                 ('TEXTCOLOR',(0,0),(0,-1),self.COLOR_PRIMARY),
-                ('PADDING',(0,0),(-1,-1),8),
+                ('TEXTCOLOR',(1,0),(1,-1),colors.HexColor('#1e293b')),
+                ('PADDING',(0,0),(-1,-1),9),
+                ('LINEBELOW',(0,0),(-1,-2),0.5,colors.HexColor('#e2e8f0')),
+                ('ROWBACKGROUNDS',(0,0),(-1,-1),[colors.white, colors.HexColor('#f8fafc')]),
             ]))
             story.append(ct)
         story.append(PageBreak())
 
         # ── 1. RESUMO EXECUTIVO ────────────────────────────────────────
         story.append(Paragraph("1. RESUMO EXECUTIVO", H1))
-        # Risk box
+        story.append(Spacer(1, 0.1*inch))
+        # Risk indicator — barra de 4 zonas + marcador
         rb = Table([[
-            Paragraph(f"<b>NÍVEL DE RISCO: {risk['level']}</b>",
-                      ParagraphStyle('RL', fontSize=14, textColor=colors.white, alignment=TA_CENTER)),
-            Paragraph(f"<b>{risk['score']}%</b>",
-                      ParagraphStyle('RS', fontSize=20, textColor=colors.white,
-                                     alignment=TA_CENTER, fontName='Helvetica-Bold'))
-        ]], colWidths=[3*inch, 1.5*inch])
+            Paragraph(f"<b>NÍVEL DE RISCO</b>",
+                      ParagraphStyle('RL', fontSize=11, textColor=colors.HexColor('#475569'),
+                                     alignment=TA_LEFT, fontName='Helvetica-Bold')),
+            Paragraph(f"<b>{risk['level']}</b>",
+                      ParagraphStyle('RS', fontSize=16, textColor=risk['color'],
+                                     alignment=TA_RIGHT, fontName='Helvetica-Bold')),
+        ]], colWidths=[3*inch, 3.3*inch])
         rb.setStyle(TableStyle([
-            ('BACKGROUND',(0,0),(-1,-1),risk['color']),
-            ('PADDING',(0,0),(-1,-1),15),
+            ('BACKGROUND',(0,0),(-1,-1), colors.HexColor('#f8fafc')),
+            ('PADDING',(0,0),(-1,-1), 14),
             ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+            ('LINEBELOW',(0,0),(-1,-1), 3, risk['color']),
+            ('BOX',(0,0),(-1,-1), 0.5, colors.HexColor('#e2e8f0')),
         ]))
         story.append(rb)
         story.append(Spacer(1, 0.2*inch))
@@ -886,6 +940,7 @@ class ProfessionalReportGenerator:
 
         # ── 2. DISTRIBUIÇÃO DE CRITICIDADE ────────────────────────────
         story.append(Paragraph("2. DISTRIBUIÇÃO DE CRITICIDADE", H1))
+
         story.append(Paragraph(
             "Distribuição dos arquivos por nível de severidade e tipo de conteúdo exposto.",
             styles['Normal']))
