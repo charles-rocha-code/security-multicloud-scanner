@@ -342,6 +342,38 @@
     .rec-badge-critical { background: rgba(249,115,22,0.2); color: #fb923c; }
     .rec-badge-info     { background: rgba(59,130,246,0.2); color: #60a5fa; }
 
+    /* Cards de recomendação no conteúdo principal */
+    .rec-card {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid #1e293b;
+      background: #0d1117;
+      transition: background 0.15s;
+    }
+    .rec-card:hover { background: #111827; }
+    .rec-card-icon {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .rec-card-body { flex: 1; min-width: 0; }
+    .rec-card-priority {
+      font-size: 9px; font-weight: 700; letter-spacing: 0.8px;
+      text-transform: uppercase; margin-bottom: 3px;
+    }
+    .rec-card-text {
+      font-size: 12px; color: #cbd5e1; line-height: 1.5;
+    }
+    .rec-card-number {
+      font-size: 11px; font-weight: 700; color: #374151;
+      min-width: 20px; text-align: right; padding-top: 2px;
+      flex-shrink: 0;
+    }
+
     /* Contador no header */
     .rec-count-badge {
       margin-left: auto;
@@ -2367,6 +2399,18 @@
           </div>
 
           <!-- ============================
+               RECOMENDAÇÕES
+               ============================ -->
+          <div id="rec-panel" style="display:none; margin-bottom:16px;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span style="font-size:14px; font-weight:700; color:#e5e7eb;">Recomendações de Segurança</span>
+              <span id="rec-count-main" style="background:rgba(245,158,11,0.15); color:#f59e0b; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; border:1px solid rgba(245,158,11,0.3);"></span>
+            </div>
+            <div id="rec-cards-main" style="display:flex; flex-direction:column; gap:8px;"></div>
+          </div>
+
+          <!-- ============================
                RESUMO EXECUTIVO
                ============================ -->
           <div id="executive-summary" style="display:none; margin-bottom:16px; border:1px solid #1f2937; border-radius:10px; overflow:hidden;">
@@ -3458,46 +3502,86 @@ function logout() {
     // 6. RECOMMENDATIONS
     // ============================================================
     function updateRecommendations(list) {
-      // Atualiza apenas a lista na sidebar
-      const ulSidebar = document.getElementById("recommendation-list-sidebar");
-      ulSidebar.innerHTML = "";
+      const ulSidebar    = document.getElementById("recommendation-list-sidebar");
+      const mainPanel    = document.getElementById("rec-panel");
+      const mainCards    = document.getElementById("rec-cards-main");
+      const mainCount    = document.getElementById("rec-count-main");
+      const sideCount    = document.getElementById("rec-count");
+
+      if (ulSidebar) ulSidebar.innerHTML = "";
+      if (mainCards) mainCards.innerHTML = "";
 
       if (!list.length) {
-        const liSidebar = document.createElement("li");
-        liSidebar.textContent = "Nenhuma recomendação.";
-        liSidebar.style.fontSize = "10px";
-        liSidebar.style.color = "#9ca3af";
-        liSidebar.style.borderLeft = "3px solid #4b5563";
-        ulSidebar.appendChild(liSidebar);
+        if (mainPanel) mainPanel.style.display = "none";
+        if (ulSidebar) {
+          const li = document.createElement("li");
+          li.textContent = "Nenhuma recomendação.";
+          li.style.cssText = "font-size:10px;color:#9ca3af;border-left:3px solid #4b5563;padding:6px 8px;border-radius:4px;";
+          ulSidebar.appendChild(li);
+        }
         return;
       }
 
-      // Contador
-      const countEl = document.getElementById("rec-count");
-      if (countEl) { countEl.textContent = list.length; countEl.style.display = "inline-block"; }
+      // Contadores
+      if (sideCount) { sideCount.textContent = list.length; sideCount.style.display = "inline-block"; }
+      if (mainCount) mainCount.textContent = list.length;
+      if (mainPanel) mainPanel.style.display = "block";
 
-      list.forEach(rec => {
-        const text = rec || "";
+      // Configuração de prioridades
+      const PRIORITY = [
+        { test: t => t.includes("URGENTE") || t.includes("IMEDIATAMENTE"),
+          label: "Urgente", color: "#ef4444", bg: "rgba(239,68,68,0.12)",
+          iconBg: "rgba(239,68,68,0.15)", iconColor: "#ef4444",
+          icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>` },
+        { test: t => t.includes("CRÍTICO") || t.includes("CRITICO") || t.includes("IMEDIATAMENTE"),
+          label: "Crítico", color: "#f97316", bg: "rgba(249,115,22,0.10)",
+          iconBg: "rgba(249,115,22,0.15)", iconColor: "#f97316",
+          icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>` },
+        { test: t => t.includes("ALTA") || t.includes("ALTO") || t.includes("REMOVER"),
+          label: "Alta", color: "#eab308", bg: "rgba(234,179,8,0.08)",
+          iconBg: "rgba(234,179,8,0.15)", iconColor: "#eab308",
+          icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>` },
+        { test: () => true,
+          label: "Info", color: "#3b82f6", bg: "rgba(59,130,246,0.06)",
+          iconBg: "rgba(59,130,246,0.12)", iconColor: "#3b82f6",
+          icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>` },
+      ];
+
+      const cleanText = t => t.replace(/^[🚨🔑🔐🗄️📋📦ℹ️⚠️🛡️🔒✅⛔🔵🔴🟡]+\s*(URGENTE:|CRÍTICO:|ALTO:|MÉDIO:|INFO:)?\s*/u, '').trim();
+
+      list.forEach((rec, idx) => {
+        const text  = rec || "";
         const upper = text.toUpperCase();
+        const prio  = PRIORITY.find(p => p.test(upper));
+        const clean = cleanText(text);
 
-        // Detecta prioridade pelo texto
-        const isUrgent   = upper.includes("URGENTE") || upper.includes("IMEDIATAMENTE");
-        const isCritical = upper.includes("CRÍTICO") || upper.includes("CRITICO") ||
-                           upper.includes("PASSWORD") || upper.includes("SECRET") ||
-                           upper.includes("CREDENTIAL") || upper.includes("CHAVE") ||
-                           upper.includes("VAZAMENTO");
+        // Card no painel principal
+        if (mainCards) {
+          const card = document.createElement("div");
+          card.className = "rec-card";
+          card.style.borderLeftColor = prio.color;
+          card.style.borderLeftWidth = "3px";
+          card.style.background     = prio.bg;
+          card.innerHTML = `
+            <div class="rec-card-icon" style="background:${prio.iconBg}; color:${prio.iconColor};">
+              ${prio.icon}
+            </div>
+            <div class="rec-card-body">
+              <div class="rec-card-priority" style="color:${prio.color};">${prio.label}</div>
+              <div class="rec-card-text">${clean}</div>
+            </div>
+            <div class="rec-card-number">${idx + 1}</div>`;
+          mainCards.appendChild(card);
+        }
 
-        const itemClass  = isUrgent ? "rec-urgent" : isCritical ? "rec-critical" : "";
-        const badgeClass = isUrgent ? "rec-badge-urgent" : isCritical ? "rec-badge-critical" : "rec-badge-info";
-        const badgeText  = isUrgent ? "⚠ Urgente" : isCritical ? "● Crítico" : "ℹ Info";
-
-        const li = document.createElement("li");
-        li.className = `rec-item ${itemClass}`;
-        li.innerHTML = `
-          <div class="rec-badge ${badgeClass}">${badgeText}</div>
-          <div>${text}</div>
-        `;
-        ulSidebar.appendChild(li);
+        // Item compacto na sidebar
+        if (ulSidebar) {
+          const li = document.createElement("li");
+          li.className = `rec-item`;
+          li.style.borderLeftColor = prio.color;
+          li.innerHTML = `<div class="rec-badge" style="background:${prio.iconBg};color:${prio.color};">${prio.label}</div><div>${clean}</div>`;
+          ulSidebar.appendChild(li);
+        }
       });
     }
 
