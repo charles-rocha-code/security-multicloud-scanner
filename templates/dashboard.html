@@ -1648,6 +1648,31 @@
       background: #232b3a;
     }
 
+    .file-table th.sortable {
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .file-table th.sortable:hover { color: #60a5fa; }
+    .file-table th.sortable .sort-icon { margin-left: 5px; opacity: 0.4; font-size: 11px; }
+    .file-table th.sortable.sort-asc .sort-icon,
+    .file-table th.sortable.sort-desc .sort-icon { opacity: 1; color: #3b82f6; }
+
+    /* Sidebar category filters */
+    .sidebar-categories { padding: 12px 12px 4px; border-top: 1px solid #1f2937; margin-top: 8px; }
+    .sidebar-categories-title { font-size: 10px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+    .cat-filter-btn {
+      display: flex; align-items: center; justify-content: space-between;
+      width: 100%; padding: 7px 10px; margin-bottom: 4px;
+      background: transparent; border: 1px solid transparent;
+      border-radius: 7px; cursor: pointer; text-align: left;
+      font-size: 12px; color: #9ca3af; transition: all 0.15s;
+    }
+    .cat-filter-btn:hover { background: #1f2937; color: #e5e7eb; }
+    .cat-filter-btn.active { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.3); color: #60a5fa; }
+    .cat-filter-count { font-size: 10px; font-weight: 600; background: #1f2937; color: #6b7280; padding: 1px 6px; border-radius: 10px; }
+    .cat-filter-btn.active .cat-filter-count { background: rgba(59,130,246,0.2); color: #60a5fa; }
+
     /* Controles de Paginação */
     #pagination-controls {
       margin-top: -1px;
@@ -1970,6 +1995,43 @@
       </div>
       <div id="history-list" class="history-list">
         <!-- Populado via JS -->
+      </div>
+
+      <!-- Filtros Rápidos por Categoria -->
+      <div class="sidebar-categories" id="sidebar-categories" style="display:none;">
+        <div class="sidebar-categories-title">Filtrar por Categoria</div>
+        <button class="cat-filter-btn active" onclick="setCategoryFilter(null, this)" id="cat-btn-all">
+          <span>Todos</span>
+          <span class="cat-filter-count" id="cat-count-all">0</span>
+        </button>
+        <button class="cat-filter-btn" onclick="setCategoryFilter('cred', this)" id="cat-btn-cred">
+          <span>Credenciais</span>
+          <span class="cat-filter-count" id="cat-count-cred">0</span>
+        </button>
+        <button class="cat-filter-btn" onclick="setCategoryFilter('keys', this)" id="cat-btn-keys">
+          <span>Chaves Crypto</span>
+          <span class="cat-filter-count" id="cat-count-keys">0</span>
+        </button>
+        <button class="cat-filter-btn" onclick="setCategoryFilter('db', this)" id="cat-btn-db">
+          <span>Backups / DB</span>
+          <span class="cat-filter-count" id="cat-count-db">0</span>
+        </button>
+        <button class="cat-filter-btn" onclick="setCategoryFilter('config', this)" id="cat-btn-config">
+          <span>Configs</span>
+          <span class="cat-filter-count" id="cat-count-config">0</span>
+        </button>
+        <button class="cat-filter-btn" onclick="setCategoryFilter('code', this)" id="cat-btn-code">
+          <span>Código</span>
+          <span class="cat-filter-count" id="cat-count-code">0</span>
+        </button>
+        <button class="cat-filter-btn" onclick="setCategoryFilter('archive', this)" id="cat-btn-archive">
+          <span>Compactados</span>
+          <span class="cat-filter-count" id="cat-count-archive">0</span>
+        </button>
+        <button class="cat-filter-btn" onclick="setCategoryFilter('other', this)" id="cat-btn-other">
+          <span>Outros</span>
+          <span class="cat-filter-count" id="cat-count-other">0</span>
+        </button>
       </div>
 
     </aside>
@@ -2407,9 +2469,9 @@
                 <th style="width: 40px;">
                   <input type="checkbox" id="checkbox-select-all" onchange="toggleSelectAll(this.checked)" title="Selecionar/Desselecionar todos">
                 </th>
-                <th>Objeto / Caminho</th>
-                <th>Tamanho</th>
-                <th>Severidade</th>
+                <th class="sortable" id="th-key" onclick="toggleSort('key')">Objeto / Caminho <span class="sort-icon">↕</span></th>
+                <th class="sortable" id="th-size" onclick="toggleSort('size')">Tamanho <span class="sort-icon">↕</span></th>
+                <th class="sortable" id="th-severity" onclick="toggleSort('severity')">Severidade <span class="sort-icon">↕</span></th>
                 <th>Ação</th>
               </tr>
             </thead>
@@ -2678,10 +2740,33 @@ function logout() {
     let selectedSeverities = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
     let selectedExtension = "ALL";
     let searchQuery = "";
+    let selectedCategory = null;
+
+    // Ordenação
+    let sortField = null;
+    let sortDir = "asc";
 
     // Paginação
     let currentPage = 1;
     let itemsPerPage = 50;
+
+    // Definição global de categorias (espelha o heatmap)
+    const CATEGORY_DEFS = [
+      { id: 'cred',    test: f => /\.(env|credentials?|secret)$/i.test(f.key||'') || /(password|passwd|secret|credential)/i.test(f.key||'') },
+      { id: 'keys',   test: f => /\.(pem|key|p12|pfx|ppk|crt|cer)$/i.test(f.key||'') },
+      { id: 'db',     test: f => /\.(sql|dump|bak|backup|db|sqlite|mdb)$/i.test(f.key||'') },
+      { id: 'config', test: f => /\.(config|conf|cfg|ini|yaml|yml|toml|json)$/i.test(f.key||'') },
+      { id: 'code',   test: f => /\.(py|js|ts|php|rb|go|java|sh|bash|ps1)$/i.test(f.key||'') },
+      { id: 'archive',test: f => /\.(zip|tar|gz|rar|7z|tgz)$/i.test(f.key||'') },
+      { id: 'other',  test: () => true },
+    ];
+
+    function getFileCategory(f) {
+      for (let i = 0; i < CATEGORY_DEFS.length - 1; i++) {
+        if (CATEGORY_DEFS[i].test(f)) return CATEGORY_DEFS[i].id;
+      }
+      return 'other';
+    }
 
     // Modo de scan (public ou private)
     let scanMode = "public";
@@ -3025,6 +3110,9 @@ function logout() {
 
       // Tabela de arquivos (salva base + aplica filtros)
       updateFileList(files);
+
+      // Contagens de categoria para sidebar
+      updateCategoryCounts(files);
 
       // Resumo executivo de achados
       renderExecutiveSummary(files, data);
@@ -3602,11 +3690,17 @@ function logout() {
       if (countEl) {
         if (files.length > 0) {
           const total = fullFileList.length;
-          const filtered = files.length;
+          const filteredTotal = files.length;
+          const pageStart = (currentPage - 1) * itemsPerPage + 1;
+          const pageEnd   = Math.min(currentPage * itemsPerPage, filteredTotal);
           countEl.style.display = "block";
-          countEl.innerHTML = filtered === total
-            ? `Exibindo <strong style="color:#e5e7eb;">${filtered.toLocaleString('pt-BR')}</strong> resultados`
-            : `Exibindo <strong style="color:#e5e7eb;">${filtered.toLocaleString('pt-BR')}</strong> de <strong style="color:#e5e7eb;">${total.toLocaleString('pt-BR')}</strong> resultados`;
+          const rangeStr = filteredTotal > itemsPerPage
+            ? `<strong style="color:#e5e7eb;">${pageStart.toLocaleString('pt-BR')}–${pageEnd.toLocaleString('pt-BR')}</strong> de `
+            : "";
+          const filteredStr = filteredTotal === total
+            ? `<strong style="color:#e5e7eb;">${filteredTotal.toLocaleString('pt-BR')}</strong> resultados`
+            : `<strong style="color:#e5e7eb;">${filteredTotal.toLocaleString('pt-BR')}</strong> de <strong style="color:#e5e7eb;">${total.toLocaleString('pt-BR')}</strong> resultados`;
+          countEl.innerHTML = `Exibindo ${rangeStr}${filteredStr}`;
         } else {
           countEl.style.display = "none";
         }
@@ -3853,11 +3947,34 @@ function logout() {
             sev.includes(searchQuery)
           );
         });
-        console.log("After search filter:", filtered.length, "files");
       }
 
-      console.log("Final filtered count:", filtered.length);
-      console.log("=== applyFilters END ===");
+      // Filtro por categoria
+      if (selectedCategory) {
+        const catDef = CATEGORY_DEFS.find(c => c.id === selectedCategory);
+        if (catDef) filtered = filtered.filter(f => catDef.test(f));
+      }
+
+      // Ordenação
+      if (sortField) {
+        const SEV_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+        filtered.sort((a, b) => {
+          let va, vb;
+          if (sortField === 'severity') {
+            va = SEV_ORDER[(a.severity||'LOW').toUpperCase()] ?? 4;
+            vb = SEV_ORDER[(b.severity||'LOW').toUpperCase()] ?? 4;
+          } else if (sortField === 'size') {
+            va = Number(a.size) || 0;
+            vb = Number(b.size) || 0;
+          } else {
+            va = (a.key || a.name || '').toLowerCase();
+            vb = (b.key || b.name || '').toLowerCase();
+          }
+          if (va < vb) return sortDir === 'asc' ? -1 : 1;
+          if (va > vb) return sortDir === 'asc' ?  1 : -1;
+          return 0;
+        });
+      }
 
       // Renderiza tabela
       renderFileTable(filtered);
@@ -3909,6 +4026,51 @@ function logout() {
       applyFilters();
     }
 
+    // ── Ordenação de colunas ──────────────────────────────────────
+    function toggleSort(field) {
+      if (sortField === field) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortField = field;
+        sortDir = 'asc';
+      }
+      // Atualiza visual dos headers
+      ['key','size','severity'].forEach(f => {
+        const th = document.getElementById(`th-${f}`);
+        if (!th) return;
+        th.classList.remove('sort-asc', 'sort-desc');
+        const icon = th.querySelector('.sort-icon');
+        if (icon) icon.textContent = '↕';
+        if (f === sortField) {
+          th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+          if (icon) icon.textContent = sortDir === 'asc' ? '↑' : '↓';
+        }
+      });
+      currentPage = 1;
+      applyFilters();
+    }
+
+    // ── Filtro por categoria (sidebar) ────────────────────────────
+    function setCategoryFilter(catId, btn) {
+      selectedCategory = catId;
+      document.querySelectorAll('.cat-filter-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      currentPage = 1;
+      applyFilters();
+    }
+
+    function updateCategoryCounts(files) {
+      const counts = { cred:0, keys:0, db:0, config:0, code:0, archive:0, other:0 };
+      files.forEach(f => { counts[getFileCategory(f)]++; });
+      counts.all = files.length;
+      Object.entries(counts).forEach(([id, n]) => {
+        const el = document.getElementById(`cat-count-${id}`);
+        if (el) el.textContent = n.toLocaleString('pt-BR');
+      });
+      const sidebar = document.getElementById('sidebar-categories');
+      if (sidebar) sidebar.style.display = files.length > 0 ? 'block' : 'none';
+    }
+
     function resetFilters() {
       // Reset severidade
       selectedSeverities = new Set(["CRITICAL", "HIGH", "MEDIUM", "LOW"]);
@@ -3925,6 +4087,23 @@ function logout() {
       searchQuery = "";
       const searchInput = document.getElementById("search-filter");
       if (searchInput) searchInput.value = "";
+
+      // Reset categoria
+      selectedCategory = null;
+      document.querySelectorAll('.cat-filter-btn').forEach(b => b.classList.remove('active'));
+      const allBtn = document.getElementById('cat-btn-all');
+      if (allBtn) allBtn.classList.add('active');
+
+      // Reset sort
+      sortField = null;
+      sortDir = 'asc';
+      ['key','size','severity'].forEach(f => {
+        const th = document.getElementById(`th-${f}`);
+        if (!th) return;
+        th.classList.remove('sort-asc','sort-desc');
+        const icon = th.querySelector('.sort-icon');
+        if (icon) icon.textContent = '↕';
+      });
 
       // Reset para primeira página
       currentPage = 1;
