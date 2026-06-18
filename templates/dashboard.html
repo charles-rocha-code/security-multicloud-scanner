@@ -691,6 +691,93 @@
       display: block;
     }
 
+    /* ── Vulnerability Heatmap ── */
+    .vuln-map-wrap {
+      padding: 0 0 4px 0;
+      overflow-x: auto;
+    }
+    .vuln-map-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 4px;
+      min-width: 520px;
+    }
+    .vm-col-header {
+      font-size: 10px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      text-align: center;
+      padding: 4px 6px 8px;
+    }
+    .vm-row-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      padding: 0 12px 0 4px;
+      white-space: nowrap;
+      text-align: right;
+    }
+    .vm-cell {
+      border-radius: 6px;
+      height: 44px;
+      min-width: 64px;
+      text-align: center;
+      vertical-align: middle;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: default;
+      transition: transform 0.15s, filter 0.15s;
+      position: relative;
+    }
+    .vm-cell:hover { transform: scale(1.06); filter: brightness(1.15); }
+    .vm-cell .vm-count { display: block; line-height: 1; }
+    .vm-cell .vm-label {
+      display: block;
+      font-size: 9px;
+      font-weight: 500;
+      opacity: 0.7;
+      margin-top: 2px;
+      letter-spacing: 0.3px;
+    }
+    .vm-empty {
+      background: rgba(255,255,255,0.03);
+      color: #374151;
+    }
+    /* severity row colours */
+    .vm-critical-0 { background: rgba(239,68,68,0.06);  color: #374151; }
+    .vm-critical-1 { background: rgba(239,68,68,0.18);  color: #fca5a5; }
+    .vm-critical-2 { background: rgba(239,68,68,0.35);  color: #f87171; }
+    .vm-critical-3 { background: rgba(239,68,68,0.60);  color: #fff; }
+    .vm-high-0     { background: rgba(249,115,22,0.06); color: #374151; }
+    .vm-high-1     { background: rgba(249,115,22,0.18); color: #fdba74; }
+    .vm-high-2     { background: rgba(249,115,22,0.35); color: #fb923c; }
+    .vm-high-3     { background: rgba(249,115,22,0.60); color: #fff; }
+    .vm-medium-0   { background: rgba(234,179,8,0.06);  color: #374151; }
+    .vm-medium-1   { background: rgba(234,179,8,0.18);  color: #fde047; }
+    .vm-medium-2   { background: rgba(234,179,8,0.35);  color: #facc15; }
+    .vm-medium-3   { background: rgba(234,179,8,0.60);  color: #fff; }
+    .vm-low-0      { background: rgba(59,130,246,0.06); color: #374151; }
+    .vm-low-1      { background: rgba(59,130,246,0.18); color: #93c5fd; }
+    .vm-low-2      { background: rgba(59,130,246,0.35); color: #60a5fa; }
+    .vm-low-3      { background: rgba(59,130,246,0.60); color: #fff; }
+    .vm-legend {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #1f2937;
+      flex-wrap: wrap;
+    }
+    .vm-legend-label { font-size: 11px; color: #4b5563; }
+    .vm-legend-dots { display: flex; gap: 4px; align-items: center; }
+    .vm-legend-dot {
+      width: 12px; height: 12px; border-radius: 3px;
+      display: inline-block;
+    }
+
     .cards-grid.active {
       display: grid;
     }
@@ -2115,6 +2202,53 @@
       <section class="panels-grid results-section" id="results-panels">
 
         <!-- ============================================================
+             Mapa de Vulnerabilidades
+             ============================================================ -->
+        <div class="panel" id="vuln-map-panel" style="display:none; grid-column: 1 / -1; margin-bottom: 4px;">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:6px;margin-top:-2px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                Mapa de Vulnerabilidades
+              </div>
+              <div class="panel-sub">Distribuição de risco por severidade e categoria de arquivo</div>
+            </div>
+            <div id="vuln-map-total" style="font-size:12px; color:#6b7280;"></div>
+          </div>
+          <div class="vuln-map-wrap">
+            <table class="vuln-map-table" id="vuln-map-table">
+              <thead id="vuln-map-thead"></thead>
+              <tbody id="vuln-map-tbody"></tbody>
+            </table>
+            <div class="vm-legend">
+              <span class="vm-legend-label">Intensidade:</span>
+              <div class="vm-legend-dots">
+                <span class="vm-legend-dot" style="background:rgba(255,255,255,0.04)"></span>
+                <span style="font-size:10px;color:#4b5563;">0</span>
+              </div>
+              <div class="vm-legend-dots">
+                <span class="vm-legend-dot" style="background:rgba(239,68,68,0.18)"></span>
+                <span style="font-size:10px;color:#4b5563;">1–3</span>
+              </div>
+              <div class="vm-legend-dots">
+                <span class="vm-legend-dot" style="background:rgba(239,68,68,0.40)"></span>
+                <span style="font-size:10px;color:#4b5563;">4–10</span>
+              </div>
+              <div class="vm-legend-dots">
+                <span class="vm-legend-dot" style="background:rgba(239,68,68,0.65)"></span>
+                <span style="font-size:10px;color:#4b5563;">11+</span>
+              </div>
+              <span class="vm-legend-label" style="margin-left:8px;">
+                <span style="color:#ef4444;">■</span> Critical &nbsp;
+                <span style="color:#f97316;">■</span> High &nbsp;
+                <span style="color:#eab308;">■</span> Medium &nbsp;
+                <span style="color:#3b82f6;">■</span> Low
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================
              Painel 1: Arquivos expostos + Filtros PRO + Recomendações
              ============================================================ -->
         <div class="panel">
@@ -2815,6 +2949,9 @@ function logout() {
 
       // Resumo executivo de achados
       renderExecutiveSummary(files, data);
+
+      // Mapa de vulnerabilidades
+      renderVulnMap(files, data);
     }
 
     // ============================================================
@@ -2862,6 +2999,75 @@ function logout() {
       `).join('');
 
       summary.style.display = 'block';
+    }
+
+    // ============================================================
+    // MAPA DE VULNERABILIDADES
+    // ============================================================
+    function renderVulnMap(files, data) {
+      const panel = document.getElementById('vuln-map-panel');
+      if (!panel || !files || files.length === 0) { panel && (panel.style.display = 'none'); return; }
+
+      const CATEGORIES = [
+        { id: 'cred',   label: 'Credenciais',  test: f => /\.(env|credentials?|secret)$/i.test(f.key) || /(password|passwd|secret|credential)/i.test(f.key) },
+        { id: 'keys',   label: 'Chaves Crypto', test: f => /\.(pem|key|p12|pfx|ppk|crt|cer)$/i.test(f.key) },
+        { id: 'db',     label: 'Backups/DB',    test: f => /\.(sql|dump|bak|backup|db|sqlite|mdb)$/i.test(f.key) },
+        { id: 'config', label: 'Configs',       test: f => /\.(config|conf|cfg|ini|yaml|yml|toml|json)$/i.test(f.key) },
+        { id: 'code',   label: 'Código',        test: f => /\.(py|js|ts|php|rb|go|java|sh|bash|ps1)$/i.test(f.key) },
+        { id: 'archive',label: 'Compactados',   test: f => /\.(zip|tar|gz|rar|7z|tgz)$/i.test(f.key) },
+        { id: 'other',  label: 'Outros',        test: () => true },
+      ];
+
+      const SEVS = [
+        { id: 'CRITICAL', label: 'CRITICAL', cls: 'vm-critical' },
+        { id: 'HIGH',     label: 'HIGH',     cls: 'vm-high'     },
+        { id: 'MEDIUM',   label: 'MEDIUM',   cls: 'vm-medium'   },
+        { id: 'LOW',      label: 'LOW',      cls: 'vm-low'      },
+      ];
+
+      // Build matrix: sev → category → count
+      const matrix = {};
+      SEVS.forEach(s => { matrix[s.id] = {}; CATEGORIES.forEach(c => { matrix[s.id][c.id] = 0; }); });
+
+      files.forEach(f => {
+        const sev = (f.severity || 'LOW').toUpperCase();
+        if (!matrix[sev]) return;
+        let matched = false;
+        for (let i = 0; i < CATEGORIES.length - 1; i++) {
+          if (CATEGORIES[i].test(f)) { matrix[sev][CATEGORIES[i].id]++; matched = true; break; }
+        }
+        if (!matched) matrix[sev]['other']++;
+      });
+
+      const intensity = n => n === 0 ? 0 : n <= 3 ? 1 : n <= 10 ? 2 : 3;
+      const totalRisk = files.length;
+
+      // Header row
+      const thead = document.getElementById('vuln-map-thead');
+      thead.innerHTML = `<tr>
+        <th style="width:80px;"></th>
+        ${CATEGORIES.map(c => `<th class="vm-col-header">${c.label}</th>`).join('')}
+      </tr>`;
+
+      // Body rows
+      const tbody = document.getElementById('vuln-map-tbody');
+      tbody.innerHTML = SEVS.map(s => `
+        <tr>
+          <td class="vm-row-label" style="color:${s.id==='CRITICAL'?'#ef4444':s.id==='HIGH'?'#f97316':s.id==='MEDIUM'?'#eab308':'#60a5fa'}">
+            ${s.label}
+          </td>
+          ${CATEGORIES.map(c => {
+            const n = matrix[s.id][c.id];
+            const lvl = intensity(n);
+            return `<td class="vm-cell ${s.cls}-${lvl}" title="${n} arquivo(s) — ${s.id} / ${c.label}">
+              <span class="vm-count">${n > 0 ? n : ''}</span>
+              ${n > 0 ? `<span class="vm-label">${n === 1 ? 'arquivo' : 'arquivos'}</span>` : ''}
+            </td>`;
+          }).join('')}
+        </tr>`).join('');
+
+      document.getElementById('vuln-map-total').textContent = `${totalRisk} objeto${totalRisk !== 1 ? 's' : ''} analisado${totalRisk !== 1 ? 's' : ''}`;
+      panel.style.display = 'block';
     }
 
     // ============================================================
