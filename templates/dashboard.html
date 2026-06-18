@@ -691,6 +691,53 @@
       display: block;
     }
 
+    /* ── Tooltip global (vuln map + exec summary) ── */
+    #rich-tooltip {
+      position: fixed;
+      z-index: 9999;
+      background: #0d1117;
+      border: 1px solid #21293a;
+      border-radius: 10px;
+      padding: 12px 14px;
+      min-width: 220px;
+      max-width: 320px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      font-size: 12px;
+    }
+    #rich-tooltip.visible { opacity: 1; }
+    #rich-tooltip .tt-header {
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #1e293b;
+    }
+    #rich-tooltip .tt-file {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 0;
+      color: #94a3b8;
+      font-family: 'SF Mono','Fira Code',monospace;
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #rich-tooltip .tt-file span { color: #64748b; font-size: 10px; }
+    #rich-tooltip .tt-more {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #4b5563;
+      font-style: italic;
+    }
+    #rich-tooltip .tt-empty { color: #374151; font-style: italic; }
+
     /* ── Vulnerability Heatmap ── */
     .vuln-map-wrap {
       padding: 0 0 4px 0;
@@ -2329,6 +2376,7 @@
               <span id="exec-total-badge" style="margin-left:auto; font-size:12px; color:#9ca3af;"></span>
             </div>
             <div id="exec-findings" style="display:flex; flex-wrap:wrap; gap:0; background:#0e1117;"></div>
+          <div id="rich-tooltip"><div class="tt-header" id="tt-header"></div><div id="tt-body"></div></div>
           </div>
 
           <!-- ============================
@@ -2981,7 +3029,7 @@ function logout() {
 
       const cards = groups.map(g => {
         const matches = files.filter(f => g.exts.some(e => getExt(f) === e || (f.key||'').toLowerCase().includes(e)));
-        return { ...g, count: matches.length };
+        return { ...g, count: matches.length, files: matches };
       }).filter(g => g.count > 0);
 
       if (cards.length === 0) { summary.style.display = 'none'; return; }
@@ -2990,14 +3038,20 @@ function logout() {
       const totalSize = files.reduce((a, f) => a + (f.size || 0), 0);
       totalBadge.textContent = `${files.length} arquivos · ${formatBytes(totalSize)} · ${publicAccess ? '⚠️ Público' : '🔒 Privado'}`;
 
-      findingsDiv.innerHTML = cards.map(g => `
-        <div style="flex:1; min-width:160px; padding:14px 16px; border-right:1px solid #1f2937; background:${g.bg}20;">
+      findingsDiv.innerHTML = cards.map((g, i) => `
+        <div data-card-idx="${i}"
+          style="flex:1; min-width:160px; padding:14px 16px; border-right:1px solid #1f2937; background:${g.bg}20; cursor:pointer; transition:filter 0.15s;"
+          onmouseenter="showExecTooltip(event, ${i})"
+          onmouseleave="hideTooltip()"
+          onmousemove="moveTooltip(event)">
           <div style="font-size:20px; margin-bottom:6px;">${g.label.split(' ')[0]}</div>
           <div style="font-size:22px; font-weight:700; color:${g.color};">${g.count}</div>
           <div style="font-size:12px; color:#9ca3af; margin-top:2px;">${g.label.split(' ').slice(1).join(' ')}</div>
         </div>
       `).join('');
 
+      // Store card data for tooltip
+      window._execCards = cards;
       summary.style.display = 'block';
     }
 
@@ -3025,19 +3079,24 @@ function logout() {
         { id: 'LOW',      label: 'LOW',      cls: 'vm-low'      },
       ];
 
-      // Build matrix: sev → category → count
+      // Build matrix: sev → category → files[]
       const matrix = {};
-      SEVS.forEach(s => { matrix[s.id] = {}; CATEGORIES.forEach(c => { matrix[s.id][c.id] = 0; }); });
+      SEVS.forEach(s => { matrix[s.id] = {}; CATEGORIES.forEach(c => { matrix[s.id][c.id] = []; }); });
 
       files.forEach(f => {
         const sev = (f.severity || 'LOW').toUpperCase();
         if (!matrix[sev]) return;
         let matched = false;
         for (let i = 0; i < CATEGORIES.length - 1; i++) {
-          if (CATEGORIES[i].test(f)) { matrix[sev][CATEGORIES[i].id]++; matched = true; break; }
+          if (CATEGORIES[i].test(f)) { matrix[sev][CATEGORIES[i].id].push(f); matched = true; break; }
         }
-        if (!matched) matrix[sev]['other']++;
+        if (!matched) matrix[sev]['other'].push(f);
       });
+
+      // Store globally for tooltip
+      window._vmMatrix = matrix;
+      window._vmCats = CATEGORIES;
+      window._vmSevs = SEVS;
 
       const intensity = n => n === 0 ? 0 : n <= 3 ? 1 : n <= 10 ? 2 : 3;
       const totalRisk = files.length;
@@ -3057,9 +3116,13 @@ function logout() {
             ${s.label}
           </td>
           ${CATEGORIES.map(c => {
-            const n = matrix[s.id][c.id];
+            const cellFiles = matrix[s.id][c.id];
+            const n = cellFiles.length;
             const lvl = intensity(n);
-            return `<td class="vm-cell ${s.cls}-${lvl}" title="${n} arquivo(s) — ${s.id} / ${c.label}">
+            return `<td class="vm-cell ${s.cls}-${lvl}"
+              onmouseenter="showVmTooltip(event,'${s.id}','${c.id}')"
+              onmouseleave="hideTooltip()"
+              onmousemove="moveTooltip(event)">
               <span class="vm-count">${n > 0 ? n : ''}</span>
               ${n > 0 ? `<span class="vm-label">${n === 1 ? 'arquivo' : 'arquivos'}</span>` : ''}
             </td>`;
@@ -3068,6 +3131,72 @@ function logout() {
 
       document.getElementById('vuln-map-total').textContent = `${totalRisk} objeto${totalRisk !== 1 ? 's' : ''} analisado${totalRisk !== 1 ? 's' : ''}`;
       panel.style.display = 'block';
+    }
+
+    // ============================================================
+    // TOOLTIP RICO (mapa + achados)
+    // ============================================================
+    const _tt = () => document.getElementById('rich-tooltip');
+
+    function renderTooltipFiles(fileList, color) {
+      const MAX = 8;
+      const shown = fileList.slice(0, MAX);
+      const rest  = fileList.length - shown.length;
+      const rows  = shown.map(f => {
+        const name = (f.key || '').split('/').pop() || f.key || '—';
+        const size = f.size ? formatBytes(f.size) : '';
+        return `<div class="tt-file"><span style="color:${color}">◆</span>${name}${size ? `<span>${size}</span>` : ''}</div>`;
+      }).join('');
+      return rows + (rest > 0 ? `<div class="tt-more">+${rest} arquivo${rest>1?'s':''} a mais</div>` : '');
+    }
+
+    function showVmTooltip(e, sevId, catId) {
+      if (!window._vmMatrix) return;
+      const sev  = window._vmSevs.find(s => s.id === sevId);
+      const cat  = window._vmCats.find(c => c.id === catId);
+      const fileList = window._vmMatrix[sevId][catId] || [];
+      const color = sevId==='CRITICAL'?'#ef4444':sevId==='HIGH'?'#f97316':sevId==='MEDIUM'?'#eab308':'#60a5fa';
+      const tt = _tt();
+      document.getElementById('tt-header').innerHTML =
+        `<span style="color:${color}">${sev.label}</span> · ${cat.label}
+         <span style="float:right;font-weight:400;color:#4b5563;">${fileList.length} arquivo${fileList.length!==1?'s':''}</span>`;
+      document.getElementById('tt-body').innerHTML = fileList.length
+        ? renderTooltipFiles(fileList, color)
+        : `<div class="tt-empty">Nenhum arquivo nesta categoria</div>`;
+      positionTooltip(e);
+      tt.classList.add('visible');
+    }
+
+    function showExecTooltip(e, idx) {
+      const card = (window._execCards || [])[idx];
+      if (!card) return;
+      const color = card.color;
+      const tt = _tt();
+      document.getElementById('tt-header').innerHTML =
+        `${card.label} <span style="float:right;font-weight:400;color:#4b5563;">${card.count} arquivo${card.count!==1?'s':''}</span>`;
+      document.getElementById('tt-body').innerHTML = card.files && card.files.length
+        ? renderTooltipFiles(card.files, color)
+        : `<div class="tt-empty">Nenhum arquivo encontrado</div>`;
+      positionTooltip(e);
+      tt.classList.add('visible');
+    }
+
+    function positionTooltip(e) {
+      const tt = _tt();
+      const pad = 14;
+      let x = e.clientX + pad;
+      let y = e.clientY + pad;
+      if (x + 340 > window.innerWidth)  x = e.clientX - 340 - pad;
+      if (y + 240 > window.innerHeight) y = e.clientY - 240 - pad;
+      tt.style.left = x + 'px';
+      tt.style.top  = y + 'px';
+    }
+
+    function moveTooltip(e) { positionTooltip(e); }
+
+    function hideTooltip() {
+      const tt = _tt();
+      if (tt) tt.classList.remove('visible');
     }
 
     // ============================================================
