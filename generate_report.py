@@ -510,6 +510,37 @@ class ChartEngine:
         fig.tight_layout()
         return self._save(fig, 'category_bars')
 
+    # ── 9. Funil de achados por severidade ───────────────────────────
+    def priority_funnel(self, severity_dist: dict, total: int) -> str:
+        P = self.PALETTE
+        KEYS   = ['critical', 'high', 'medium', 'low']
+        LABELS = ['CRÍTICO',  'ALTO', 'MÉDIO',  'BAIXO']
+        COLS   = [P['critical'], P['high'], P['medium'], P['low']]
+        vals   = [severity_dist.get(k, 0) for k in KEYS]
+        active = [(l, v, c) for l, v, c in zip(LABELS, vals, COLS) if v > 0]
+        if not active:
+            return None
+        maxv = max(v for _, v, _ in active)
+        n    = len(active)
+        fig, ax = plt.subplots(figsize=(7, max(1.2, n * 0.82 + 0.5)), facecolor='white')
+        ax.set_facecolor('white')
+        for i, (label, val, color) in enumerate(active):
+            pct   = val / total * 100 if total > 0 else 0
+            bar_w = maxv * 0.15 + (val / maxv) * (maxv * 0.85)
+            ax.barh(i, bar_w, color=color, alpha=0.85, height=0.65, left=0, edgecolor='none')
+            ax.text(-maxv * 0.025, i, f'{val:,}',
+                    va='center', ha='right', fontsize=12, fontweight='bold', color=color)
+            ax.text(bar_w * 0.04, i, label,
+                    va='center', ha='left', fontsize=9, fontweight='bold', color='white')
+            ax.text(bar_w + maxv * 0.025, i, f'{pct:.1f}%',
+                    va='center', ha='left', fontsize=9, fontweight='bold', color=color)
+        ax.set_xlim(-maxv * 0.22, maxv * 1.28)
+        ax.set_ylim(-0.5, n - 0.5)
+        ax.axis('off')
+        ax.invert_yaxis()
+        fig.tight_layout(pad=0.3)
+        return self._save(fig, 'priority_funnel')
+
     # ── Gerar todos os gauges ─────────────────────────────────────────
     def all_gauges(self, files: list) -> list:
         if not files:
@@ -944,6 +975,7 @@ class ProfessionalReportGenerator:
         self.ch['size']         = self._safe(lambda: self.charts.size_per_file(files[:20]), None)
         self.ch['heatmap']      = self._safe(lambda: self.charts.risk_heatmap(files[:15]), None)
         self.ch['type_pie']     = self._safe(lambda: self.charts.type_pie(files), None)
+        self.ch['funnel']       = self._safe(lambda: self.charts.priority_funnel(sd, total), None)
         # Limita gauges: se os 20 selecionados têm score similar (±6 pts), mostra máximo 9 (1 página)
         gauge_limit = gauge_files[:20]
         if len(gauge_limit) > 9:
@@ -1244,7 +1276,7 @@ class ProfessionalReportGenerator:
                 ('LEFTPADDING',  (1, 0), (1, 0), 14),
             ]))
             story.append(gauge_layout)
-            story.append(Paragraph("Figura 2 — Risco Global do Ambiente", NOTE))
+            story.append(Paragraph("Figura 1 — Risco Global do Ambiente", NOTE))
         else:
             story.append(narr_para)
 
@@ -1294,6 +1326,99 @@ class ProfessionalReportGenerator:
             styles['Normal']))
         story.append(Spacer(1, 0.1*inch))
 
+        # ── Funil + Top Achados por Categoria (side by side) ─────────
+        if self.ch.get('funnel'):
+            _CAT_PDF = [
+                ('Credenciais',   lambda k: any(x in k for x in ['password','credential','secret','token','api_key'])),
+                ('Chaves Crypto', lambda k: any(x in k for x in ['.pem','.key','.crt','.p12','.pfx','rsa'])),
+                ('DB / Backups',  lambda k: any(x in k for x in ['.sql','.db','.sqlite','backup','.bak','.dump','.gz','.zip','.tar'])),
+                ('Código-fonte',  lambda k: any(x in k for x in ['.py','.js','.java','.php','.rb','.go'])),
+                ('Configs',       lambda k: any(x in k for x in ['.env','.yaml','.yml','.conf','.ini','config'])),
+                ('Outros',        lambda k: True),
+            ]
+            _grps = {}
+            for _f in self.scan_data.get('files', []):
+                _n  = _f.get('key', _f.get('name', '')).lower()
+                _sv = _f.get('severity', 'LOW').lower()
+                for _cn, _rule in _CAT_PDF:
+                    if _rule(_n):
+                        if _cn not in _grps:
+                            _grps[_cn] = {'critical':0,'high':0,'medium':0,'low':0,'total':0}
+                        if _sv in _grps[_cn]: _grps[_cn][_sv] += 1
+                        _grps[_cn]['total'] += 1
+                        break
+            _cat_list = []
+            for _cn, _g in _grps.items():
+                if _g['total'] == 0: continue
+                _raw = (_g['critical']*10 + _g['high']*7 + _g['medium']*4 + _g['low']*1) / _g['total']
+                _cat_list.append((_cn, _g, min(10.0, _raw)))
+            _cat_list.sort(key=lambda x: (-x[2], -x[1]['total']))
+            _cat_list = _cat_list[:6]
+
+            if _cat_list:
+                _max_tot = max(c[1]['total'] for c in _cat_list)
+                _SH = ParagraphStyle('_SH', fontSize=7, fontName='Helvetica-Bold',
+                                     textColor=colors.HexColor('#64748b'), alignment=TA_CENTER)
+                _ta = [[Paragraph('<b>#</b>', _SH),
+                        Paragraph('<b>Categoria</b>', _SH),
+                        Paragraph('<b>Score</b>', _SH),
+                        Paragraph('<b>Arquivos</b>', _SH),
+                        Paragraph('', _SH)]]
+                for _i, (_cn, _g, _score) in enumerate(_cat_list, 1):
+                    _sc = (self.COLOR_CRITICAL if _score >= 7 else
+                           self.COLOR_HIGH     if _score >= 4 else
+                           self.COLOR_MEDIUM   if _score >= 2 else self.COLOR_LOW)
+                    _filled = max(0.06, _g['total'] / _max_tot)
+                    _BW = 1.1 * inch
+                    _bt = Table([['', '']], colWidths=[_filled * _BW, max(1, (1 - _filled) * _BW)],
+                                rowHeights=[10])
+                    _bt.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (0, 0), _sc),
+                        ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#e2e8f0')),
+                        ('TOPPADDING',    (0, 0), (-1, -1), 0),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+                        ('LEFTPADDING',   (0, 0), (-1, -1), 0),
+                        ('RIGHTPADDING',  (0, 0), (-1, -1), 0),
+                    ]))
+                    _ta.append([
+                        Paragraph(f'<b>{_i}</b>', ParagraphStyle('_idx', fontSize=8,
+                            fontName='Helvetica-Bold', textColor=colors.HexColor('#6b7280'),
+                            alignment=TA_CENTER)),
+                        Paragraph(f'<b>{_cn}</b>', ParagraphStyle('_cn', fontSize=8,
+                            fontName='Helvetica-Bold', textColor=colors.HexColor('#1e293b'))),
+                        Paragraph(f'<b>{_score:.1f}</b>', ParagraphStyle('_sc', fontSize=9,
+                            fontName='Helvetica-Bold', textColor=_sc, alignment=TA_CENTER)),
+                        _bt,
+                        Paragraph(f'<b>{_g["total"]:,}</b>', ParagraphStyle('_ct', fontSize=8,
+                            fontName='Helvetica-Bold', textColor=colors.HexColor('#374151'),
+                            alignment=TA_RIGHT)),
+                    ])
+                _ta_tbl = Table(_ta, colWidths=[0.2*inch, 1.1*inch, 0.45*inch, 1.1*inch, 0.42*inch])
+                _ta_tbl.setStyle(TableStyle([
+                    ('BACKGROUND',    (0, 0), (-1, 0), colors.HexColor('#f8fafc')),
+                    ('LINEABOVE',     (0, 0), (-1, 0), 1.5, self.COLOR_PRIMARY),
+                    ('ROWBACKGROUNDS',(0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
+                    ('GRID',          (0, 0), (-1, -1), 0.4, colors.HexColor('#e2e8f0')),
+                    ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+                    ('TOPPADDING',    (0, 0), (-1, -1), 7),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 7),
+                    ('LEFTPADDING',   (0, 0), (-1, -1), 5),
+                    ('RIGHTPADDING',  (0, 0), (-1, -1), 5),
+                ]))
+                _n_sev  = sum(1 for k in ['critical','high','medium','low'] if sd.get(k, 0) > 0)
+                _f_h    = max(0.9, _n_sev * 0.52) * inch
+                _f_img  = RLImage(self.ch['funnel'], width=3.4*inch, height=_f_h)
+                _side   = Table([[_f_img, _ta_tbl]], colWidths=[3.55*inch, 3.42*inch])
+                _side.setStyle(TableStyle([
+                    ('VALIGN',       (0, 0), (-1, -1), 'TOP'),
+                    ('RIGHTPADDING', (0, 0), (0, 0),  12),
+                    ('LEFTPADDING',  (1, 0), (1, 0),   0),
+                ]))
+                story.append(_side)
+                story.append(Paragraph(
+                    "Figura 2 — Achados por Severidade (esq.)  |  Top Categorias de Risco (dir.)", NOTE))
+                story.append(Spacer(1, 0.18*inch))
+
         if self.ch.get('donut') or self.ch.get('type_pie'):
             left_img  = RLImage(self.ch['donut'],    width=3.2*inch, height=3.2*inch*0.78) if self.ch.get('donut') else Paragraph('', styles['Normal'])
             right_img = RLImage(self.ch['type_pie'], width=3.2*inch, height=3.2*inch*0.78) if self.ch.get('type_pie') else Paragraph('', styles['Normal'])
@@ -1301,7 +1426,7 @@ class ProfessionalReportGenerator:
             row.setStyle(TableStyle([('ALIGN',(0,0),(-1,-1),'CENTER'),
                                      ('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
             story.append(row)
-            story.append(Paragraph("Figura 1 — Severidade (esq.)  |  Tipo de Arquivo (dir.)", NOTE))
+            story.append(Paragraph("Figura 3 — Severidade (esq.)  |  Tipo de Arquivo (dir.)", NOTE))
         # Altura proporcional ao nº de categorias para evitar whitespace excessivo
         def _cat_of(key):
             k = key.lower()
@@ -1314,7 +1439,7 @@ class ProfessionalReportGenerator:
         _n_cats     = max(1, len({_cat_of(f.get('key', f.get('name', ''))) for f in self.scan_data.get('files', [])}))
         _cat_height = max(0.9*inch, _n_cats * 0.38*inch + 0.55*inch)
         add_chart(self.ch.get('cat_bars'), width=5.8*inch, height=_cat_height,
-                  caption="Figura 3 — Distribuição por Categoria de Risco")
+                  caption="Figura 4 — Distribuição por Categoria de Risco")
 
         story.append(PageBreak())
 
@@ -1324,10 +1449,10 @@ class ProfessionalReportGenerator:
             "Score calculado por arquivo: base de severidade + bônus proporcional ao tamanho. "
             "Zonas coloridas indicam faixas de risco.", styles['Normal']))
         add_chart(self.ch.get('risk_all'), width=5.8*inch,
-                  caption="Figura 4 — Score de Criticidade por Arquivo")
+                  caption="Figura 5 — Score de Criticidade por Arquivo")
         story.append(Paragraph("Volume de dados expostos por arquivo:", H2))
         add_chart(self.ch.get('size'), width=5.8*inch,
-                  caption="Figura 5 — Volume de Dados Expostos por Arquivo")
+                  caption="Figura 6 — Volume de Dados Expostos por Arquivo")
         story.append(PageBreak())
 
         # ── 4. MAPA DE CALOR ──────────────────────────────────────────
