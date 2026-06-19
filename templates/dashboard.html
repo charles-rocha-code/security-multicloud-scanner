@@ -880,10 +880,10 @@
     .vm-medium-1   { background: rgba(234,179,8,0.18);  color: #fde047; }
     .vm-medium-2   { background: rgba(234,179,8,0.35);  color: #facc15; }
     .vm-medium-3   { background: rgba(234,179,8,0.60);  color: #fff; }
-    .vm-low-0      { background: rgba(59,130,246,0.06); color: #374151; }
-    .vm-low-1      { background: rgba(59,130,246,0.18); color: #93c5fd; }
-    .vm-low-2      { background: rgba(59,130,246,0.35); color: #60a5fa; }
-    .vm-low-3      { background: rgba(59,130,246,0.60); color: #fff; }
+    .vm-low-0      { background: rgba(34,197,94,0.06);  color: #374151; }
+    .vm-low-1      { background: rgba(34,197,94,0.18);  color: #86efac; }
+    .vm-low-2      { background: rgba(34,197,94,0.35);  color: #4ade80; }
+    .vm-low-3      { background: rgba(34,197,94,0.60);  color: #fff; }
     .vm-legend {
       display: flex;
       gap: 16px;
@@ -2413,7 +2413,7 @@
                 <span style="color:#ef4444;">■</span> Critical &nbsp;
                 <span style="color:#f97316;">■</span> High &nbsp;
                 <span style="color:#eab308;">■</span> Medium &nbsp;
-                <span style="color:#3b82f6;">■</span> Low
+                <span style="color:#22c55e;">■</span> Low
               </span>
             </div>
           </div>
@@ -4223,7 +4223,7 @@ function logout() {
             ${c > 0 ? `<span style="width:${pct(c)}%;background:#ef4444;" title="Critical: ${c}"></span>` : ''}
             ${h > 0 ? `<span style="width:${pct(h)}%;background:#f97316;" title="High: ${h}"></span>` : ''}
             ${m > 0 ? `<span style="width:${pct(m)}%;background:#eab308;" title="Medium: ${m}"></span>` : ''}
-            ${l > 0 ? `<span style="width:${pct(l)}%;background:#3b82f6;" title="Low: ${l}"></span>` : ''}
+            ${l > 0 ? `<span style="width:${pct(l)}%;background:#22c55e;" title="Low: ${l}"></span>` : ''}
           </div>` : '';
         contentDiv.innerHTML = `
           <div class="history-bucket">${escapeHtml(item.bucket)}</div>
