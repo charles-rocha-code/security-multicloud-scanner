@@ -817,13 +817,13 @@
     .rm-table { border-collapse: separate; border-spacing: 5px; width: 100%; }
     .rm-cell {
       border-radius: 8px;
-      padding: 12px 10px;
-      vertical-align: middle;
+      padding: 28px 10px 10px 10px;
+      vertical-align: top;
       min-width: 160px;
       height: 90px;
-      transition: filter 0.18s;
+      transition: filter 0.2s, border-color 0.2s;
     }
-    .rm-cell:hover { filter: brightness(1.25); cursor: default; }
+    .rm-cell:hover { filter: brightness(1.3); cursor: default; }
     .rm-pill {
       display: inline-flex;
       align-items: center;
@@ -3655,10 +3655,10 @@ function logout() {
         ['rm-low',    'rm-low',    'rm-medium'  ],
       ];
       const ZONE_STYLE = {
-        'rm-critical': { bg: 'rgba(239,68,68,0.28)',  border: 'rgba(239,68,68,0.6)',  label: 'Critical', color: '#ef4444' },
-        'rm-high':     { bg: 'rgba(249,115,22,0.22)', border: 'rgba(249,115,22,0.55)', label: 'High',    color: '#f97316' },
-        'rm-medium':   { bg: 'rgba(234,179,8,0.18)',  border: 'rgba(234,179,8,0.5)',  label: 'Medium',   color: '#eab308' },
-        'rm-low':      { bg: 'rgba(34,197,94,0.14)',  border: 'rgba(34,197,94,0.4)',  label: 'Low',      color: '#22c55e' },
+        'rm-critical': { bg: '#4c0d0d', border: '#ef4444', label: 'Critical', color: '#fca5a5' },
+        'rm-high':     { bg: '#431507', border: '#f97316', label: 'High',     color: '#fdba74' },
+        'rm-medium':   { bg: '#3b2900', border: '#eab308', label: 'Medium',   color: '#fde047' },
+        'rm-low':      { bg: '#052e16', border: '#22c55e', label: 'Low',      color: '#86efac' },
       };
 
       // Posiciona cada categoria na matriz
@@ -3681,7 +3681,7 @@ function logout() {
           </td>
           ${row.map((cell, c) => {
             const zone = ZONE[r][c];
-            const { bg, border } = ZONE_STYLE[zone];
+            const { bg, border, label, color } = ZONE_STYLE[zone];
             const pills = cell.map(({ cat, g }) =>
               `<span class="rm-pill" title="${CAT_LABEL[cat]}: ${g.total} arquivo${g.total !== 1 ? 's' : ''}">
                 <span class="rm-pill-dot" style="background:${CAT_COLOR[cat]}"></span>
@@ -3689,8 +3689,9 @@ function logout() {
                 <span class="rm-pill-count">${g.total}</span>
               </span>`
             ).join('');
-            return `<td class="rm-cell" style="background:${bg}; border:1px solid ${border};">
-              ${pills || '<span style="color:rgba(255,255,255,0.12); font-size:13px;">—</span>'}
+            return `<td class="rm-cell" style="background:${bg}; border:1px solid ${border}; position:relative;">
+              <span style="position:absolute;top:6px;right:8px;font-size:10px;font-weight:600;letter-spacing:.04em;color:${color};opacity:0.55;">${label.toUpperCase()}</span>
+              ${pills || ''}
             </td>`;
           }).join('')}
         </tr>`
