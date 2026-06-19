@@ -813,6 +813,35 @@
     }
     #rich-tooltip .tt-empty { color: #374151; font-style: italic; }
 
+    /* ── Risk Matrix ── */
+    .rm-table { border-collapse: separate; border-spacing: 5px; width: 100%; }
+    .rm-cell {
+      border-radius: 8px;
+      padding: 10px;
+      vertical-align: top;
+      min-width: 140px;
+      min-height: 80px;
+      transition: filter 0.15s;
+    }
+    .rm-cell:hover { filter: brightness(1.15); }
+    .rm-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 5px;
+      padding: 4px 9px;
+      margin: 2px;
+      cursor: default;
+      white-space: nowrap;
+    }
+    .rm-pill-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .rm-pill-label { font-size: 11px; font-weight: 600; color: #e5e7eb; }
+    .rm-pill-count { font-size: 10px; color: #6b7280; }
+    .rm-axis-label { font-size: 10px; color: #6b7280; font-weight: 600; letter-spacing: 0.5px; white-space: nowrap; }
+    .rm-legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; }
+
     /* ── Funnel (Achados Priorizados) ── */
     .funnel-row {
       display: flex;
@@ -2475,6 +2504,23 @@
         </div>
 
         <!-- ============================================================
+             Painel: Risk Matrix (ISO 27001 / NIST)
+             ============================================================ -->
+        <div class="panel" id="risk-matrix-panel" style="display:none; grid-column: 1 / -1;">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:6px;margin-top:-2px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                Risk Matrix
+              </div>
+              <div class="panel-sub">Probabilidade × Impacto — ISO 27001 / NIST</div>
+            </div>
+            <div id="rm-legend" style="display:flex; gap:14px; align-items:center; font-size:11px; color:#6b7280; flex-wrap:wrap;"></div>
+          </div>
+          <div id="risk-matrix-container"></div>
+        </div>
+
+        <!-- ============================================================
              Painel: Achados Priorizados (Funil)
              ============================================================ -->
         <div class="panel" id="funnel-panel" style="display:none;">
@@ -3275,6 +3321,9 @@ function logout() {
       // Mapa de vulnerabilidades
       renderVulnMap(files, data);
 
+      // Risk Matrix (ISO 27001 / NIST)
+      renderRiskMatrix(files);
+
       // Funil de achados priorizados
       renderFunnel(severity);
 
@@ -3573,6 +3622,121 @@ function logout() {
           </td>
         </tr>`;
       }).join('');
+    }
+
+    // ============================================================
+    // RISK MATRIX (ISO 27001 / NIST — Probabilidade × Impacto)
+    // ============================================================
+    function renderRiskMatrix(files) {
+      const panel = document.getElementById('risk-matrix-panel');
+      if (!panel) return;
+      if (!files || files.length === 0) { panel.style.display = 'none'; return; }
+
+      // Impacto fixo por categoria (0=Baixo, 1=Médio, 2=Alto)
+      const CAT_IMPACT = { cred: 2, keys: 2, db: 1, code: 1, config: 1, archive: 0, other: 0 };
+      const CAT_LABEL  = { cred: 'Credenciais', keys: 'Chaves Crypto', db: 'DB / Backups', code: 'Código', config: 'Configs', archive: 'Compactados', other: 'Outros' };
+      const CAT_COLOR  = { cred: '#ef4444', keys: '#f97316', db: '#eab308', code: '#38bdf8', config: '#a78bfa', archive: '#6b7280', other: '#9ca3af' };
+
+      // Agrupa arquivos por categoria
+      const groups = {};
+      files.forEach(f => {
+        const cat = getFileCategory(f);
+        if (!groups[cat]) groups[cat] = { critical: 0, high: 0, medium: 0, low: 0, total: 0 };
+        const sev = (f.severity || 'low').toLowerCase();
+        if (groups[cat][sev] !== undefined) groups[cat][sev]++;
+        groups[cat].total++;
+      });
+
+      // Zonas de risco [likelihood][impact]
+      // Likelihood: 0=Alta (tem critical/high), 1=Média (tem medium), 2=Baixa (só low)
+      const ZONE = [
+        ['rm-medium', 'rm-high',   'rm-critical'],
+        ['rm-low',    'rm-medium', 'rm-high'    ],
+        ['rm-low',    'rm-low',    'rm-medium'  ],
+      ];
+      const ZONE_STYLE = {
+        'rm-critical': { bg: 'rgba(239,68,68,0.16)',  border: 'rgba(239,68,68,0.3)',  label: 'Critical', color: '#ef4444' },
+        'rm-high':     { bg: 'rgba(249,115,22,0.13)', border: 'rgba(249,115,22,0.3)', label: 'High',     color: '#f97316' },
+        'rm-medium':   { bg: 'rgba(234,179,8,0.10)',  border: 'rgba(234,179,8,0.3)',  label: 'Medium',   color: '#eab308' },
+        'rm-low':      { bg: 'rgba(34,197,94,0.08)',  border: 'rgba(34,197,94,0.25)', label: 'Low',      color: '#22c55e' },
+      };
+
+      // Posiciona cada categoria na matriz
+      const matrix = Array.from({length: 3}, () => Array.from({length: 3}, () => []));
+      Object.entries(groups).forEach(([cat, g]) => {
+        if (g.total === 0) return;
+        const impact     = CAT_IMPACT[cat] ?? 0;
+        const likelihood = (g.critical > 0 || g.high > 0) ? 0 : g.medium > 0 ? 1 : 2;
+        matrix[likelihood][impact].push({ cat, g });
+      });
+
+      const LIKE_LABELS = ['ALTA', 'MÉDIA', 'BAIXA'];
+      const IMP_LABELS  = ['BAIXO', 'MÉDIO', 'ALTO'];
+
+      // Renderiza linhas
+      const rows = matrix.map((row, r) =>
+        `<tr>
+          <td style="padding-right:10px; text-align:right; vertical-align:middle; width:50px;">
+            <span class="rm-axis-label">${LIKE_LABELS[r]}</span>
+          </td>
+          ${row.map((cell, c) => {
+            const zone = ZONE[r][c];
+            const { bg, border } = ZONE_STYLE[zone];
+            const pills = cell.map(({ cat, g }) =>
+              `<span class="rm-pill" title="${CAT_LABEL[cat]}: ${g.total} arquivo${g.total !== 1 ? 's' : ''}">
+                <span class="rm-pill-dot" style="background:${CAT_COLOR[cat]}"></span>
+                <span class="rm-pill-label">${CAT_LABEL[cat]}</span>
+                <span class="rm-pill-count">${g.total}</span>
+              </span>`
+            ).join('');
+            return `<td class="rm-cell" style="background:${bg}; border:1px solid ${border};">
+              ${pills || '<span style="color:#1e293b; font-size:11px;">—</span>'}
+            </td>`;
+          }).join('')}
+        </tr>`
+      ).join('');
+
+      // Legenda
+      const legend = Object.entries(ZONE_STYLE).map(([, v]) =>
+        `<span style="display:flex;align-items:center;gap:4px;">
+          <span class="rm-legend-dot" style="background:${v.bg}; border:1px solid ${v.border};"></span>${v.label}
+        </span>`
+      ).join('');
+      document.getElementById('rm-legend').innerHTML = legend;
+
+      // Legenda de categorias presentes
+      const catLegend = Object.entries(groups)
+        .filter(([, g]) => g.total > 0)
+        .map(([id, g]) =>
+          `<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#9ca3af;">
+            <span style="width:8px;height:8px;border-radius:50%;background:${CAT_COLOR[id]};flex-shrink:0;"></span>
+            ${CAT_LABEL[id]} <strong style="color:#e5e7eb;">(${g.total})</strong>
+          </span>`
+        ).join('');
+
+      document.getElementById('risk-matrix-container').innerHTML = `
+        <div style="display:flex; align-items:stretch; gap:12px;">
+          <div style="display:flex; align-items:center; padding:0 4px;">
+            <span class="rm-axis-label" style="writing-mode:vertical-rl; transform:rotate(180deg);">PROBABILIDADE</span>
+          </div>
+          <div style="flex:1; overflow-x:auto;">
+            <table class="rm-table">
+              <tbody>
+                ${rows}
+                <tr>
+                  <td></td>
+                  ${IMP_LABELS.map(l => `<td style="text-align:center; padding-top:8px;"><span class="rm-axis-label">${l}</span></td>`).join('')}
+                </tr>
+              </tbody>
+            </table>
+            <div style="text-align:center; margin-top:4px; padding-left:50px;">
+              <span class="rm-axis-label">IMPACTO</span>
+            </div>
+          </div>
+        </div>
+        ${catLegend ? `<div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;padding-top:12px;border-top:1px solid #1f2937;">${catLegend}</div>` : ''}`;
+
+      panel.style.display = '';
     }
 
     // ============================================================
