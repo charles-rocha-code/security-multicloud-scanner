@@ -3443,8 +3443,8 @@ function logout() {
       if (total === 0) { panel.style.display = 'none'; return; }
       panel.style.display = '';
       document.getElementById('funnel-total').textContent = total.toLocaleString() + ' achados';
-      const max = Math.max(c, h, m, l, 1);
-      const MIN_W = 18;
+      const maxNonZero = Math.max(c, h, m, l, 1);
+      const MIN_W = 20;
       const tiers = [
         { label: 'Critical', count: c, color: '#ef4444', bg: 'rgba(239,68,68,0.12)'  },
         { label: 'High',     count: h, color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
@@ -3453,14 +3453,20 @@ function logout() {
       ];
       document.getElementById('funnel-body').innerHTML = tiers.map(t => {
         const pct  = total > 0 ? ((t.count / total) * 100).toFixed(1) : '0.0';
-        const barW = (MIN_W + ((t.count / max) * (100 - MIN_W))).toFixed(0);
+        const isEmpty = t.count === 0;
+        const barW = isEmpty ? MIN_W : (MIN_W + ((t.count / maxNonZero) * (100 - MIN_W))).toFixed(0);
+        const countColor  = isEmpty ? '#374151' : t.color;
+        const borderColor = isEmpty ? '#1f2937' : t.color;
+        const bgColor     = isEmpty ? 'rgba(255,255,255,0.02)' : t.bg;
+        const labelColor  = isEmpty ? '#374151' : t.color;
+        const pctColor    = isEmpty ? '#374151' : '#6b7280';
         return `
         <div class="funnel-row">
-          <div class="funnel-count" style="color:${t.color}">${t.count.toLocaleString()}</div>
+          <div class="funnel-count" style="color:${countColor}">${isEmpty ? '—' : t.count.toLocaleString()}</div>
           <div class="funnel-track">
-            <div class="funnel-bar" style="width:${barW}%; background:${t.bg}; border-left:3px solid ${t.color}">
-              <span class="funnel-bar-label" style="color:${t.color}">${t.label}</span>
-              <span class="funnel-bar-pct">${pct}%</span>
+            <div class="funnel-bar" style="width:${barW}%; background:${bgColor}; border-left:3px solid ${borderColor}; opacity:${isEmpty ? 0.4 : 1}">
+              <span class="funnel-bar-label" style="color:${labelColor}">${t.label}</span>
+              <span class="funnel-bar-pct" style="color:${pctColor}">${isEmpty ? 'nenhum' : pct + '%'}</span>
             </div>
           </div>
         </div>`;
@@ -3474,14 +3480,16 @@ function logout() {
       const panel = document.getElementById('top-findings-panel');
       if (!panel) return;
       if (!files || files.length === 0) { panel.style.display = 'none'; return; }
+      const _svg = (path, color='#9ca3af') =>
+        `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
       const catMeta = {
-        cred:    { label: 'Credenciais / Secrets',    icon: '🔑' },
-        keys:    { label: 'Chaves Criptográficas',    icon: '🗝️' },
-        db:      { label: 'Banco de Dados / Backups', icon: '🗄️' },
-        config:  { label: 'Configurações',            icon: '⚙️' },
-        code:    { label: 'Código-fonte',             icon: '📦' },
-        archive: { label: 'Compactados',              icon: '🗜️' },
-        other:   { label: 'Outros',                   icon: '📁' },
+        cred:    { label: 'Credenciais / Secrets',    icon: _svg('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>', '#ef4444') },
+        keys:    { label: 'Chaves Criptográficas',    icon: _svg('<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>', '#f97316') },
+        db:      { label: 'Banco de Dados / Backups', icon: _svg('<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>', '#eab308') },
+        config:  { label: 'Configurações',            icon: _svg('<circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>', '#a78bfa') },
+        code:    { label: 'Código-fonte',             icon: _svg('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>', '#38bdf8') },
+        archive: { label: 'Compactados',              icon: _svg('<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/>', '#6b7280') },
+        other:   { label: 'Outros',                   icon: _svg('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>', '#9ca3af') },
       };
       const groups = {};
       files.forEach(f => {
@@ -3509,7 +3517,7 @@ function logout() {
           <td style="color:#4b5563; font-size:12px; text-align:center; font-weight:600;">${i + 1}</td>
           <td>
             <div style="display:flex; align-items:center; gap:8px;">
-              <span style="font-size:16px; flex-shrink:0;">${g.icon}</span>
+              <span style="flex-shrink:0; display:flex; align-items:center;">${g.icon}</span>
               <div>
                 <div style="font-size:12px; font-weight:600; color:#e5e7eb;">${g.label}</div>
                 <div style="display:flex; gap:4px; margin-top:3px; flex-wrap:wrap;">${critBadge}${highBadge}${medBadge}${lowBadge}</div>
