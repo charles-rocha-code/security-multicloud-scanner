@@ -1222,8 +1222,10 @@
     }
 
     .card-value {
-      font-size: 20px;
-      font-weight: 600;
+      font-size: 26px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      transition: color 0.3s;
     }
 
     .card-subtext {
@@ -1231,6 +1233,8 @@
       color: #9ca3af;
       margin-top: 4px;
     }
+
+    .card { transition: border-top-color 0.3s; }
 
     @keyframes fadeSlideIn {
       from { opacity: 0; transform: translateY(8px); }
@@ -2461,32 +2465,44 @@
            ============================ -->
       <section class="cards-grid results-section" id="results-cards">
 
-        <div class="card card-animated">
-          <div class="card-title">Total de Arquivos</div>
+        <div class="card card-animated" id="card-total-files">
+          <div class="card-title">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:5px;margin-top:-2px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Total de Arquivos
+          </div>
           <div id="total-files" class="card-value">0</div>
           <div class="card-subtext">Arquivos analisados no scan</div>
-          <div id="sev-breakdown-card" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #1f2937; display:flex; gap:10px; flex-wrap:wrap;">
-            <span id="kpi-c" style="font-size:11px; color:#9ca3af;">—</span>
-            <span id="kpi-h" style="font-size:11px; color:#9ca3af;">—</span>
-            <span id="kpi-m" style="font-size:11px; color:#9ca3af;">—</span>
-            <span id="kpi-l" style="font-size:11px; color:#9ca3af;">—</span>
+          <div id="sev-breakdown-card" style="margin-top:10px; padding-top:10px; border-top:1px solid #1f2937; display:flex; gap:10px; flex-wrap:wrap;">
+            <span id="kpi-c" style="font-size:11px;"></span>
+            <span id="kpi-h" style="font-size:11px;"></span>
+            <span id="kpi-m" style="font-size:11px;"></span>
+            <span id="kpi-l" style="font-size:11px;"></span>
           </div>
         </div>
 
-        <div class="card card-animated">
-          <div class="card-title">Tamanho Total</div>
+        <div class="card card-animated" id="card-total-size">
+          <div class="card-title">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:5px;margin-top:-2px"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            Tamanho Total
+          </div>
           <div id="total-size" class="card-value">0 B</div>
           <div class="card-subtext">Somatório de objetos analisados</div>
         </div>
 
-        <div class="card card-animated">
-          <div class="card-title">Exposição</div>
+        <div class="card card-animated" id="card-exposure">
+          <div class="card-title">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:5px;margin-top:-2px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Exposição
+          </div>
           <div id="exposure-status" class="card-value">-</div>
           <div id="exposure-detail" class="card-subtext">Nenhum dado disponível</div>
         </div>
 
-        <div class="card card-animated">
-          <div class="card-title">Risco Total</div>
+        <div class="card card-animated" id="card-risk-total">
+          <div class="card-title">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:5px;margin-top:-2px"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            Risco Total
+          </div>
           <div id="risk-total-value" class="card-value">--</div>
           <div class="card-subtext">Pontuação de risco consolidada</div>
         </div>
@@ -3319,8 +3335,10 @@ function logout() {
       updateRiskBadge(calcRiskLevel(riskScore), riskScore);
 
       // Cards
-      document.getElementById("total-files").innerText =
-        summary.objects_scanned ?? summary.total_files ?? files.length ?? 0;
+      // Total de arquivos — count-up
+      const _tfTarget = summary.objects_scanned ?? summary.total_files ?? files.length ?? 0;
+      const _tfEl = document.getElementById("total-files");
+      if (_tfEl) animateSevCounter(_tfEl, 0, _tfTarget, 800);
 
       const totalBytes =
         summary.total_size_bytes ??
@@ -3328,23 +3346,34 @@ function logout() {
 
       document.getElementById("total-size").innerText = formatBytes(totalBytes);
 
+      // Exposição — cor semântica + accent no card
       const exposureLabel = publicAccess ? "Público" : "Privado";
-      document.getElementById("exposure-status").innerText = exposureLabel;
-
+      const expColor      = publicAccess ? '#ef4444' : '#22c55e';
+      const expEl = document.getElementById("exposure-status");
+      if (expEl) { expEl.innerText = exposureLabel; expEl.style.color = expColor; }
       const expDetail = publicAccess
         ? "Foi detectada listagem pública de objetos neste bucket."
         : "Nenhuma listagem pública de objetos detectada.";
       document.getElementById("exposure-detail").innerText = expDetail;
+      const cardExp = document.getElementById('card-exposure');
+      if (cardExp) cardExp.style.borderTop = `3px solid ${expColor}`;
 
-      document.getElementById("risk-total-value").innerText = riskScore + "%";
+      // Risco Total — cor semântica + accent no card
+      const riskColor = riskScore >= 80 ? '#ef4444' : riskScore >= 50 ? '#f97316' : riskScore >= 25 ? '#eab308' : '#22c55e';
+      const rtEl = document.getElementById("risk-total-value");
+      if (rtEl) { rtEl.innerText = riskScore + "%"; rtEl.style.color = riskColor; }
+      const cardRisk = document.getElementById('card-risk-total');
+      if (cardRisk) cardRisk.style.borderTop = `3px solid ${riskColor}`;
 
-      // Breakdown de severidade no card de total
+      // Breakdown de severidade — esconde zeros
       const bd = document.getElementById('sev-breakdown-card');
       if (bd) {
-        bd.style.display = 'flex';
         const mk = (id, val, color, label) => {
           const el = document.getElementById(id);
-          if (el) el.innerHTML = `<span style="color:${color}">●</span> <strong style="color:#e5e7eb">${val}</strong> <span style="color:#6b7280">${label}</span>`;
+          if (!el) return;
+          if (val === 0) { el.style.display = 'none'; return; }
+          el.style.display = '';
+          el.innerHTML = `<span style="color:${color}">●</span> <strong style="color:#e5e7eb">${val}</strong> <span style="color:#6b7280">${label}</span>`;
         };
         mk('kpi-c', severity.critical || 0, '#ef4444', 'C');
         mk('kpi-h', severity.high     || 0, '#f97316', 'H');
