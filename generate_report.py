@@ -400,8 +400,8 @@ class ChartEngine:
     def environment_gauge(self, score: float, risk_level: str) -> str:
         P     = self.PALETTE
         color = self.SEV_COLOR.get(risk_level.upper(), P['medium'])
-        fig   = plt.figure(figsize=(5.5, 3.6), facecolor='white')
-        ax    = fig.add_subplot(111, projection='polar')
+        fig   = plt.figure(figsize=(5.5, 3.8), facecolor='white')
+        ax    = fig.add_axes([0.05, 0.15, 0.90, 0.80], projection='polar')
         ax.set_facecolor('white')
 
         zones = [
@@ -416,18 +416,13 @@ class ChartEngine:
             ax.plot(th, np.full(80, 1.0), color=zcol, linewidth=7, solid_capstyle='butt')
 
         needle = np.pi - (min(score, 100) / 100.0) * np.pi
-        ax.annotate('', xy=(needle, 0.85), xytext=(0, 0),
+        ax.annotate('', xy=(needle, 0.82), xytext=(0, 0),
                     arrowprops=dict(arrowstyle='->', color=color, lw=4, mutation_scale=22))
 
         ax.set_ylim(0, 1.15)
+        ax.set_rticks([])          # remove radial tick labels (source of "1.00" bug)
+        ax.set_thetagrids([])      # remove angular grid lines
         ax.axis('off')
-
-        ax.text(0,  0.12, f'{score:.0f}',    ha='center', va='center',
-                fontsize=30, fontweight='bold', color=color, transform=ax.transData)
-        ax.text(0, -0.12, 'RISK SCORE',      ha='center', va='center',
-                fontsize=9,  fontweight='bold', color=P['gray'], transform=ax.transData)
-        ax.text(0, -0.32, risk_level.upper(), ha='center', va='center',
-                fontsize=11, fontweight='bold', color=color, transform=ax.transData)
 
         for ang, lbl, c in [
             (np.pi*0.875, 'LOW',  P['low']),
@@ -435,12 +430,18 @@ class ChartEngine:
             (np.pi*0.375, 'HIGH', P['high']),
             (np.pi*0.125, 'CRIT', P['critical']),
         ]:
-            ax.text(ang, 1.15, lbl, ha='center', va='center',
+            ax.text(ang, 1.18, lbl, ha='center', va='center',
                     fontsize=8, color=c, fontweight='bold')
 
-        ax.set_title('Risco Global do Ambiente', fontsize=12,
-                     fontweight='bold', color=P['primary'], y=0.10, pad=0)
-        fig.tight_layout(pad=0.6)
+        # Use fig.text() for center labels — avoids polar coordinate issues
+        fig.text(0.50, 0.46, f'{score:.0f}',      ha='center', va='center',
+                 fontsize=28, fontweight='bold', color=color)
+        fig.text(0.50, 0.33, 'RISK SCORE',         ha='center', va='center',
+                 fontsize=9,  fontweight='bold', color=P['gray'])
+        fig.text(0.50, 0.22, risk_level.upper(),   ha='center', va='center',
+                 fontsize=11, fontweight='bold', color=color)
+        fig.text(0.50, 0.06, 'Risco Global do Ambiente', ha='center', va='center',
+                 fontsize=10, fontweight='bold', color=P['primary'])
         return self._save(fig, 'env_gauge')
 
     # ── 8. Barras de categoria ────────────────────────────────────────
@@ -942,7 +943,14 @@ class ProfessionalReportGenerator:
         self.ch['size']         = self._safe(lambda: self.charts.size_per_file(files[:20]), None)
         self.ch['heatmap']      = self._safe(lambda: self.charts.risk_heatmap(files[:15]), None)
         self.ch['type_pie']     = self._safe(lambda: self.charts.type_pie(files), None)
-        self.ch['gauges']       = self._safe(lambda: self.charts.all_gauges(gauge_files[:20]), [])
+        # Limita gauges: se todos têm score similar (±5 pts), mostra máximo 9 (1 página)
+        gauge_limit = gauge_files[:20]
+        if len(gauge_files) > 9:
+            max_sz = max((float(f.get('size', 0)) for f in gauge_files), default=1) or 1
+            g_scores = [self.charts._file_score(f, max_sz) for f in gauge_files]
+            if g_scores and (max(g_scores) - min(g_scores)) < 6:
+                gauge_limit = gauge_files[:9]
+        self.ch['gauges']       = self._safe(lambda gl=gauge_limit: self.charts.all_gauges(gl), [])
         print(f"✅ {sum(1 for v in self.ch.values() if v)} gráficos gerados "
               f"({len(self.ch['gauges'])} gauges individuais)")
 
@@ -1273,8 +1281,7 @@ class ProfessionalReportGenerator:
                 style_cmds.append(('TEXTCOLOR', (2, row_i), (2, row_i), col))
                 style_cmds.append(('FONTNAME',  (2, row_i), (2, row_i), 'Helvetica-Bold'))
             top_t.setStyle(TableStyle(style_cmds))
-            story.append(top_t)
-            story.append(Spacer(1, 0.08*inch))
+            story.append(KeepTogether([top_t, Spacer(1, 0.08*inch)]))
 
         story.append(PageBreak())
 
@@ -1294,7 +1301,7 @@ class ProfessionalReportGenerator:
             story.append(row)
             story.append(Paragraph("Figura 1 — Severidade (esq.)  |  Tipo de Arquivo (dir.)", NOTE))
         add_chart(self.ch.get('cat_bars'), width=5.8*inch,
-                  caption="Figura 2 — Distribuição por Categoria de Risco")
+                  caption="Figura 3 — Distribuição por Categoria de Risco")
 
         story.append(PageBreak())
 
@@ -1304,10 +1311,10 @@ class ProfessionalReportGenerator:
             "Score calculado por arquivo: base de severidade + bônus proporcional ao tamanho. "
             "Zonas coloridas indicam faixas de risco.", styles['Normal']))
         add_chart(self.ch.get('risk_all'), width=5.8*inch,
-                  caption="Figura 2 — Score de Criticidade por Arquivo")
+                  caption="Figura 4 — Score de Criticidade por Arquivo")
         story.append(Paragraph("Volume de dados expostos por arquivo:", H2))
         add_chart(self.ch.get('size'), width=5.8*inch,
-                  caption="Figura 3 — Volume de Dados Expostos por Arquivo")
+                  caption="Figura 5 — Volume de Dados Expostos por Arquivo")
         story.append(PageBreak())
 
         # ── 4. MAPA DE CALOR ──────────────────────────────────────────
@@ -1317,7 +1324,7 @@ class ProfessionalReportGenerator:
             "Tipo de Arquivo, Risco de Privacidade e Score Final. Cores quentes = maior risco.",
             styles['Normal']))
         add_chart(self.ch.get('heatmap'), width=6.0*inch,
-                  caption="Figura 4 — Mapa de Calor Multidimensional de Risco")
+                  caption="Figura 6 — Mapa de Calor Multidimensional de Risco")
         story.append(PageBreak())
 
         # ── 5. GAUGES INDIVIDUAIS ──────────────────────────────────────
@@ -1345,7 +1352,7 @@ class ProfessionalReportGenerator:
                 ]))
                 story.append(row_t)
             story.append(Paragraph(
-                f"Figura 5 — Gauges de criticidade individual ({len(gauges)} arquivos)", NOTE))
+                f"Figura 7 — Gauges de criticidade individual ({len(gauges)} arquivos)", NOTE))
             story.append(PageBreak())
             next_sec = 6
         else:
