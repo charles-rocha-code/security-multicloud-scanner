@@ -2394,6 +2394,12 @@
           <div class="card-title">Total de Arquivos</div>
           <div id="total-files" class="card-value">0</div>
           <div class="card-subtext">Arquivos analisados no scan</div>
+          <div id="sev-breakdown-card" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #1f2937; display:flex; gap:10px; flex-wrap:wrap;">
+            <span id="kpi-c" style="font-size:11px; color:#9ca3af;">—</span>
+            <span id="kpi-h" style="font-size:11px; color:#9ca3af;">—</span>
+            <span id="kpi-m" style="font-size:11px; color:#9ca3af;">—</span>
+            <span id="kpi-l" style="font-size:11px; color:#9ca3af;">—</span>
+          </div>
         </div>
 
         <div class="card card-animated">
@@ -2503,7 +2509,8 @@
               <tr style="border-bottom:1px solid #1f2937;">
                 <th style="width:24px; padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:center;">#</th>
                 <th style="padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:left;">Categoria</th>
-                <th style="padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:left; min-width:120px;">Arquivos Afetados</th>
+                <th style="padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:center; width:72px;">Risk Score</th>
+                <th style="padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:left; min-width:100px;">Arquivos Afetados</th>
               </tr>
             </thead>
             <tbody id="top-findings-body"></tbody>
@@ -2587,7 +2594,7 @@
           <div id="executive-summary" style="display:none; margin-bottom:20px; border:1px solid rgba(239,68,68,0.3); border-top:3px solid #ef4444; border-radius:10px; overflow:hidden; box-shadow:0 0 0 1px rgba(239,68,68,0.08);">
             <div style="background:rgba(239,68,68,0.06); padding:10px 16px; border-bottom:1px solid rgba(239,68,68,0.15); display:flex; align-items:center; gap:8px;">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              <span style="font-weight:700; color:#fca5a5; font-size:13px; letter-spacing:0.3px;">Achados Críticos</span>
+              <span id="exec-section-title" style="font-weight:700; color:#fca5a5; font-size:13px; letter-spacing:0.3px;">Achados Críticos</span>
               <span id="exec-total-badge" style="margin-left:auto; font-size:11px; color:#9ca3af;"></span>
             </div>
             <div id="exec-findings" style="display:flex; flex-wrap:wrap; gap:0; background:#0e1117;"></div>
@@ -3236,6 +3243,20 @@ function logout() {
 
       document.getElementById("risk-total-value").innerText = riskScore + "%";
 
+      // Breakdown de severidade no card de total
+      const bd = document.getElementById('sev-breakdown-card');
+      if (bd) {
+        bd.style.display = 'flex';
+        const mk = (id, val, color, label) => {
+          const el = document.getElementById(id);
+          if (el) el.innerHTML = `<span style="color:${color}">●</span> <strong style="color:#e5e7eb">${val}</strong> <span style="color:#6b7280">${label}</span>`;
+        };
+        mk('kpi-c', severity.critical || 0, '#ef4444', 'C');
+        mk('kpi-h', severity.high     || 0, '#f97316', 'H');
+        mk('kpi-m', severity.medium   || 0, '#eab308', 'M');
+        mk('kpi-l', severity.low      || 0, '#22c55e', 'L');
+      }
+
       // Gráfico (distribuição original)
       updateSeverityChart(severity);
 
@@ -3292,6 +3313,14 @@ function logout() {
       }).filter(g => g.count > 0);
 
       if (cards.length === 0) { summary.style.display = 'none'; return; }
+
+      // Atualiza título dinamicamente baseado na presença de criticals
+      const hasCritical = files.some(f => (f.severity || '').toUpperCase() === 'CRITICAL');
+      const titleEl = document.getElementById('exec-section-title');
+      if (titleEl) {
+        titleEl.textContent = hasCritical ? 'Achados Críticos' : 'Achados Principais';
+        titleEl.style.color = hasCritical ? '#fca5a5' : '#fbbf24';
+      }
 
       const publicAccess = data && data.public_access;
       const totalSize = files.reduce((a, f) => a + (f.size || 0), 0);
@@ -3512,6 +3541,13 @@ function logout() {
         const medBadge  = g.medium   > 0 ? `<span class="sev-badge sev-m">${g.medium}M</span>`   : '';
         const lowBadge  = g.low      > 0 ? `<span class="sev-badge sev-l">${g.low}L</span>`      : '';
         const barW = maxCount > 0 ? ((g.total / maxCount) * 100).toFixed(0) : 0;
+        // Risk score: média ponderada por severidade, normalizada em 0–10
+        const raw = g.total > 0
+          ? (g.critical * 10 + g.high * 7 + g.medium * 4 + g.low * 1) / g.total
+          : 0;
+        const score = Math.min(10, raw).toFixed(1);
+        const scoreColor = raw >= 7 ? '#ef4444' : raw >= 4 ? '#f97316' : raw >= 2 ? '#eab308' : '#22c55e';
+        const scoreBg    = raw >= 7 ? 'rgba(239,68,68,0.15)' : raw >= 4 ? 'rgba(249,115,22,0.15)' : raw >= 2 ? 'rgba(234,179,8,0.15)' : 'rgba(34,197,94,0.15)';
         return `
         <tr class="top-finding-row">
           <td style="color:#4b5563; font-size:12px; text-align:center; font-weight:600;">${i + 1}</td>
@@ -3523,6 +3559,9 @@ function logout() {
                 <div style="display:flex; gap:4px; margin-top:3px; flex-wrap:wrap;">${critBadge}${highBadge}${medBadge}${lowBadge}</div>
               </div>
             </div>
+          </td>
+          <td style="text-align:center;">
+            <span style="display:inline-block; background:${scoreBg}; color:${scoreColor}; font-size:13px; font-weight:800; padding:4px 10px; border-radius:6px; border:1px solid ${scoreColor}33; min-width:44px; text-align:center; letter-spacing:0.5px;">${score}</span>
           </td>
           <td>
             <div style="display:flex; align-items:center; gap:8px;">
