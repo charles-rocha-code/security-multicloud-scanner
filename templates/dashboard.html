@@ -2744,19 +2744,22 @@
              ============================================================ -->
         <div class="action-buttons-container" id="action-buttons" style="display: none;">
 
-          <!-- Header compacto com metadados do scan -->
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+          <!-- Header com metadados dinâmicos -->
+          <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:12px;">
             <div>
               <div style="font-size:15px; font-weight:600; color:#e5e7eb;">Exportar Resultados</div>
               <div style="font-size:12px; color:#6b7280; margin-top:2px;" id="export-meta">Scan concluído</div>
             </div>
-            <div id="report-status" style="display:none; align-items:center; gap:8px; font-size:13px; color:#60a5fa;">
-              <div class="spinner" style="width:14px;height:14px;border-width:2px;"></div>
-              <span id="report-status-text">Gerando relatório...</span>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <div id="export-sev-pills" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+              <div id="report-status" style="display:none; align-items:center; gap:8px; font-size:13px; color:#60a5fa;">
+                <div class="spinner" style="width:14px;height:14px;border-width:2px;"></div>
+                <span id="report-status-text">Gerando relatório...</span>
+              </div>
             </div>
           </div>
 
-          <!-- Grid de ações compacto -->
+          <!-- Grid de ações -->
           <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px;">
 
             <!-- Relatório Executivo — CTA principal -->
@@ -2774,9 +2777,13 @@
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
                 </svg>
               </div>
-              <div>
-                <div style="font-size:14px;font-weight:700;margin-bottom:2px;">Relatório Executivo</div>
-                <div style="font-size:11px;opacity:0.8;">PDF + DOCX para cliente</div>
+              <div style="flex:1;">
+                <div style="font-size:14px;font-weight:700;margin-bottom:4px;">Relatório Executivo</div>
+                <div style="font-size:11px;opacity:0.75;margin-bottom:7px;">Sumário executivo para apresentação ao cliente</div>
+                <div style="display:flex;gap:5px;">
+                  <span style="background:rgba(255,255,255,0.18);border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;letter-spacing:.03em;">.PDF</span>
+                  <span style="background:rgba(255,255,255,0.18);border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;letter-spacing:.03em;">.DOCX</span>
+                </div>
               </div>
             </button>
 
@@ -2795,7 +2802,7 @@
               </div>
               <div>
                 <div style="font-size:13px;font-weight:600;">JSON</div>
-                <div style="font-size:11px;color:#6b7280;">Dados completos</div>
+                <div id="export-json-meta" style="font-size:11px;color:#6b7280;">Dados completos</div>
               </div>
             </button>
 
@@ -2814,7 +2821,7 @@
               </div>
               <div>
                 <div style="font-size:13px;font-weight:600;">CSV</div>
-                <div style="font-size:11px;color:#6b7280;">Tabela de achados</div>
+                <div id="export-csv-meta" style="font-size:11px;color:#6b7280;">Tabela de achados</div>
               </div>
             </button>
 
@@ -5287,14 +5294,42 @@ Tem certeza que deseja continuar?`;
      */
     function showActionButtons() {
       const actionButtons = document.getElementById('action-buttons');
-      if (actionButtons) {
-        actionButtons.style.display = 'block';
-        
-        // Scroll suave até os botões
-        setTimeout(() => {
-          actionButtons.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }, 500);
+      if (!actionButtons) return;
+      actionButtons.style.display = 'block';
+
+      if (globalResult) {
+        const files  = globalResult.files || [];
+        const total  = files.length;
+        const target = globalResult.bucket || globalResult.account || globalResult.container || '';
+        const date   = new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+
+        const meta = document.getElementById('export-meta');
+        if (meta) meta.textContent = `${target} · ${date} · ${total} arquivo${total !== 1 ? 's' : ''}`;
+
+        const jsonMeta = document.getElementById('export-json-meta');
+        if (jsonMeta) jsonMeta.textContent = `${total} achados · Dados completos`;
+
+        const csvMeta = document.getElementById('export-csv-meta');
+        if (csvMeta) csvMeta.textContent = `${total} linhas · Tabela de achados`;
+
+        const sev = { critical: 0, high: 0, medium: 0, low: 0 };
+        files.forEach(f => { const s = (f.severity || 'low').toLowerCase(); if (sev[s] !== undefined) sev[s]++; });
+
+        const SEV_COLOR = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#22c55e' };
+        const SEV_BG    = { critical: 'rgba(239,68,68,0.15)', high: 'rgba(249,115,22,0.15)', medium: 'rgba(234,179,8,0.15)', low: 'rgba(34,197,94,0.15)' };
+        const pills = document.getElementById('export-sev-pills');
+        if (pills) {
+          pills.innerHTML = Object.entries(sev)
+            .filter(([, n]) => n > 0)
+            .map(([k, n]) =>
+              `<span style="background:${SEV_BG[k]};color:${SEV_COLOR[k]};border:1px solid ${SEV_COLOR[k]}44;border-radius:5px;padding:3px 10px;font-size:11px;font-weight:600;">${n} ${k.charAt(0).toUpperCase()+k.slice(1)}</span>`
+            ).join('');
+        }
       }
+
+      setTimeout(() => {
+        actionButtons.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 500);
     }
 
     // ============================================================
