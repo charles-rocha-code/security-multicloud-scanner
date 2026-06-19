@@ -482,24 +482,44 @@ class ChartEngine:
         fig, ax = plt.subplots(figsize=(9, max(1.8, n_c*0.85+0.7)), facecolor='white')
         ax.set_facecolor('white')
 
+        max_total   = max(totals)
+        grand_total = sum(totals)
+
+        # Só inclui na legenda as severidades que têm dados
+        sev_present = [s for s in ['CRITICAL','HIGH','MEDIUM','LOW']
+                       if any(counts[c][s] > 0 for c in cats_with_data)]
+
         left = np.zeros(len(cats_with_data))
+        legend_handles = []
         for sev, col in [('CRITICAL',P['critical']),('HIGH',P['high']),('MEDIUM',P['medium']),('LOW',P['low'])]:
             vals = np.array([counts[c][sev] for c in cats_with_data], dtype=float)
             bars = ax.barh(idx, vals, left=left, color=col, height=0.55,
-                           edgecolor='white', linewidth=0.8, label=sev)
+                           edgecolor='white', linewidth=0.8)
+            if sev in sev_present:
+                legend_handles.append(mpatches.Patch(color=col, label=sev))
             for bar, v in zip(bars, vals):
-                if v > 0:
+                if v > 0 and v >= max_total * 0.06:
                     ax.text(bar.get_x() + bar.get_width()/2, bar.get_y() + bar.get_height()/2,
                             f'{int(v)}', ha='center', va='center', fontsize=8,
                             fontweight='bold', color='white')
             left += vals
 
+        # Rótulo total + percentual fora de cada barra
+        for i, tot in enumerate(totals):
+            pct = tot / grand_total * 100 if grand_total else 0
+            lbl = f'{tot:,}' if n_c == 1 else f'{tot:,}  ({pct:.0f}%)'
+            ax.text(tot + max_total * 0.015, i, lbl,
+                    va='center', ha='left', fontsize=9, color='#374151', fontweight='bold')
+
+        ax.set_xlim(0, max_total * 1.28)
         ax.set_yticks(idx)
         ax.set_yticklabels(cats_with_data, fontsize=10, color='#374151')
         ax.set_xlabel('Número de Arquivos', fontsize=9, color=P['gray'])
         ax.set_title('Distribuição por Categoria de Risco',
                      fontsize=12, fontweight='bold', color=P['primary'], pad=12)
-        ax.legend(loc='lower right', fontsize=9, frameon=False)
+        # Legenda fora do plot, à direita — sem overlap com barras
+        ax.legend(handles=legend_handles, loc='center left', bbox_to_anchor=(1.01, 0.5),
+                  fontsize=9, frameon=False)
         ax.grid(axis='x', color='#f3f4f6', linewidth=1.0)
         ax.set_axisbelow(True)
         for sp in ['top','right','left']:
