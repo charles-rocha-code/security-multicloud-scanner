@@ -842,6 +842,34 @@
     .rm-axis-label { font-size: 10px; color: #6b7280; font-weight: 600; letter-spacing: 0.5px; white-space: nowrap; }
     .rm-legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; }
 
+    /* ── Risk Overview (KPI style) ── */
+    .vo-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+    .vo-chip {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 12px;
+      color: #9ca3af;
+    }
+    .vo-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    @media (max-width: 700px) { .vo-kpis { grid-template-columns: repeat(2, 1fr); } }
+    .vo-kpi {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 18px 12px 14px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 10px;
+      transition: border-color 0.2s;
+    }
+    .vo-kpi:hover { border-color: rgba(255,255,255,0.15); }
+    .vo-kpi-number { font-size: 2.4rem; font-weight: 700; line-height: 1; }
+    .vo-kpi-trend { font-size: 12px; font-weight: 600; margin-top: 2px; }
+    .vo-kpi-label { font-size: 11px; color: #9ca3af; margin-top: 6px; font-weight: 500; letter-spacing: .02em; }
+
     /* ── Funnel (Achados Priorizados) ── */
     .funnel-row {
       display: flex;
@@ -2510,12 +2538,12 @@
           <div class="panel-header">
             <div>
               <div class="panel-title">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:6px;margin-top:-2px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-                Risk Matrix
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:6px;margin-top:-2px"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                Risk Overview
               </div>
-              <div class="panel-sub">Probabilidade × Impacto — ISO 27001 / NIST</div>
+              <div class="panel-sub">Distribuição de exposição por severidade</div>
             </div>
-            <div id="rm-legend" style="display:flex; gap:14px; align-items:center; font-size:11px; color:#6b7280; flex-wrap:wrap;"></div>
+            <div id="rm-legend"></div>
           </div>
           <div id="risk-matrix-container"></div>
         </div>
@@ -3625,117 +3653,84 @@ function logout() {
     }
 
     // ============================================================
-    // RISK MATRIX (ISO 27001 / NIST — Probabilidade × Impacto)
+    // RISK OVERVIEW (KPI style — Vulnerabilities Overview)
     // ============================================================
     function renderRiskMatrix(files) {
       const panel = document.getElementById('risk-matrix-panel');
       if (!panel) return;
       if (!files || files.length === 0) { panel.style.display = 'none'; return; }
 
-      // Impacto fixo por categoria (0=Baixo, 1=Médio, 2=Alto)
-      const CAT_IMPACT = { cred: 2, keys: 2, db: 1, code: 1, config: 1, archive: 0, other: 0 };
-      const CAT_LABEL  = { cred: 'Credenciais', keys: 'Chaves Crypto', db: 'DB / Backups', code: 'Código', config: 'Configs', archive: 'Compactados', other: 'Outros' };
-      const CAT_COLOR  = { cred: '#ef4444', keys: '#f97316', db: '#eab308', code: '#38bdf8', config: '#a78bfa', archive: '#6b7280', other: '#9ca3af' };
+      const total = files.length;
+      const sev = { critical: 0, high: 0, medium: 0, low: 0 };
+      files.forEach(f => {
+        const s = (f.severity || 'low').toLowerCase();
+        if (sev[s] !== undefined) sev[s]++;
+      });
 
-      // Agrupa arquivos por categoria
-      const groups = {};
+      // Chips: categorias presentes
+      const CAT_LABEL = { cred: 'Credenciais', keys: 'Chaves Crypto', db: 'DB / Backups', code: 'Código', config: 'Configs', archive: 'Compactados', other: 'Outros' };
+      const cats = {};
       files.forEach(f => {
         const cat = getFileCategory(f);
-        if (!groups[cat]) groups[cat] = { critical: 0, high: 0, medium: 0, low: 0, total: 0 };
-        const sev = (f.severity || 'low').toLowerCase();
-        if (groups[cat][sev] !== undefined) groups[cat][sev]++;
-        groups[cat].total++;
+        cats[CAT_LABEL[cat] || cat] = (cats[CAT_LABEL[cat] || cat] || 0) + 1;
       });
+      const catList  = Object.keys(cats).join(', ');
+      const sevNames = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
+      const sevPresent = Object.entries(sev).filter(([, n]) => n > 0).map(([k]) => sevNames[k]).join(', ');
 
-      // Zonas de risco [likelihood][impact]
-      // Likelihood: 0=Alta (tem critical/high), 1=Média (tem medium), 2=Baixa (só low)
-      const ZONE = [
-        ['rm-medium', 'rm-high',   'rm-critical'],
-        ['rm-low',    'rm-medium', 'rm-high'    ],
-        ['rm-low',    'rm-low',    'rm-medium'  ],
+      // Sparkline SVG proporcional à contagem
+      function spark(count, max, color) {
+        const uid = Math.random().toString(36).slice(2, 7);
+        if (count === 0) {
+          return `<svg width="80" height="32" viewBox="0 0 80 32">
+            <path d="M0,24 C25,23 55,25 80,24" stroke="${color}" stroke-width="1.5" fill="none" opacity="0.2"/>
+          </svg>`;
+        }
+        const ratio = max > 0 ? count / max : 0;
+        const peak  = Math.round(28 - ratio * 20);
+        return `<svg width="80" height="32" viewBox="0 0 80 32">
+          <defs>
+            <linearGradient id="sg${uid}" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>
+              <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path d="M0,28 C18,${peak+5} 40,${peak} 80,${peak+3}" stroke="${color}" stroke-width="2" fill="none"/>
+          <path d="M0,28 C18,${peak+5} 40,${peak} 80,${peak+3} L80,32 L0,32 Z" fill="url(#sg${uid})"/>
+        </svg>`;
+      }
+
+      const max = Math.max(sev.critical, sev.high, sev.medium, sev.low, 1);
+
+      const KPIS = [
+        { key: 'critical', label: 'Critical',  color: '#ef4444', border: 'rgba(239,68,68,0.35)' },
+        { key: 'high',     label: 'High',      color: '#f97316', border: 'rgba(249,115,22,0.35)' },
+        { key: 'medium',   label: 'Medium',    color: '#eab308', border: 'rgba(234,179,8,0.35)' },
+        { key: 'low',      label: 'Low',       color: '#22c55e', border: 'rgba(34,197,94,0.35)' },
       ];
-      const ZONE_STYLE = {
-        'rm-critical': { bg: '#4c0d0d', border: '#ef4444', label: 'Critical', color: '#fca5a5' },
-        'rm-high':     { bg: '#431507', border: '#f97316', label: 'High',     color: '#fdba74' },
-        'rm-medium':   { bg: '#3b2900', border: '#eab308', label: 'Medium',   color: '#fde047' },
-        'rm-low':      { bg: '#052e16', border: '#22c55e', label: 'Low',      color: '#86efac' },
-      };
 
-      // Posiciona cada categoria na matriz
-      const matrix = Array.from({length: 3}, () => Array.from({length: 3}, () => []));
-      Object.entries(groups).forEach(([cat, g]) => {
-        if (g.total === 0) return;
-        const impact     = CAT_IMPACT[cat] ?? 0;
-        const likelihood = (g.critical > 0 || g.high > 0) ? 0 : g.medium > 0 ? 1 : 2;
-        matrix[likelihood][impact].push({ cat, g });
-      });
-
-      const LIKE_LABELS = ['ALTA', 'MÉDIA', 'BAIXA'];
-      const IMP_LABELS  = ['BAIXO', 'MÉDIO', 'ALTO'];
-
-      // Renderiza linhas
-      const rows = matrix.map((row, r) =>
-        `<tr>
-          <td style="padding-right:10px; text-align:right; vertical-align:middle; width:50px;">
-            <span class="rm-axis-label">${LIKE_LABELS[r]}</span>
-          </td>
-          ${row.map((cell, c) => {
-            const zone = ZONE[r][c];
-            const { bg, border, label, color } = ZONE_STYLE[zone];
-            const pills = cell.map(({ cat, g }) =>
-              `<span class="rm-pill" title="${CAT_LABEL[cat]}: ${g.total} arquivo${g.total !== 1 ? 's' : ''}">
-                <span class="rm-pill-dot" style="background:${CAT_COLOR[cat]}"></span>
-                <span class="rm-pill-label">${CAT_LABEL[cat]}</span>
-                <span class="rm-pill-count">${g.total}</span>
-              </span>`
-            ).join('');
-            return `<td class="rm-cell" style="background:${bg}; border:1px solid ${border}; position:relative;">
-              <span style="position:absolute;top:6px;right:8px;font-size:10px;font-weight:600;letter-spacing:.04em;color:${color};opacity:0.55;">${label.toUpperCase()}</span>
-              ${pills || ''}
-            </td>`;
-          }).join('')}
-        </tr>`
-      ).join('');
-
-      // Legenda
-      const legend = Object.entries(ZONE_STYLE).map(([, v]) =>
-        `<span style="display:flex;align-items:center;gap:4px;">
-          <span class="rm-legend-dot" style="background:${v.bg}; border:1px solid ${v.border};"></span>${v.label}
-        </span>`
-      ).join('');
-      document.getElementById('rm-legend').innerHTML = legend;
-
-      // Legenda de categorias presentes
-      const catLegend = Object.entries(groups)
-        .filter(([, g]) => g.total > 0)
-        .map(([id, g]) =>
-          `<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:#9ca3af;">
-            <span style="width:8px;height:8px;border-radius:50%;background:${CAT_COLOR[id]};flex-shrink:0;"></span>
-            ${CAT_LABEL[id]} <strong style="color:#e5e7eb;">(${g.total})</strong>
-          </span>`
-        ).join('');
+      const kpiCards = KPIS.map(k => {
+        const n    = sev[k.key];
+        const pct  = total > 0 ? (n / total * 100).toFixed(1) : '0.0';
+        const disp = n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n);
+        const trend = n > 0
+          ? `<span style="color:${k.color}">↑ ${pct}%</span>`
+          : `<span style="color:#4b5563">— 0%</span>`;
+        return `
+          <div class="vo-kpi" style="border-color:${n > 0 ? k.border : 'rgba(255,255,255,0.06)'}">
+            <div class="vo-kpi-number" style="color:${n > 0 ? k.color : '#374151'}">${disp}</div>
+            <div class="vo-kpi-trend">${trend}</div>
+            ${spark(n, max, k.color)}
+            <div class="vo-kpi-label">${k.label}</div>
+          </div>`;
+      }).join('');
 
       document.getElementById('risk-matrix-container').innerHTML = `
-        <div style="display:flex; align-items:stretch; gap:12px;">
-          <div style="display:flex; align-items:center; padding:0 4px;">
-            <span class="rm-axis-label" style="writing-mode:vertical-rl; transform:rotate(180deg);">PROBABILIDADE</span>
-          </div>
-          <div style="flex:1; overflow-x:auto;">
-            <table class="rm-table">
-              <tbody>
-                ${rows}
-                <tr>
-                  <td></td>
-                  ${IMP_LABELS.map(l => `<td style="text-align:center; padding-top:8px;"><span class="rm-axis-label">${l}</span></td>`).join('')}
-                </tr>
-              </tbody>
-            </table>
-            <div style="text-align:center; margin-top:4px; padding-left:50px;">
-              <span class="rm-axis-label">IMPACTO</span>
-            </div>
-          </div>
+        <div class="vo-chips">
+          ${catList   ? `<span class="vo-chip"><strong style="color:#e5e7eb">Asset Type:</strong> ${catList}</span>`     : ''}
+          ${sevPresent ? `<span class="vo-chip"><strong style="color:#e5e7eb">Severity:</strong> ${sevPresent}</span>` : ''}
         </div>
-        ${catLegend ? `<div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;padding-top:12px;border-top:1px solid #1f2937;">${catLegend}</div>` : ''}`;
+        <div class="vo-kpis">${kpiCards}</div>`;
 
       panel.style.display = '';
     }
