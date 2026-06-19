@@ -3354,7 +3354,7 @@ function logout() {
       const sev  = window._vmSevs.find(s => s.id === sevId);
       const cat  = window._vmCats.find(c => c.id === catId);
       const fileList = window._vmMatrix[sevId][catId] || [];
-      const color = sevId==='CRITICAL'?'#ef4444':sevId==='HIGH'?'#f97316':sevId==='MEDIUM'?'#eab308':'#60a5fa';
+      const color = sevId==='CRITICAL'?'#ef4444':sevId==='HIGH'?'#f97316':sevId==='MEDIUM'?'#eab308':'#22c55e';
       const tt = _tt();
       document.getElementById('tt-header').innerHTML =
         `<span style="color:${color}">${sev.label}</span> · ${cat.label}
