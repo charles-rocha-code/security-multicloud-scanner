@@ -396,6 +396,118 @@ class ChartEngine:
         fig.tight_layout(pad=0.4)
         return self._save(fig, f'gauge_{idx:03d}')
 
+    # ── 7. Gauge global do ambiente ───────────────────────────────────
+    def environment_gauge(self, score: float, risk_level: str) -> str:
+        P     = self.PALETTE
+        color = self.SEV_COLOR.get(risk_level.upper(), P['medium'])
+        fig   = plt.figure(figsize=(5.5, 3.6), facecolor='white')
+        ax    = fig.add_subplot(111, projection='polar')
+        ax.set_facecolor('white')
+
+        zones = [
+            (np.pi,      np.pi*0.75, P['low']),
+            (np.pi*0.75, np.pi*0.50, P['medium']),
+            (np.pi*0.50, np.pi*0.25, P['high']),
+            (np.pi*0.25, 0,          P['critical']),
+        ]
+        for t0, t1, zcol in zones:
+            th = np.linspace(t0, t1, 80)
+            ax.fill_between(th, 0.55, 1.0, alpha=0.18, color=zcol)
+            ax.plot(th, np.full(80, 1.0), color=zcol, linewidth=7, solid_capstyle='butt')
+
+        needle = np.pi - (min(score, 100) / 100.0) * np.pi
+        ax.annotate('', xy=(needle, 0.85), xytext=(0, 0),
+                    arrowprops=dict(arrowstyle='->', color=color, lw=4, mutation_scale=22))
+
+        ax.set_ylim(0, 1.15)
+        ax.axis('off')
+
+        ax.text(0,  0.12, f'{score:.0f}',    ha='center', va='center',
+                fontsize=30, fontweight='bold', color=color, transform=ax.transData)
+        ax.text(0, -0.12, 'RISK SCORE',      ha='center', va='center',
+                fontsize=9,  fontweight='bold', color=P['gray'], transform=ax.transData)
+        ax.text(0, -0.32, risk_level.upper(), ha='center', va='center',
+                fontsize=11, fontweight='bold', color=color, transform=ax.transData)
+
+        for ang, lbl, c in [
+            (np.pi*0.875, 'LOW',  P['low']),
+            (np.pi*0.625, 'MED',  P['medium']),
+            (np.pi*0.375, 'HIGH', P['high']),
+            (np.pi*0.125, 'CRIT', P['critical']),
+        ]:
+            ax.text(ang, 1.15, lbl, ha='center', va='center',
+                    fontsize=8, color=c, fontweight='bold')
+
+        ax.set_title('Risco Global do Ambiente', fontsize=12,
+                     fontweight='bold', color=P['primary'], y=0.10, pad=0)
+        fig.tight_layout(pad=0.6)
+        return self._save(fig, 'env_gauge')
+
+    # ── 8. Barras de categoria ────────────────────────────────────────
+    def category_bars(self, files: list) -> str:
+        if not files:
+            return None
+        P = self.PALETTE
+        from pathlib import Path as _P
+        from collections import Counter
+
+        CAT_RULES = {
+            'Credenciais':    lambda k: any(x in k for x in ['password','credential','secret','token','api_key']),
+            'Chaves Crypto':  lambda k: any(x in k for x in ['.pem','.key','.crt','.p12','.pfx','rsa']),
+            'DB / Backups':   lambda k: any(x in k for x in ['.sql','.db','.sqlite','backup','.bak','.dump','.gz','.zip','.tar']),
+            'Código':         lambda k: any(x in k for x in ['.py','.js','.java','.php','.rb','.go']),
+            'Configs':        lambda k: any(x in k for x in ['.env','.yaml','.yml','.conf','.ini','config']),
+            'Outros':         lambda k: True,
+        }
+        SEV_PAL = {'CRITICAL': P['critical'], 'HIGH': P['high'], 'MEDIUM': P['medium'], 'LOW': P['low']}
+
+        cats   = list(CAT_RULES.keys())
+        counts = {c: {s: 0 for s in ['CRITICAL','HIGH','MEDIUM','LOW']} for c in cats}
+        for f in files:
+            name = f.get('key', f.get('name', '')).lower()
+            sev  = f.get('severity', 'LOW').upper()
+            for cat, rule in CAT_RULES.items():
+                if rule(name):
+                    counts[cat][sev] += 1
+                    break
+
+        cats_with_data = [c for c in cats if sum(counts[c].values()) > 0]
+        if not cats_with_data:
+            return None
+
+        totals = [sum(counts[c].values()) for c in cats_with_data]
+        idx    = np.arange(len(cats_with_data))
+        fig, ax = plt.subplots(figsize=(9, max(3.5, len(cats_with_data)*0.65+1.5)), facecolor='white')
+        ax.set_facecolor('white')
+
+        left = np.zeros(len(cats_with_data))
+        for sev, col in [('CRITICAL',P['critical']),('HIGH',P['high']),('MEDIUM',P['medium']),('LOW',P['low'])]:
+            vals = np.array([counts[c][sev] for c in cats_with_data], dtype=float)
+            bars = ax.barh(idx, vals, left=left, color=col, height=0.55,
+                           edgecolor='white', linewidth=0.8, label=sev)
+            for bar, v in zip(bars, vals):
+                if v > 0:
+                    ax.text(bar.get_x() + bar.get_width()/2, bar.get_y() + bar.get_height()/2,
+                            f'{int(v)}', ha='center', va='center', fontsize=8,
+                            fontweight='bold', color='white')
+            left += vals
+
+        ax.set_yticks(idx)
+        ax.set_yticklabels(cats_with_data, fontsize=10, color='#374151')
+        ax.set_xlabel('Número de Arquivos', fontsize=9, color=P['gray'])
+        ax.set_title('Distribuição por Categoria de Risco',
+                     fontsize=12, fontweight='bold', color=P['primary'], pad=12)
+        ax.legend(loc='lower right', fontsize=9, frameon=False)
+        ax.grid(axis='x', color='#f3f4f6', linewidth=1.0)
+        ax.set_axisbelow(True)
+        for sp in ['top','right','left']:
+            ax.spines[sp].set_visible(False)
+        ax.spines['bottom'].set_color('#e5e7eb')
+        ax.tick_params(left=False)
+        ax.invert_yaxis()
+        fig.tight_layout()
+        return self._save(fig, 'category_bars')
+
     # ── Gerar todos os gauges ─────────────────────────────────────────
     def all_gauges(self, files: list) -> list:
         if not files:
@@ -755,6 +867,61 @@ class ProfessionalReportGenerator:
                 'delta_medium':   curr.get('medium',0)   - prev.get('medium',0),
                 'delta_score':    self.scan_data.get('risk_score',0) - self.previous_scan.get('risk_score',0)}
 
+    # ── Narrativa executiva auto-gerada ───────────────────────────────
+    def _generate_narrative(self) -> str:
+        sd      = self.scan_data.get('severity_distribution', {})
+        total   = len(self.scan_data.get('files', []))
+        crit    = sd.get('critical', 0)
+        high    = sd.get('high', 0)
+        med     = sd.get('medium', 0)
+        low     = sd.get('low', 0)
+        prov    = self.provider_name
+        bucket  = self.scan_data.get('bucket', 'o ambiente auditado')
+        score   = self.scan_data.get('risk_score', 0)
+        risk    = self.risk_level.get('level', 'DESCONHECIDO')
+        total_b = self.size_distribution.get('_total_bytes', 0)
+        date_s  = self.report_date.strftime('%d/%m/%Y às %H:%M')
+
+        # Frase de abertura
+        opening = (
+            f"Em {date_s}, foi realizada uma auditoria de segurança em <b>{bucket}</b> "
+            f"({prov}), resultando na análise de <b>{total:,} objeto(s)</b> com volume "
+            f"total de <b>{self._format_size(total_b)}</b> de dados. "
+        )
+
+        # Avaliação de risco
+        if crit > 0:
+            risk_sentence = (
+                f"Foram identificadas <b>{crit} exposição(ões) CRÍTICA(s)</b> e <b>{high} de nível ALTO</b>, "
+                f"indicando risco <b>{risk}</b> imediato ao ambiente. "
+            )
+        elif high > 0:
+            risk_sentence = (
+                f"Não foram encontradas exposições críticas, porém <b>{high} arquivo(s)</b> "
+                f"apresentam risco ALTO de exposição pública. "
+            )
+        else:
+            risk_sentence = (
+                f"Não foram identificadas exposições críticas ou de alto risco. "
+                f"O ambiente apresenta nível de risco <b>{risk}</b>. "
+            )
+
+        # Score
+        score_sentence = (
+            f"O Risk Score global do ambiente é de <b>{score}/100</b>, "
+            f"calculado com base na distribuição de severidade e volume de dados expostos. "
+        )
+
+        # Recomendação
+        if crit > 0 or high > 5:
+            action = "Ação imediata é recomendada para mitigar os riscos identificados dentro de 24 horas."
+        elif high > 0 or med > 5:
+            action = "Recomenda-se priorizar as ações corretivas nos próximos 7 dias."
+        else:
+            action = "Recomenda-se monitoramento contínuo e revisão das políticas de acesso."
+
+        return opening + risk_sentence + score_sentence + action
+
     # ── Gerar todos os gráficos ────────────────────────────────────────
     def _generate_all_charts(self):
         files    = self.scan_data.get('files', [])
@@ -765,13 +932,17 @@ class ProfessionalReportGenerator:
         gauge_files = vuln if vuln else files[:20]
 
         self.ch = {}
-        self.ch['donut']    = self._safe(lambda: self.charts.severity_donut(sd, total), None)
-        self.ch['risk_all'] = self._safe(lambda: self.charts.risk_per_file(files[:20], 'Top 20'), None)
-        self.ch['risk_vuln']= self._safe(lambda: self.charts.risk_per_file(gauge_files, 'Vulneráveis', 'risk_vuln'), None) if vuln else self.ch['risk_all']
-        self.ch['size']     = self._safe(lambda: self.charts.size_per_file(files[:20]), None)
-        self.ch['heatmap']  = self._safe(lambda: self.charts.risk_heatmap(files[:15]), None)
-        self.ch['type_pie'] = self._safe(lambda: self.charts.type_pie(files), None)
-        self.ch['gauges']   = self._safe(lambda: self.charts.all_gauges(gauge_files[:20]), [])
+        self.ch['env_gauge']    = self._safe(lambda: self.charts.environment_gauge(
+                                      self.scan_data.get('risk_score', 0),
+                                      self.risk_level.get('level', 'MÉDIO')), None)
+        self.ch['cat_bars']     = self._safe(lambda: self.charts.category_bars(files), None)
+        self.ch['donut']        = self._safe(lambda: self.charts.severity_donut(sd, total), None)
+        self.ch['risk_all']     = self._safe(lambda: self.charts.risk_per_file(files[:20], 'Top 20'), None)
+        self.ch['risk_vuln']    = self._safe(lambda: self.charts.risk_per_file(gauge_files, 'Vulneráveis', 'risk_vuln'), None) if vuln else self.ch['risk_all']
+        self.ch['size']         = self._safe(lambda: self.charts.size_per_file(files[:20]), None)
+        self.ch['heatmap']      = self._safe(lambda: self.charts.risk_heatmap(files[:15]), None)
+        self.ch['type_pie']     = self._safe(lambda: self.charts.type_pie(files), None)
+        self.ch['gauges']       = self._safe(lambda: self.charts.all_gauges(gauge_files[:20]), [])
         print(f"✅ {sum(1 for v in self.ch.values() if v)} gráficos gerados "
               f"({len(self.ch['gauges'])} gauges individuais)")
 
@@ -1046,6 +1217,65 @@ class ProfessionalReportGenerator:
         story.append(Paragraph(f"<b>{risk['action']}</b>",
                                 ParagraphStyle('ACT', fontSize=11, textColor=risk['color'],
                                                alignment=TA_CENTER, fontName='Helvetica-Bold')))
+        story.append(Spacer(1, 0.18*inch))
+
+        # ── Gauge global + parágrafo narrativo ────────────────────────
+        narrative = self._generate_narrative()
+        narr_para = Paragraph(narrative,
+                              ParagraphStyle('NARR', fontSize=10, textColor=colors.HexColor('#1e293b'),
+                                             alignment=TA_JUSTIFY, leading=15, spaceAfter=8))
+        if self.ch.get('env_gauge'):
+            gauge_layout = Table([[
+                RLImage(self.ch['env_gauge'], width=2.6*inch, height=2.6*inch*0.68),
+                narr_para,
+            ]], colWidths=[2.8*inch, 3.8*inch])
+            gauge_layout.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ALIGN',  (0, 0), (0,  0),  'CENTER'),
+                ('LEFTPADDING',  (1, 0), (1, 0), 14),
+            ]))
+            story.append(gauge_layout)
+        else:
+            story.append(narr_para)
+
+        story.append(Spacer(1, 0.14*inch))
+
+        # ── Top 10 arquivos mais críticos ─────────────────────────────
+        if self.top_critical_files:
+            story.append(Paragraph("Arquivos de Maior Risco", H2))
+            top_data = [['#', 'Arquivo', 'Severidade', 'Tamanho', 'Motivo']]
+            for i, f in enumerate(self.top_critical_files[:10], 1):
+                fname = f['file']
+                fname_display = ('...' + fname[-42:]) if len(fname) > 45 else fname
+                top_data.append([
+                    str(i),
+                    fname_display,
+                    f['severity'],
+                    self._format_size(f['size']),
+                    (f.get('reason','') or '')[:28],
+                ])
+            sev_col_map = {'CRITICAL': self.COLOR_CRITICAL, 'HIGH': self.COLOR_HIGH,
+                           'MEDIUM': self.COLOR_MEDIUM, 'LOW': self.COLOR_LOW}
+            top_t = Table(top_data, colWidths=[0.28*inch, 2.9*inch, 0.75*inch, 0.72*inch, 1.6*inch])
+            style_cmds = [
+                ('BACKGROUND', (0,0), (-1,0), self.COLOR_PRIMARY),
+                ('TEXTCOLOR',  (0,0), (-1,0), colors.white),
+                ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
+                ('FONTSIZE',   (0,0), (-1,-1), 8.5),
+                ('PADDING',    (0,0), (-1,-1), 6),
+                ('GRID',       (0,0), (-1,-1), 0.4, colors.HexColor('#e5e7eb')),
+                ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, self.COLOR_BG_LIGHT]),
+                ('ALIGN',      (0,0), (0,-1), 'CENTER'),
+                ('ALIGN',      (2,0), (3,-1), 'CENTER'),
+            ]
+            for row_i, f in enumerate(self.top_critical_files[:10], 1):
+                col = sev_col_map.get(f['severity'], self.COLOR_LOW)
+                style_cmds.append(('TEXTCOLOR', (2, row_i), (2, row_i), col))
+                style_cmds.append(('FONTNAME',  (2, row_i), (2, row_i), 'Helvetica-Bold'))
+            top_t.setStyle(TableStyle(style_cmds))
+            story.append(top_t)
+            story.append(Spacer(1, 0.08*inch))
+
         story.append(PageBreak())
 
         # ── 2. DISTRIBUIÇÃO DE CRITICIDADE ────────────────────────────
@@ -1055,18 +1285,16 @@ class ProfessionalReportGenerator:
             styles['Normal']))
         story.append(Spacer(1, 0.1*inch))
 
-        if self.ch.get('type_pie'):
-            row = Table([[
-                RLImage(self.ch.get('donut',''),   width=3.2*inch, height=3.2*inch*0.78) if self.ch.get('donut') else Paragraph('', styles['Normal']),
-                RLImage(self.ch['type_pie'], width=3.2*inch, height=3.2*inch*0.78),
-            ]], colWidths=[3.4*inch, 3.4*inch])
+        if self.ch.get('donut') or self.ch.get('type_pie'):
+            left_img  = RLImage(self.ch['donut'],    width=3.2*inch, height=3.2*inch*0.78) if self.ch.get('donut') else Paragraph('', styles['Normal'])
+            right_img = RLImage(self.ch['type_pie'], width=3.2*inch, height=3.2*inch*0.78) if self.ch.get('type_pie') else Paragraph('', styles['Normal'])
+            row = Table([[left_img, right_img]], colWidths=[3.4*inch, 3.4*inch])
             row.setStyle(TableStyle([('ALIGN',(0,0),(-1,-1),'CENTER'),
                                      ('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
             story.append(row)
             story.append(Paragraph("Figura 1 — Severidade (esq.)  |  Tipo de Arquivo (dir.)", NOTE))
-        elif self.ch.get('donut'):
-            add_chart(self.ch['donut'], width=4.5*inch,
-                      caption="Figura 1 — Distribuição de Severidade")
+        add_chart(self.ch.get('cat_bars'), width=5.8*inch,
+                  caption="Figura 2 — Distribuição por Categoria de Risco")
 
         story.append(PageBreak())
 
