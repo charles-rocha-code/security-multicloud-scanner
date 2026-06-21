@@ -740,6 +740,105 @@ def scan_amazetest(payload: AuthenticatedScanIn, user=Depends(require_mfa)):
 
 
 # -----------------------------------------------------------------------------
+# Scan IAM — CSPM (AWS Identity & Access Management)
+# -----------------------------------------------------------------------------
+class IamScanIn(BaseModel):
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    aws_session_token: Optional[str] = None
+    region_name: str = "us-east-1"
+
+
+@app.post("/scan/iam")
+def scan_iam(payload: IamScanIn, user=Depends(require_mfa)):
+    """
+    Audita a postura de segurança IAM da conta AWS (CSPM).
+    Requer permissões: iam:Get*, iam:List*, sts:GetCallerIdentity.
+    """
+    try:
+        from auditor_iam import IAMAuditor
+        auditor = IAMAuditor(
+            aws_access_key_id=payload.aws_access_key_id,
+            aws_secret_access_key=payload.aws_secret_access_key,
+            aws_session_token=payload.aws_session_token,
+            region_name=payload.region_name or "us-east-1",
+        )
+        result = auditor.run()
+        email = user.get("email") if isinstance(user, dict) else None
+        if email:
+            LAST_SCAN_BY_EMAIL[email] = result
+        return result
+    except NoCredentialsError:
+        raise HTTPException(status_code=400, detail="Credenciais AWS inválidas ou sem permissão IAM.")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro no scan IAM: {e}")
+
+
+# -----------------------------------------------------------------------------
+# Scan IAM — CSPM GCP (Google Cloud IAM)
+# -----------------------------------------------------------------------------
+class GcpIamScanIn(BaseModel):
+    service_account_key: dict
+
+
+@app.post("/scan/iam/gcp")
+def scan_iam_gcp(payload: GcpIamScanIn, user=Depends(require_mfa)):
+    """
+    Audita postura de segurança IAM de um projeto GCP (CSPM).
+    Requer permissões: roles/iam.securityReviewer ou roles/viewer no projeto.
+    """
+    try:
+        from auditor_iam_gcp import GCPIAMAuditor
+        auditor = GCPIAMAuditor(service_account_key=payload.service_account_key)
+        result = auditor.run()
+        email = user.get("email") if isinstance(user, dict) else None
+        if email:
+            LAST_SCAN_BY_EMAIL[email] = result
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro no scan IAM GCP: {e}")
+
+
+# -----------------------------------------------------------------------------
+# Scan IAM — CSPM Azure (Azure IAM / Entra ID)
+# -----------------------------------------------------------------------------
+class AzureIamScanIn(BaseModel):
+    tenant_id: str
+    client_id: str
+    client_secret: str
+    subscription_id: str
+
+
+@app.post("/scan/iam/azure")
+def scan_iam_azure(payload: AzureIamScanIn, user=Depends(require_mfa)):
+    """
+    Audita postura de segurança IAM da subscription Azure + Entra ID (CSPM).
+    Requer permissões: Reader na subscription + Microsoft Graph: Policy.Read.All, RoleManagement.Read.All.
+    """
+    try:
+        from auditor_iam_azure import AzureIAMAuditor
+        auditor = AzureIAMAuditor(
+            tenant_id=payload.tenant_id,
+            client_id=payload.client_id,
+            client_secret=payload.client_secret,
+            subscription_id=payload.subscription_id,
+        )
+        result = auditor.run()
+        email = user.get("email") if isinstance(user, dict) else None
+        if email:
+            LAST_SCAN_BY_EMAIL[email] = result
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro no scan IAM Azure: {e}")
+
+
+# -----------------------------------------------------------------------------
 # Scan Kubernetes (kubeconfig YAML)
 # -----------------------------------------------------------------------------
 class K8sScanIn(BaseModel):

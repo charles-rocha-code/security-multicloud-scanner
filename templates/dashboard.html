@@ -154,8 +154,11 @@
 
     .provider-default { background: rgba(75,85,99,0.5); border: 1px solid #374151; color: #9ca3af; }
     .provider-AWS_S3  { background: rgba(255,153,0,0.18); border: 1px solid rgba(255,153,0,0.4); color: #ffbb33; }
-    .provider-GCS     { background: rgba(52,168,83,0.18); border: 1px solid rgba(52,168,83,0.4); color: #4cba6a; }
-    .provider-AZURE   { background: rgba(0,120,212,0.18); border: 1px solid rgba(0,120,212,0.4); color: #3fa8f5; }
+    .provider-AWS_IAM   { background: rgba(168,85,247,0.18); border: 1px solid rgba(168,85,247,0.4); color: #c084fc; }
+    .provider-GCP_IAM   { background: rgba(52,168,83,0.18); border: 1px solid rgba(52,168,83,0.4); color: #4cba6a; }
+    .provider-AZURE_IAM { background: rgba(14,165,233,0.18); border: 1px solid rgba(14,165,233,0.4); color: #38bdf8; }
+    .provider-GCS       { background: rgba(52,168,83,0.18); border: 1px solid rgba(52,168,83,0.4); color: #4cba6a; }
+    .provider-AZURE     { background: rgba(0,120,212,0.18); border: 1px solid rgba(0,120,212,0.4); color: #3fa8f5; }
     .provider-UNIVERSAL { background: rgba(30,144,255,0.18); border: 1px solid rgba(30,144,255,0.4); color: #60b4ff; }
     .provider-KUBERNETES { background: rgba(50,108,229,0.18); border: 1px solid rgba(50,108,229,0.4); color: #7ba3f7; }
 
@@ -2334,7 +2337,7 @@
 
           <!-- Campo de scan profissional -->
           <div class="scan-form-row" id="scan-form-row">
-            <div class="scan-target-wrapper" style="flex:1; min-width:280px;">
+            <div class="scan-target-wrapper" id="scan-target-wrapper" style="flex:1; min-width:280px;">
               <div class="scan-target-label">Target</div>
               <div class="scan-input-row">
                 <div class="scan-provider-icon" id="scan-provider-icon" title="Provider detectado">
@@ -2378,6 +2381,9 @@
                 <option value="gcs">Google Cloud Storage</option>
                 <option value="azure">Azure Blob Storage</option>
                 <option value="k8s">Kubernetes Cluster</option>
+                <option value="iam">AWS IAM (CSPM)</option>
+                <option value="gcp-iam">GCP IAM (CSPM)</option>
+                <option value="azure-iam">Azure IAM / Entra ID (CSPM)</option>
               </select>
               <span class="help-text">Selecione o provedor do bucket</span>
             </div>
@@ -2531,6 +2537,92 @@
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   Iniciar Scan Kubernetes
                 </button>
+              </div>
+            </div>
+
+            <!-- Campos AWS IAM (CSPM) -->
+            <div id="iam-fields" style="display: none;">
+              <div class="warning-box" style="border-color: rgba(168,85,247,0.35); background: rgba(168,85,247,0.08);">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <div>
+                  <strong style="color:#c084fc;">IAM CSPM — Conta AWS Inteira</strong><br/>
+                  <span style="font-size:11px; color:#9ca3af;">
+                    Analisa: usuários sem MFA · access keys não rotacionadas · AdministratorAccess direta · políticas com wildcard · cross-account trust aberta
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Campos GCP IAM (CSPM) -->
+            <div id="gcp-iam-fields" style="display: none;">
+              <div class="warning-box" style="border-color: rgba(59,130,246,0.35); background: rgba(59,130,246,0.08);">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <div>
+                  <strong style="color:#60a5fa;">GCP IAM CSPM — Projeto Google Cloud</strong><br/>
+                  <span style="font-size:11px; color:#9ca3af;">
+                    Analisa: bindings públicos (allUsers) · primitive roles (owner/editor) em SAs · SA keys sem rotação · default compute SA com editor · project owners excessivos
+                  </span>
+                </div>
+              </div>
+              <div class="input-group" style="margin-top:12px;">
+                <label class="input-label">Service Account Key JSON *</label>
+                <textarea
+                  id="gcp-iam-service-account"
+                  class="input-field"
+                  rows="8"
+                  style="font-family: monospace; font-size: 12px;"
+                  placeholder='Cole o JSON completo da Service Account com permissão roles/iam.securityReviewer:
+{
+  "type": "service_account",
+  "project_id": "meu-projeto",
+  "private_key_id": "...",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...",
+  "client_email": "auditor@meu-projeto.iam.gserviceaccount.com",
+  ...
+}'
+                ></textarea>
+                <span class="help-text">GCP Console → IAM & Admin → Service Accounts → Create key (JSON). Permissão mínima: <code>roles/iam.securityReviewer</code></span>
+              </div>
+            </div>
+
+            <!-- Campos Azure IAM / Entra ID (CSPM) -->
+            <div id="azure-iam-fields" style="display: none;">
+              <div class="warning-box" style="border-color: rgba(14,165,233,0.35); background: rgba(14,165,233,0.08);">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <div>
+                  <strong style="color:#38bdf8;">Azure IAM / Entra ID CSPM — Subscription</strong><br/>
+                  <span style="font-size:11px; color:#9ca3af;">
+                    Analisa: MFA via Conditional Access · Global Admins excessivos · Guest com roles privilegiadas · custom roles com wildcard · Service Principals expirados · Owners na subscription
+                  </span>
+                </div>
+              </div>
+              <div class="credential-row" style="margin-top:12px;">
+                <div class="input-group">
+                  <label class="input-label">Tenant ID *</label>
+                  <input id="azure-iam-tenant-id" type="text" class="input-field" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                  <span class="help-text">Entra ID → Overview → Tenant ID</span>
+                </div>
+                <div class="input-group">
+                  <label class="input-label">Subscription ID *</label>
+                  <input id="azure-iam-subscription-id" type="text" class="input-field" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                  <span class="help-text">Portal Azure → Subscriptions → Subscription ID</span>
+                </div>
+              </div>
+              <div class="credential-row">
+                <div class="input-group">
+                  <label class="input-label">Client ID (App Registration) *</label>
+                  <input id="azure-iam-client-id" type="text" class="input-field" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                  <span class="help-text">Entra ID → App registrations → Application (client) ID</span>
+                </div>
+                <div class="input-group">
+                  <label class="input-label">Client Secret *</label>
+                  <input id="azure-iam-client-secret" type="password" class="input-field" placeholder="••••••••••••••" />
+                  <span class="help-text">App registrations → Certificates & secrets → Client secret value</span>
+                </div>
+              </div>
+              <div class="warning-box" style="border-color: rgba(234,179,8,0.3); background: rgba(234,179,8,0.06); margin-top:8px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#facc15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+                <span style="font-size:11px; color:#9ca3af;">Permissões mínimas: <strong style="color:#facc15;">Reader</strong> na subscription + Microsoft Graph: <strong style="color:#facc15;">Policy.Read.All, RoleManagement.Read.All, Directory.Read.All</strong></span>
               </div>
             </div>
           </div>
@@ -3189,11 +3281,22 @@ function logout() {
       const gcsFields = document.getElementById("gcs-fields");
       const azureFields = document.getElementById("azure-fields");
       const k8sFields = document.getElementById("k8s-fields");
+      const iamFields = document.getElementById("iam-fields");
+      const gcpIamFields = document.getElementById("gcp-iam-fields");
+      const azureIamFields = document.getElementById("azure-iam-fields");
+      const targetWrapper = document.getElementById("scan-target-wrapper");
 
       awsFields.style.display = "none";
       gcsFields.style.display = "none";
       azureFields.style.display = "none";
       k8sFields.style.display = "none";
+      if (iamFields) iamFields.style.display = "none";
+      if (gcpIamFields) gcpIamFields.style.display = "none";
+      if (azureIamFields) azureIamFields.style.display = "none";
+
+      // Providers IAM não usam TARGET (scan contra a conta/projeto inteiro)
+      const isIamProvider = ["iam", "gcp-iam", "azure-iam"].includes(provider);
+      if (targetWrapper) targetWrapper.style.display = isIamProvider ? "none" : "";
 
       if (provider === "s3") {
         awsFields.style.display = "block";
@@ -3203,6 +3306,16 @@ function logout() {
         azureFields.style.display = "block";
       } else if (provider === "k8s") {
         k8sFields.style.display = "block";
+      } else if (provider === "iam") {
+        awsFields.style.display = "block";
+        if (iamFields) iamFields.style.display = "block";
+        if (typeof scanMode !== "undefined" && scanMode === "public") setScanMode("private");
+      } else if (provider === "gcp-iam") {
+        if (gcpIamFields) gcpIamFields.style.display = "block";
+        if (typeof scanMode !== "undefined" && scanMode === "public") setScanMode("private");
+      } else if (provider === "azure-iam") {
+        if (azureIamFields) azureIamFields.style.display = "block";
+        if (typeof scanMode !== "undefined" && scanMode === "public") setScanMode("private");
       }
     }
 
@@ -3210,6 +3323,15 @@ function logout() {
     // 1. START SCAN (Público ou Privado)
     // ============================================================
     function startScan() {
+      const provider = document.getElementById("provider-select") ?
+        document.getElementById("provider-select").value : "s3";
+
+      // Providers IAM não precisam de bucket — vão direto para scan privado
+      if (["iam", "gcp-iam", "azure-iam"].includes(provider)) {
+        startPrivateScan("");
+        return;
+      }
+
       const bucketInput = document.getElementById("bucket-input");
       const bucket = bucketInput.value.trim();
 
@@ -3260,12 +3382,164 @@ function logout() {
     function startPrivateScan(bucket) {
       const provider = document.getElementById("provider-select").value;
       const scanBtn = document.getElementById("scan-btn");
-      
-      const providerMap = {        // ← LINHA NOVA
-    "s3":    "AWS_S3",         // ← LINHA NOVA
-    "gcs":   "GCS",            // ← LINHA NOVA
-    "azure": "AZURE_BLOB"      // ← LINHA NOVA
-  };                           // ← LINHA NOVA
+
+      // ---- IAM CSPM SCAN ----
+      if (provider === "iam") {
+        const accessKey = document.getElementById("aws-access-key").value.trim();
+        const secretKey = document.getElementById("aws-secret-key").value.trim();
+        const sessionToken = document.getElementById("aws-session-token").value.trim();
+        const region = document.getElementById("aws-region").value.trim();
+
+        if (!accessKey || !secretKey) {
+          alert("Por favor, forneça AWS Access Key ID e Secret Access Key para o scan IAM.");
+          return;
+        }
+
+        scanBtn.disabled = true;
+        scanBtn.textContent = "🔍 Analisando IAM...";
+        resetFilters();
+        animateScanStart();
+
+        const __iamToken = (localStorage.getItem("scanner_token") || localStorage.getItem("token") || "");
+        fetch("/scan/iam", {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(__iamToken ? { "Authorization": `Bearer ${__iamToken}` } : {})
+          },
+          body: JSON.stringify({
+            aws_access_key_id: accessKey,
+            aws_secret_access_key: secretKey,
+            aws_session_token: sessionToken || null,
+            region_name: region || "us-east-1"
+          })
+        })
+          .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
+          .then(({ ok, status, data }) => {
+            console.log("IAM SCAN RESULT:", data);
+            if (!ok || data.error || data.detail) {
+              alert(data.error || data.detail || `Erro HTTP ${status}: falha no scan IAM.`);
+              return;
+            }
+            updateUI(data);
+            saveScanToHistory(data);
+            showActionButtons();
+          })
+          .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam."); })
+          .finally(() => {
+            scanBtn.disabled = false;
+            scanBtn.textContent = "▶ Iniciar Scan";
+          });
+        return;
+      }
+      // ---- FIM IAM SCAN ----
+
+      // ---- GCP IAM CSPM SCAN ----
+      if (provider === "gcp-iam") {
+        const saJsonRaw = (document.getElementById("gcp-iam-service-account") || {}).value || "";
+        if (!saJsonRaw.trim()) {
+          alert("Por favor, cole o JSON da Service Account GCP para o scan IAM.");
+          return;
+        }
+        let saKey;
+        try {
+          saKey = JSON.parse(saJsonRaw);
+        } catch (e) {
+          alert("Erro ao parsear JSON da Service Account GCP. Verifique o formato.");
+          return;
+        }
+
+        scanBtn.disabled = true;
+        scanBtn.textContent = "🔍 Analisando GCP IAM...";
+        resetFilters();
+        animateScanStart();
+
+        const __gcpToken = (localStorage.getItem("scanner_token") || localStorage.getItem("token") || "");
+        fetch("/scan/iam/gcp", {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(__gcpToken ? { "Authorization": `Bearer ${__gcpToken}` } : {})
+          },
+          body: JSON.stringify({ service_account_key: saKey })
+        })
+          .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
+          .then(({ ok, status, data }) => {
+            if (!ok || data.error || data.detail) {
+              alert(data.error || data.detail || `Erro HTTP ${status}: falha no scan GCP IAM.`);
+              return;
+            }
+            updateUI(data);
+            saveScanToHistory(data);
+            showActionButtons();
+          })
+          .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam/gcp."); })
+          .finally(() => {
+            scanBtn.disabled = false;
+            scanBtn.textContent = "▶ Iniciar Scan";
+          });
+        return;
+      }
+      // ---- FIM GCP IAM SCAN ----
+
+      // ---- AZURE IAM CSPM SCAN ----
+      if (provider === "azure-iam") {
+        const tenantId = (document.getElementById("azure-iam-tenant-id") || {}).value || "";
+        const subscriptionId = (document.getElementById("azure-iam-subscription-id") || {}).value || "";
+        const clientId = (document.getElementById("azure-iam-client-id") || {}).value || "";
+        const clientSecret = (document.getElementById("azure-iam-client-secret") || {}).value || "";
+
+        if (!tenantId || !subscriptionId || !clientId || !clientSecret) {
+          alert("Por favor, preencha Tenant ID, Subscription ID, Client ID e Client Secret para o scan Azure IAM.");
+          return;
+        }
+
+        scanBtn.disabled = true;
+        scanBtn.textContent = "🔍 Analisando Azure IAM...";
+        resetFilters();
+        animateScanStart();
+
+        const __azureToken = (localStorage.getItem("scanner_token") || localStorage.getItem("token") || "");
+        fetch("/scan/iam/azure", {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(__azureToken ? { "Authorization": `Bearer ${__azureToken}` } : {})
+          },
+          body: JSON.stringify({
+            tenant_id: tenantId,
+            subscription_id: subscriptionId,
+            client_id: clientId,
+            client_secret: clientSecret
+          })
+        })
+          .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
+          .then(({ ok, status, data }) => {
+            if (!ok || data.error || data.detail) {
+              alert(data.error || data.detail || `Erro HTTP ${status}: falha no scan Azure IAM.`);
+              return;
+            }
+            updateUI(data);
+            saveScanToHistory(data);
+            showActionButtons();
+          })
+          .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam/azure."); })
+          .finally(() => {
+            scanBtn.disabled = false;
+            scanBtn.textContent = "▶ Iniciar Scan";
+          });
+        return;
+      }
+      // ---- FIM AZURE IAM SCAN ----
+
+      const providerMap = {
+        "s3":    "AWS_S3",
+        "gcs":   "GCS",
+        "azure": "AZURE_BLOB"
+      };
 
   let payload = {
     bucket: bucket,

@@ -7,7 +7,11 @@ requests>=2.31.0
 # Cloud providers
 boto3>=1.29.0
 google-cloud-storage>=2.10.0
+google-api-python-client>=2.100.0
+google-auth-httplib2>=0.2.0
 azure-storage-blob>=12.19.0
+azure-identity>=1.15.0
+azure-mgmt-authorization>=4.0.0
 
 # Utilities
 python-multipart>=0.0.6
