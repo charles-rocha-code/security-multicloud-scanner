@@ -173,6 +173,7 @@ jobs:
                 \"grep -q 'api_with_mfa_fix' /etc/systemd/system/security-scanner.service 2>/dev/null && sed -i 's/api_with_mfa_fix/api_with_mfa/g' /etc/systemd/system/security-scanner.service && systemctl daemon-reload && echo 'ExecStart corrigido' || true\",\
                 \"aws s3 cp s3://$DB_BUCKET/db/users_db.json $APP_DIR/users_db.json 2>/dev/null || echo 'AVISO: users_db nao encontrado no S3'\",\
                 \"aws s3 cp s3://$DB_BUCKET/db/sessions_db.json $APP_DIR/sessions_db.json 2>/dev/null || echo 'AVISO: sessions_db nao encontrado no S3'\",\
+                \"chown ubuntu:ubuntu $APP_DIR/users_db.json $APP_DIR/sessions_db.json 2>/dev/null || true\",\
                 \"sudo systemctl restart security-scanner\",\
                 \"sleep 8\",\
                 \"curl -sf http://127.0.0.1:8000/health && echo HEALTH_OK\"\
