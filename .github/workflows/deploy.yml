@@ -35,6 +35,7 @@ jobs:
           REGION="us-east-2"
           APP_DIR="/home/ubuntu/security-scanner"
           ASG_NAME="security-scanner-asg"
+          DB_BUCKET="security-scanner-db-442042548551"
           TG_ARNS=(
             "arn:aws:elasticloadbalancing:us-east-2:442042548551:targetgroup/security-scanner-tg/87dec1f4eeb87cc8"
             "arn:aws:elasticloadbalancing:us-east-2:442042548551:targetgroup/security-scanner-tg-green/c45365c904a3218c"
@@ -170,6 +171,8 @@ jobs:
                 \"chown -R ubuntu:ubuntu $APP_DIR\",\
                 \"sudo -u ubuntu $APP_DIR/venv/bin/pip install -r $APP_DIR/requirements.txt -q\",\
                 \"grep -q 'api_with_mfa_fix' /etc/systemd/system/security-scanner.service 2>/dev/null && sed -i 's/api_with_mfa_fix/api_with_mfa/g' /etc/systemd/system/security-scanner.service && systemctl daemon-reload && echo 'ExecStart corrigido' || true\",\
+                \"aws s3 cp s3://$DB_BUCKET/db/users_db.json $APP_DIR/users_db.json 2>/dev/null || echo 'AVISO: users_db nao encontrado no S3'\",\
+                \"aws s3 cp s3://$DB_BUCKET/db/sessions_db.json $APP_DIR/sessions_db.json 2>/dev/null || echo 'AVISO: sessions_db nao encontrado no S3'\",\
                 \"sudo systemctl restart security-scanner\",\
                 \"sleep 8\",\
                 \"curl -sf http://127.0.0.1:8000/health && echo HEALTH_OK\"\
