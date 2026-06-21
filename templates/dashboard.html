@@ -2551,6 +2551,12 @@
                   </span>
                 </div>
               </div>
+              <div style="margin-top:14px;">
+                <button class="btn-scan-pro" onclick="startScan()" id="scan-btn-iam" style="background: linear-gradient(135deg,#7c3aed,#a855f7); box-shadow: 0 0 18px rgba(168,85,247,0.35);">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  Iniciar Scan IAM (AWS)
+                </button>
+              </div>
             </div>
 
             <!-- Campos GCP IAM (CSPM) -->
@@ -2582,6 +2588,12 @@
 }'
                 ></textarea>
                 <span class="help-text">GCP Console → IAM & Admin → Service Accounts → Create key (JSON). Permissão mínima: <code>roles/iam.securityReviewer</code></span>
+              </div>
+              <div style="margin-top:14px;">
+                <button class="btn-scan-pro" onclick="startScan()" id="scan-btn-gcp-iam" style="background: linear-gradient(135deg,#1d4ed8,#3b82f6); box-shadow: 0 0 18px rgba(59,130,246,0.35);">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  Iniciar Scan IAM (GCP)
+                </button>
               </div>
             </div>
 
@@ -2623,6 +2635,12 @@
               <div class="warning-box" style="border-color: rgba(234,179,8,0.3); background: rgba(234,179,8,0.06); margin-top:8px;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#facc15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
                 <span style="font-size:11px; color:#9ca3af;">Permissões mínimas: <strong style="color:#facc15;">Reader</strong> na subscription + Microsoft Graph: <strong style="color:#facc15;">Policy.Read.All, RoleManagement.Read.All, Directory.Read.All</strong></span>
+              </div>
+              <div style="margin-top:14px;">
+                <button class="btn-scan-pro" onclick="startScan()" id="scan-btn-azure-iam" style="background: linear-gradient(135deg,#0284c7,#0ea5e9); box-shadow: 0 0 18px rgba(14,165,233,0.35);">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  Iniciar Scan IAM (Azure / Entra ID)
+                </button>
               </div>
             </div>
           </div>
@@ -3267,6 +3285,9 @@ function logout() {
         privateBtn.classList.remove("active");
         credentialsContainer.classList.remove("active");
         if (hintEl) hintEl.textContent = "Sem credenciais — detecta exposição pública";
+        // Restaura linha de target/scan ao voltar para modo público
+        const scanFormRow = document.getElementById("scan-form-row");
+        if (scanFormRow) scanFormRow.style.display = "";
       } else {
         privateBtn.classList.add("active");
         publicBtn.classList.remove("active");
@@ -3294,9 +3315,11 @@ function logout() {
       if (gcpIamFields) gcpIamFields.style.display = "none";
       if (azureIamFields) azureIamFields.style.display = "none";
 
-      // Providers IAM não usam TARGET (scan contra a conta/projeto inteiro)
+      // Providers IAM não usam TARGET nem o botão de scan da linha de target
       const isIamProvider = ["iam", "gcp-iam", "azure-iam"].includes(provider);
+      const scanFormRow = document.getElementById("scan-form-row");
       if (targetWrapper) targetWrapper.style.display = isIamProvider ? "none" : "";
+      if (scanFormRow) scanFormRow.style.display = isIamProvider ? "none" : "";
 
       if (provider === "s3") {
         awsFields.style.display = "block";
@@ -3395,8 +3418,9 @@ function logout() {
           return;
         }
 
-        scanBtn.disabled = true;
-        scanBtn.textContent = "🔍 Analisando IAM...";
+        const iamBtn = document.getElementById("scan-btn-iam") || scanBtn;
+        iamBtn.disabled = true;
+        iamBtn.textContent = "🔍 Analisando IAM...";
         resetFilters();
         animateScanStart();
 
@@ -3428,8 +3452,8 @@ function logout() {
           })
           .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam."); })
           .finally(() => {
-            scanBtn.disabled = false;
-            scanBtn.textContent = "▶ Iniciar Scan";
+            iamBtn.disabled = false;
+            iamBtn.textContent = "Iniciar Scan IAM (AWS)";
           });
         return;
       }
@@ -3450,8 +3474,9 @@ function logout() {
           return;
         }
 
-        scanBtn.disabled = true;
-        scanBtn.textContent = "🔍 Analisando GCP IAM...";
+        const gcpIamBtn = document.getElementById("scan-btn-gcp-iam") || scanBtn;
+        gcpIamBtn.disabled = true;
+        gcpIamBtn.textContent = "🔍 Analisando GCP IAM...";
         resetFilters();
         animateScanStart();
 
@@ -3477,8 +3502,8 @@ function logout() {
           })
           .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam/gcp."); })
           .finally(() => {
-            scanBtn.disabled = false;
-            scanBtn.textContent = "▶ Iniciar Scan";
+            gcpIamBtn.disabled = false;
+            gcpIamBtn.textContent = "Iniciar Scan IAM (GCP)";
           });
         return;
       }
@@ -3496,8 +3521,9 @@ function logout() {
           return;
         }
 
-        scanBtn.disabled = true;
-        scanBtn.textContent = "🔍 Analisando Azure IAM...";
+        const azureIamBtn = document.getElementById("scan-btn-azure-iam") || scanBtn;
+        azureIamBtn.disabled = true;
+        azureIamBtn.textContent = "🔍 Analisando Azure IAM...";
         resetFilters();
         animateScanStart();
 
@@ -3528,8 +3554,8 @@ function logout() {
           })
           .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam/azure."); })
           .finally(() => {
-            scanBtn.disabled = false;
-            scanBtn.textContent = "▶ Iniciar Scan";
+            azureIamBtn.disabled = false;
+            azureIamBtn.textContent = "Iniciar Scan IAM (Azure / Entra ID)";
           });
         return;
       }
