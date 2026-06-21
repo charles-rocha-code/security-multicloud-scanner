@@ -5419,8 +5419,8 @@ Tem certeza que deseja continuar?`;
      */
     async function generateExecutiveReport() {
       // Azure usa 'account', AWS/GCS usam 'bucket'
-      const bucketName = globalResult?.bucket || globalResult?.account || globalResult?.container;
-      
+      const bucketName = globalResult?.bucket || globalResult?.account_id || globalResult?.account || globalResult?.container || globalResult?.target;
+
       if (!globalResult || !bucketName) {
         alert('❌ Nenhum scan disponível. Execute um scan primeiro!');
         return;
@@ -5503,7 +5503,7 @@ Tem certeza que deseja continuar?`;
      * Exporta dados do scan em JSON
      */
     function exportJSON() {
-      if (!globalResult || !globalResult.bucket) {
+      if (!globalResult) {
         alert('❌ Nenhum scan disponível. Execute um scan primeiro!');
         return;
       }
@@ -5513,7 +5513,8 @@ Tem certeza que deseja continuar?`;
       const url = URL.createObjectURL(blob);
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const filename = `scan_${globalResult.bucket}_${timestamp}.json`;
+      const _jsonTarget = (globalResult.bucket || globalResult.account_id || globalResult.account || globalResult.container || 'scan').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `scan_${_jsonTarget}_${timestamp}.json`;
 
       const a = document.createElement('a');
       a.href = url;
@@ -5563,7 +5564,8 @@ Tem certeza que deseja continuar?`;
       const url = URL.createObjectURL(blob);
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const filename = `scan_${globalResult.bucket}_${timestamp}.csv`;
+      const _csvTarget = (globalResult.bucket || globalResult.account_id || globalResult.account || globalResult.container || 'scan').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `scan_${_csvTarget}_${timestamp}.csv`;
 
       const a = document.createElement('a');
       a.href = url;
@@ -5775,7 +5777,7 @@ Tem certeza que deseja continuar?`;
       if (globalResult) {
         const files  = globalResult.files || [];
         const total  = files.length;
-        const target = globalResult.bucket || globalResult.account || globalResult.container || '';
+        const target = globalResult.bucket || globalResult.account_id || globalResult.account || globalResult.container || globalResult.target || '';
         const date   = new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
 
         const meta = document.getElementById('export-meta');
