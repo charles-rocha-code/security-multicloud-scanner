@@ -5467,7 +5467,9 @@ Tem certeza que deseja continuar?`;
         // Download automático dos arquivos
         setTimeout(() => {
           for (const [format, path] of Object.entries(result.files)) {
+            if (!path) continue;
             const filename = path.split('/').pop();
+            if (!filename) continue;
             const link = document.createElement('a');
             link.href = `/download-report/${filename}`;
             link.download = filename;

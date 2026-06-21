@@ -29,11 +29,14 @@ Obs:
 
 from __future__ import annotations
 
+import os
 import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+import boto3
 
 from fastapi import Depends, FastAPI, HTTPException, Request , Response
 from fastapi.exceptions import RequestValidationError
@@ -46,6 +49,7 @@ from pydantic import BaseModel, EmailStr, Field
 # === Auth/MFA do projeto ===
 from auth_mfa import (  # type: ignore
     ACTIVE_SESSIONS,
+    S3_BUCKET,
     USERS_DB,
     get_current_user,
     login_user,
@@ -83,6 +87,29 @@ BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 REPORTS_DIR = BASE_DIR / "reports_executive"
+REPORTS_DIR.mkdir(exist_ok=True)
+
+_S3_REPORTS_PREFIX = "reports/"
+
+def _upload_report_s3(local_path: Path) -> None:
+    if not S3_BUCKET or not local_path.exists() or not local_path.name:
+        return
+    try:
+        s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
+        s3.upload_file(str(local_path), S3_BUCKET, _S3_REPORTS_PREFIX + local_path.name)
+    except Exception as e:
+        print(f"⚠️ S3 report upload error: {e}")
+
+def _download_report_s3(filename: str) -> Path | None:
+    if not S3_BUCKET or not filename:
+        return None
+    try:
+        dest = REPORTS_DIR / filename
+        s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
+        s3.download_file(S3_BUCKET, _S3_REPORTS_PREFIX + filename, str(dest))
+        return dest
+    except Exception:
+        return None
 
 
 
@@ -924,13 +951,17 @@ def generate_report(data: GenerateReportIn, user=Depends(require_mfa)):
                 "contact": email or "-",
             }
             results = _gen_executive_report(scan, client_info=client_info, output_format="both")
-            pdf_file = Path(results.get("pdf", ""))
-            docx_file = Path(results.get("docx", ""))
+            pdf_file = Path(results.get("pdf", "")) if results.get("pdf") else None
+            docx_file = Path(results.get("docx", "")) if results.get("docx") else None
+            if pdf_file and pdf_file.exists() and pdf_file.name:
+                _upload_report_s3(pdf_file)
+            if docx_file and docx_file.exists() and docx_file.name:
+                _upload_report_s3(docx_file)
             return {
                 "success": True,
                 "files": {
-                    "pdf": f"reports_executive/{pdf_file.name}" if pdf_file.exists() else None,
-                    "docx": f"reports_executive/{docx_file.name}" if docx_file.exists() else None,
+                    "pdf": f"reports_executive/{pdf_file.name}" if pdf_file and pdf_file.exists() and pdf_file.name else None,
+                    "docx": f"reports_executive/{docx_file.name}" if docx_file and docx_file.exists() and docx_file.name else None,
                 },
                 "message": "Relatórios profissionais gerados com sucesso",
             }
@@ -955,7 +986,11 @@ def generate_report(data: GenerateReportIn, user=Depends(require_mfa)):
 @app.get("/download-report/{filename}")
 def download_report(filename: str, user=Depends(require_mfa)):
     safe = _safe_filename(filename)
+    if not safe:
+        raise HTTPException(status_code=400, detail="Nome de arquivo inválido")
     path = REPORTS_DIR / safe
+    if not path.exists():
+        path = _download_report_s3(safe) or path
     if not path.exists():
         raise HTTPException(status_code=404, detail="Relatório não encontrado")
     media = "application/pdf" if safe.lower().endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
