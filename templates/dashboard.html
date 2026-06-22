@@ -2941,8 +2941,8 @@
             </div>
           </div>
 
-          <!-- Bar chart torre -->
-          <div style="width:100%; height:180px; margin:12px 0 4px; position:relative;">
+          <!-- Bar chart horizontal -->
+          <div style="width:100%; height:160px; margin:12px 0 4px; position:relative;">
             <canvas id="severityChart"></canvas>
           </div>
           <!-- Contador total (Risk Level) -->
@@ -4385,20 +4385,21 @@ function logout() {
               ? colors.map(c => c + 'cc')
               : ['#1f2937', '#1f2937', '#1f2937', '#1f2937'],
             borderColor: hasData ? colorsDark : ['#374151','#374151','#374151','#374151'],
-            borderWidth: 2,
-            borderRadius: 8,
+            borderWidth: 0,
+            borderRadius: 6,
             borderSkipped: false,
-            barPercentage: 0.55,
-            categoryPercentage: 0.8,
-            hoverBackgroundColor: hasData ? colors.map(c => c + 'ee') : undefined,
+            barPercentage: 0.65,
+            categoryPercentage: 0.85,
+            hoverBackgroundColor: hasData ? colors.map(c => c + 'ff') : undefined,
           }]
         },
         options: {
+          indexAxis: 'y',
           responsive: true,
           maintainAspectRatio: false,
           animation: {
-            duration: 650,
-            easing: 'easeOutBounce',
+            duration: 600,
+            easing: 'easeOutCubic',
           },
           plugins: {
             legend: { display: false },
@@ -4412,24 +4413,36 @@ function logout() {
               padding: 12,
               callbacks: {
                 label: ctx => {
-                  const v = ctx.parsed.y;
+                  const v = ctx.parsed.x;
                   const pct = total > 0 ? ((v / total) * 100).toFixed(1) : 0;
-                  return `  ${ctx.label}: ${v} (${pct}%)`;
+                  return `  ${v} findings (${pct}%)`;
                 }
               }
             },
-            datalabels: { display: false }
+            datalabels: {
+              display: hasData,
+              color: '#fff',
+              anchor: 'end',
+              align: 'end',
+              offset: 6,
+              font: { weight: '700', size: 12 },
+              formatter: v => v > 0 ? v : '',
+            }
           },
           scales: {
-            x: {
+            y: {
               grid: { display: false },
               border: { display: false },
-              ticks: { color: '#9ca3af', font: { size: 11, weight: '600' } },
+              ticks: {
+                color: ctx => colors[ctx.index] || '#9ca3af',
+                font: { size: 12, weight: '700' },
+                padding: 4,
+              },
             },
-            y: {
+            x: {
               display: false,
               beginAtZero: true,
-              grace: '15%',
+              grace: '18%',
               grid: { display: false },
             }
           }
