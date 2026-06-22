@@ -4453,7 +4453,8 @@ function logout() {
       const riskScore = document.getElementById('donut-score');
       const riskLabel = document.getElementById('donut-label');
       if (riskScore && riskLabel) {
-        const riskLevel = values[0] > 0 ? 'CRITICAL' : values[1] > 0 ? 'HIGH' : values[2] > 0 ? 'MEDIUM' : 'LOW';
+        const sevLabels = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+        const riskLevel = total > 0 ? sevLabels[values.indexOf(Math.max(...values))] : 'LOW';
         const riskColor = { CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#3b82f6', LOW: '#22c55e' }[riskLevel];
         riskScore.style.color = riskColor;
         riskLabel.textContent  = riskLevel;
