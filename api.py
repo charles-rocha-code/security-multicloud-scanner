@@ -66,6 +66,21 @@ class AuthenticatedScanRequest(BaseModel):
     azure_account_key: Optional[str] = None
     azure_container: Optional[str] = None
 
+class IAMScanRequest(BaseModel):
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    aws_session_token: Optional[str] = None
+    region_name: str = "us-east-1"
+
+class GCPIAMScanRequest(BaseModel):
+    service_account_key: Dict[str, Any]
+
+class AzureIAMScanRequest(BaseModel):
+    tenant_id: str
+    subscription_id: str
+    client_id: str
+    client_secret: str
+
 class ReportRequest(BaseModel):
     """Model para requisição de relatório executivo"""
     scan_data: Dict[str, Any]
@@ -252,6 +267,58 @@ def scan_authenticated(req: AuthenticatedScanRequest):
         )
 
 # ============================================================
+# IAM CSPM SCANS
+# ============================================================
+@app.post("/scan/iam")
+def scan_iam(req: IAMScanRequest):
+    try:
+        from auditor_iam import IAMAuditor
+        auditor = IAMAuditor(
+            aws_access_key_id=req.aws_access_key_id,
+            aws_secret_access_key=req.aws_secret_access_key,
+            aws_session_token=req.aws_session_token,
+            region_name=req.region_name,
+        )
+        result = auditor.run()
+        return JSONResponse(content=result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao executar scan IAM AWS: {str(e)}")
+
+
+@app.post("/scan/iam/gcp")
+def scan_iam_gcp(req: GCPIAMScanRequest):
+    try:
+        from auditor_iam_gcp import GCPIAMAuditor
+        auditor = GCPIAMAuditor(service_account_key=req.service_account_key)
+        result = auditor.run()
+        return JSONResponse(content=result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao executar scan IAM GCP: {str(e)}")
+
+
+@app.post("/scan/iam/azure")
+def scan_iam_azure(req: AzureIAMScanRequest):
+    try:
+        from auditor_iam_azure import AzureIAMAuditor
+        auditor = AzureIAMAuditor(
+            tenant_id=req.tenant_id,
+            client_id=req.client_id,
+            client_secret=req.client_secret,
+            subscription_id=req.subscription_id,
+        )
+        result = auditor.run()
+        return JSONResponse(content=result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao executar scan IAM Azure: {str(e)}")
+
+
+# ============================================================
 # RELATÓRIOS EXECUTIVOS
 # ============================================================
 @app.post("/generate-report")
@@ -398,6 +465,9 @@ def root():
             "dashboard": "/dashboard",
             "scan_public": "/scan/{bucket}",
             "scan_authenticated": "/scan/authenticated",
+            "scan_iam_aws": "/scan/iam",
+            "scan_iam_gcp": "/scan/iam/gcp",
+            "scan_iam_azure": "/scan/iam/azure",
             "generate_report": "/generate-report",
             "download_report": "/download-report/{filename}",
             "list_reports": "/reports/list"
