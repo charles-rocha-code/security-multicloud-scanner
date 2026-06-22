@@ -4388,6 +4388,8 @@ function logout() {
             borderWidth: 2,
             borderRadius: 8,
             borderSkipped: false,
+            barPercentage: 0.55,
+            categoryPercentage: 0.8,
             hoverBackgroundColor: hasData ? colors.map(c => c + 'ee') : undefined,
           }]
         },
@@ -4416,15 +4418,7 @@ function logout() {
                 }
               }
             },
-            datalabels: {
-              display: hasData,
-              color: '#fff',
-              anchor: 'end',
-              align: 'top',
-              offset: 4,
-              font: { weight: '700', size: 13 },
-              formatter: v => v > 0 ? v : '',
-            }
+            datalabels: { display: false }
           },
           scales: {
             x: {
@@ -4435,6 +4429,7 @@ function logout() {
             y: {
               display: false,
               beginAtZero: true,
+              grace: '15%',
               grid: { display: false },
             }
           }
