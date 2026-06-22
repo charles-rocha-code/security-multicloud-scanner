@@ -170,7 +170,11 @@ jobs:
                 \"git remote set-url origin 'https://github.com/charles-rocha-code/security-multicloud-scanner.git'\",\
                 \"chown -R ubuntu:ubuntu $APP_DIR\",\
                 \"sudo -u ubuntu $APP_DIR/venv/bin/pip install -r $APP_DIR/requirements.txt -q\",\
-                \"grep -q 'api_with_mfa_fix' /etc/systemd/system/security-scanner.service 2>/dev/null && sed -i 's/api_with_mfa_fix/api_with_mfa/g' /etc/systemd/system/security-scanner.service && systemctl daemon-reload && echo 'ExecStart corrigido' || true\",\
+                \"aws ssm get-parameter --name /security-scanner/ANTHROPIC_API_KEY --with-decryption --region us-east-2 --query Parameter.Value --output text > /tmp/ak_tmp.txt\",\
+                \"printf 'ANTHROPIC_API_KEY=' > $APP_DIR/.env && tr -d '\\n' < /tmp/ak_tmp.txt >> $APP_DIR/.env && echo >> $APP_DIR/.env && rm -f /tmp/ak_tmp.txt\",\
+                \"chmod 600 $APP_DIR/.env && chown ubuntu:ubuntu $APP_DIR/.env\",\
+                \"cp $APP_DIR/.deploy/security-scanner.service /etc/systemd/system/security-scanner.service\",\
+                \"systemctl daemon-reload && echo 'Service file atualizado'\",\
                 \"aws s3 cp s3://$DB_BUCKET/db/users_db.json $APP_DIR/users_db.json 2>/dev/null || echo 'AVISO: users_db nao encontrado no S3'\",\
                 \"aws s3 cp s3://$DB_BUCKET/db/sessions_db.json $APP_DIR/sessions_db.json 2>/dev/null || echo 'AVISO: sessions_db nao encontrado no S3'\",\
                 \"chown ubuntu:ubuntu $APP_DIR/users_db.json $APP_DIR/sessions_db.json 2>/dev/null || true\",\
