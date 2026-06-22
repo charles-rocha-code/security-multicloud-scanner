@@ -2838,8 +2838,8 @@
               <button class="btn-bulk-action btn-select-all" onclick="selectAllFiles()" id="btn-select-all">
                 ☑️ Selecionar Todos
               </button>
-              <button class="btn-bulk-action btn-delete-selected" onclick="deleteSelectedFiles()" id="btn-delete-selected" disabled>
-                🗑️ Excluir Selecionados (<span id="selected-count">0</span>)
+              <button class="btn-bulk-action btn-delete-selected" onclick="deleteSelectedFiles()" id="btn-delete-selected" disabled title="Oculta os itens selecionados desta visualização (não remove do cloud)">
+                🙈 Ocultar da View (<span id="selected-count">0</span>)
               </button>
             </div>
           </div>
@@ -2944,10 +2944,6 @@
             </div>
           </div>
 
-          <!-- Bar chart horizontal -->
-          <div style="width:100%; height:160px; margin:0 0 4px; position:relative;">
-            <canvas id="severityChart"></canvas>
-          </div>
 
           <!-- Cards de severidade -->
           <div id="severity-summary" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 4px 8px;">
@@ -4069,10 +4065,10 @@ function logout() {
       const maxCount = Math.max(...sorted.map(g => g.total), 1);
       const tfbody = document.getElementById('top-findings-body');
       tfbody.innerHTML = sorted.map((g, i) => {
-        const critBadge = g.critical > 0 ? `<span class="sev-badge sev-c">${g.critical}C</span>` : '';
-        const highBadge = g.high     > 0 ? `<span class="sev-badge sev-h">${g.high}H</span>`     : '';
-        const medBadge  = g.medium   > 0 ? `<span class="sev-badge sev-m">${g.medium}M</span>`   : '';
-        const lowBadge  = g.low      > 0 ? `<span class="sev-badge sev-l">${g.low}L</span>`      : '';
+        const critBadge = g.critical > 0 ? `<span class="sev-badge sev-c" title="${g.critical} Critical">${g.critical}C</span>` : '';
+        const highBadge = g.high     > 0 ? `<span class="sev-badge sev-h" title="${g.high} High">${g.high}H</span>`             : '';
+        const medBadge  = g.medium   > 0 ? `<span class="sev-badge sev-m" title="${g.medium} Medium">${g.medium}M</span>`       : '';
+        const lowBadge  = g.low      > 0 ? `<span class="sev-badge sev-l" title="${g.low} Low">${g.low}L</span>`               : '';
         const barW       = maxCount > 0 ? ((g.total / maxCount) * 100).toFixed(0) : 0;
         const raw        = g._raw;
         const score      = Math.min(10, raw).toFixed(1);
@@ -4091,7 +4087,7 @@ function logout() {
             </div>
           </td>
           <td style="text-align:center;">
-            <span style="display:inline-block; background:${scoreBg}; color:${scoreColor}; font-size:13px; font-weight:800; padding:4px 10px; border-radius:6px; border:1px solid ${scoreColor}33; min-width:44px; text-align:center; letter-spacing:0.5px;">${score}</span>
+            <span style="display:inline-block; background:${scoreBg}; color:${scoreColor}; font-size:13px; font-weight:800; padding:4px 10px; border-radius:6px; border:1px solid ${scoreColor}33; min-width:44px; text-align:center; letter-spacing:0.5px;" title="Risk Score (escala 0–10)">${score}<span style="font-size:9px; font-weight:500; opacity:0.7;">/10</span></span>
           </td>
           <td>
             <div style="display:flex; align-items:center; gap:8px;">
@@ -4342,7 +4338,8 @@ function logout() {
         return;
       }
 
-      pill.innerText = level + " (" + score + "%)";
+      pill.innerText = level + " · " + score + "/100";
+      pill.title     = "Risk Score: " + score + "/100 (baseado em severidade e quantidade de findings)";
 
       if (level === "CRITICAL") pill.classList.add("risk-critical");
       else if (level === "HIGH") pill.classList.add("risk-high");
@@ -4740,11 +4737,18 @@ function logout() {
           <td>${formatBytes(f.size || 0)}</td>
           <td><span class="severity-tag ${sevClass}">${sev || "-"}</span></td>
           <td>
-            ${
-              f.url || f.url_host
-                ? `<a href="${f.url || f.url_host}" target="_blank">Abrir</a>`
-                : "-"
-            }
+            ${(() => {
+              if (f.url || f.url_host) {
+                return `<a href="${f.url || f.url_host}" target="_blank" style="color:#60a5fa; font-size:12px;">↗ Abrir</a>`;
+              }
+              const k = (fileKey || '').toLowerCase();
+              if (k.startsWith('user/'))    return `<a href="https://console.aws.amazon.com/iam/home#/users" target="_blank" style="color:#60a5fa; font-size:12px;" title="Ver usuários IAM">↗ IAM Users</a>`;
+              if (k.startsWith('root/') || k.startsWith('account/')) return `<a href="https://console.aws.amazon.com/iam/home#/security_credentials" target="_blank" style="color:#60a5fa; font-size:12px;" title="Ver credenciais da conta">↗ IAM Root</a>`;
+              if (k.startsWith('role/'))    return `<a href="https://console.aws.amazon.com/iam/home#/roles" target="_blank" style="color:#60a5fa; font-size:12px;" title="Ver roles IAM">↗ IAM Roles</a>`;
+              if (k.startsWith('policy/'))  return `<a href="https://console.aws.amazon.com/iam/home#/policies" target="_blank" style="color:#60a5fa; font-size:12px;" title="Ver policies IAM">↗ IAM Policies</a>`;
+              if (k.startsWith('group/'))   return `<a href="https://console.aws.amazon.com/iam/home#/groups" target="_blank" style="color:#60a5fa; font-size:12px;" title="Ver grupos IAM">↗ IAM Groups</a>`;
+              return `<span style="color:#374151; font-size:12px;">—</span>`;
+            })()}
           </td>
         `;
 
@@ -5119,7 +5123,7 @@ function logout() {
         bucket: data.bucket || "-",
         provider: data.provider || "UNIVERSAL",
         risk_score: data.risk_score || 0,
-        timestamp: new Date().toLocaleString(),
+        timestamp: new Date().toISOString(),
         data: data
       });
 
@@ -5166,11 +5170,28 @@ function logout() {
             ${m > 0 ? `<span style="width:${pct(m)}%;background:#eab308;" title="Medium: ${m}"></span>` : ''}
             ${l > 0 ? `<span style="width:${pct(l)}%;background:#22c55e;" title="Low: ${l}"></span>` : ''}
           </div>` : '';
+        const _relTime = ts => {
+          try {
+            const d = new Date(ts);
+            const now = new Date();
+            const diffMs = now - d;
+            const diffMin = Math.floor(diffMs / 60000);
+            const diffH   = Math.floor(diffMs / 3600000);
+            const diffD   = Math.floor(diffMs / 86400000);
+            const hhmm = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            if (diffMin < 1)   return 'Agora mesmo';
+            if (diffMin < 60)  return `${diffMin}min atrás`;
+            if (diffD === 0)   return `Hoje ${hhmm}`;
+            if (diffD === 1)   return `Ontem ${hhmm}`;
+            if (diffD < 7)     return `${diffD} dias atrás`;
+            return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) + ' ' + hhmm;
+          } catch { return ts; }
+        };
         contentDiv.innerHTML = `
           <div class="history-bucket">${escapeHtml(item.bucket)}</div>
           <div class="history-meta">
-            ${item.provider} · Risco: ${item.risk_score}%<br/>
-            ${item.timestamp}
+            ${item.provider} · Score: ${item.risk_score}/100<br/>
+            ${_relTime(item.timestamp)}
           </div>
           ${barHtml}
         `;
