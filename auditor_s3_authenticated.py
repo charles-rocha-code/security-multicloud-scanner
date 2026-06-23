@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from botocore.exceptions import ClientError, NoCredentialsError
 
 from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk, build_recommendations
+from cve_mapping import enrich_finding
 
 
 class S3AuthenticatedAuditor:
@@ -158,14 +159,14 @@ class S3AuthenticatedAuditor:
                     
                     # Classifica severidade
                     severity, reason = classify_severity(key)
-                    
-                    files.append({
+
+                    files.append(enrich_finding({
                         'key': key,
                         'size': size,
                         'severity': severity,
                         'reason': reason,
                         'last_modified': obj.get('LastModified').isoformat() if obj.get('LastModified') else None
-                    })
+                    }, "AWS_S3"))
                     
                     # Limita quantidade
                     if len(files) >= self.max_objects:

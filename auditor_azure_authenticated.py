@@ -24,6 +24,7 @@ except ImportError:
     print("Warning: azure-storage-blob not installed. Run: pip install azure-storage-blob")
 
 from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk
+from cve_mapping import enrich_finding
 
 
 class AzureBlobAuthenticatedAuditor:
@@ -310,11 +311,11 @@ class AzureBlobAuthenticatedAuditor:
                 
                 # Classificar severidade
                 sev, reason = classify_severity(blob_name)
-                
+
                 # URL do blob
                 blob_url = f"https://{self.account}.blob.core.windows.net/{container_name}/{blob_name}"
-                
-                files.append({
+
+                files.append(enrich_finding({
                     "key": blob_name,
                     "size": blob.size or 0,
                     "severity": sev,
@@ -328,7 +329,7 @@ class AzureBlobAuthenticatedAuditor:
                     "encryption_scope": blob.encryption_scope or None,
                     "access_tier": blob.blob_tier or None,
                     "metadata": blob.metadata or {}
-                })
+                }, "AZURE"))
                 
                 blob_count += 1
         

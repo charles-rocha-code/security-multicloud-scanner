@@ -21,6 +21,8 @@ from typing import Any, Dict, List, Optional
 
 import requests as _requests
 
+from cve_mapping import enrich_finding
+
 SEVERITY_SCORE = {"CRITICAL": 40, "HIGH": 25, "MEDIUM": 15, "LOW": 5}
 MAX_OWNERS = 3
 MAX_GLOBAL_ADMINS = 4
@@ -68,7 +70,7 @@ class AzureIAMAuditor:
         detail: str,
         remediation: str = "",
     ) -> None:
-        self._findings.append({
+        f = {
             "key": f"{entity_type}/{entity_name} — {check}",
             "severity": severity,
             "size": 0,
@@ -78,7 +80,9 @@ class AzureIAMAuditor:
             "entity_name": entity_name,
             "check": check,
             "remediation": remediation,
-        })
+        }
+        enrich_finding(f, "AZURE_IAM")
+        self._findings.append(f)
 
     def _get_graph_token(self) -> Optional[str]:
         if self._graph_token:

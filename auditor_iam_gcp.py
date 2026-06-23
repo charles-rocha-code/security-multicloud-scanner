@@ -19,6 +19,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from cve_mapping import enrich_finding
+
 KEY_AGE_HIGH_DAYS = 90
 KEY_AGE_WARN_DAYS = 45
 MAX_OWNERS = 2
@@ -62,7 +64,7 @@ class GCPIAMAuditor:
         detail: str,
         remediation: str = "",
     ) -> None:
-        self._findings.append({
+        f = {
             "key": f"{entity_type}/{entity_name} — {check}",
             "severity": severity,
             "size": 0,
@@ -72,7 +74,9 @@ class GCPIAMAuditor:
             "entity_name": entity_name,
             "check": check,
             "remediation": remediation,
-        })
+        }
+        enrich_finding(f, "GCP_IAM")
+        self._findings.append(f)
 
     # ------------------------------------------------------------------
     # Check 1 — Project IAM policy

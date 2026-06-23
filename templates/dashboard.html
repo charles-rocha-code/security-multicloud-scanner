@@ -4565,6 +4565,19 @@ function logout() {
       console.log("=== updateFileList END ===");
     }
 
+    function renderRefBadges(refs) {
+      if (!refs) return '';
+      const parts = [];
+      const b = (txt, bg, col) =>
+        `<span style="display:inline-block;font-size:10px;padding:1px 6px;border-radius:3px;background:${bg};color:${col};font-weight:600;white-space:nowrap;">${escapeHtml(txt)}</span>`;
+      (refs.cis  || []).forEach(r => parts.push(b(r, '#1a3055', '#60a5fa')));
+      (refs.cwe  || []).forEach(r => parts.push(b(r, '#14301a', '#4ade80')));
+      (refs.nist || []).forEach(r => parts.push(b(r, '#2a1d40', '#c084fc')));
+      (refs.cve  || []).forEach(r => parts.push(b(r, '#3b1515', '#f87171')));
+      if (!parts.length) return '';
+      return `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;">${parts.join('')}</div>`;
+    }
+
     function renderFileTable(files) {
       console.log("renderFileTable called with", files ? files.length : 0, "files");
       
@@ -4637,11 +4650,14 @@ function logout() {
                    data-file-index="${startIndex + index}"
                    onchange="updateSelectedCount()">
           </td>
-          <td style="max-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-            ${escapeHtml(fileKey)}
-            <button class="btn-copy-key" title="Copiar caminho" onclick="copyFileKey('${escapeHtml(fileKey).replace(/'/g,"\\'")}', this)">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
+          <td style="max-width:0;">
+            <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+              ${escapeHtml(fileKey)}
+              <button class="btn-copy-key" title="Copiar caminho" onclick="copyFileKey('${escapeHtml(fileKey).replace(/'/g,"\\'")}', this)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
+            ${renderRefBadges(f.refs)}
           </td>
           <td>${formatBytes(f.size || 0)}</td>
           <td><span class="severity-tag ${sevClass}">${sev || "-"}</span></td>
@@ -5533,7 +5549,7 @@ Tem certeza que deseja continuar?`;
       }
 
       // Cabeçalho CSV
-      let csv = 'Arquivo,Tamanho (bytes),Tamanho (formatado),Severidade,Motivo,Container\n';
+      let csv = 'Arquivo,Tamanho (bytes),Tamanho (formatado),Severidade,Motivo,Container,Referências\n';
 
       // Adicionar linhas
       globalResult.files.forEach(file => {
@@ -5543,8 +5559,16 @@ Tem certeza que deseja continuar?`;
         const severity = file.severity || 'UNKNOWN';
         const reason = `"${(file.reason || '').replace(/"/g, '""')}"`;
         const container = `"${(file.container || '-').replace(/"/g, '""')}"`;
+        const refs = file.refs || {};
+        const refStr = [
+          ...(refs.cis || []),
+          ...(refs.cwe || []),
+          ...(refs.nist || []),
+          ...(refs.cve || []),
+        ].join(' | ');
+        const refsCol = `"${refStr}"`;
 
-        csv += `${key},${size},${sizeFormatted},${severity},${reason},${container}\n`;
+        csv += `${key},${size},${sizeFormatted},${severity},${reason},${container},${refsCol}\n`;
       });
 
       // Criar blob e download

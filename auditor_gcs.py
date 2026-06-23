@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk, build_recommendations
+from cve_mapping import enrich_finding
 
 
 class GCSAuditor:
@@ -87,13 +88,13 @@ class GCSAuditor:
                             size = int(size_el.text) if (size_el is not None and (size_el.text or "").isdigit()) else 0
 
                             sev, reason = classify_severity(key)
-                            files.append({
+                            files.append(enrich_finding({
                                 "key": key,
                                 "size": size,
                                 "severity": sev,
                                 "reason": reason,
                                 "url": f"{base}/{key}"
-                            })
+                            }, "GCS"))
 
                         return True, files, None
                     except Exception as e:

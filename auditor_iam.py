@@ -24,6 +24,8 @@ from typing import Any, Dict, List, Optional
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 
+from cve_mapping import enrich_finding
+
 KEY_AGE_HIGH_DAYS = 90
 KEY_AGE_WARN_DAYS = 45
 INACTIVE_DAYS = 90
@@ -62,7 +64,7 @@ class IAMAuditor:
         detail: str,
         remediation: str = "",
     ) -> None:
-        self._findings.append({
+        f = {
             "key": f"{entity_type}/{entity_name} — {check}",
             "severity": severity,
             "size": 0,
@@ -72,7 +74,9 @@ class IAMAuditor:
             "entity_name": entity_name,
             "check": check,
             "remediation": remediation,
-        })
+        }
+        enrich_finding(f, "AWS_IAM")
+        self._findings.append(f)
 
     def _account_id(self) -> str:
         try:

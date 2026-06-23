@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, quote
 
 from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk, build_recommendations
+from cve_mapping import enrich_finding
 
 
 class S3Auditor:
@@ -175,7 +176,7 @@ class S3Auditor:
                             size = int(size_el.text) if (size_el is not None and (size_el.text or "").isdigit()) else 0
                             sev, reason = classify_severity(key)
                             object_url = f"{base}/{key}"
-                            files.append({"key": key, "size": size, "severity": sev, "reason": reason, "url": object_url})
+                            files.append(enrich_finding({"key": key, "size": size, "severity": sev, "reason": reason, "url": object_url}, "AWS_S3"))
 
                         # Verifica paginação
                         is_truncated_el = root.find(f".//{ns}IsTruncated")

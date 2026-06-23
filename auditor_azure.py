@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk, build_recommendations
+from cve_mapping import enrich_finding
 
 
 class AzureBlobAuditor:
@@ -168,18 +169,18 @@ class AzureBlobAuditor:
                         
                         # Classificar severidade
                         sev, reason = classify_severity(blob_name)
-                        
+
                         # URL pública do blob
                         blob_url = f"https://{account}.blob.core.windows.net/{container}/{blob_name}"
-                        
-                        files.append({
+
+                        files.append(enrich_finding({
                             "key": blob_name,
                             "size": size,
                             "severity": sev,
                             "reason": reason,
                             "url": blob_url,
                             "container": container
-                        })
+                        }, "AZURE"))
                     
                     return True, files, None
                 

@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional
 from kubernetes import client, config as k8s_config
 from kubernetes.client.rest import ApiException
 
+from cve_mapping import enrich_finding
+
 
 SENSITIVE_PATTERNS = [
     "aws_access_key", "aws_secret", "aws_key", "s3_key",
@@ -279,6 +281,9 @@ class K8sStorageAuditor:
                 errors.append(f"{check_fn.__name__}: {e}")
 
         findings = findings[: self.max_objects]
+
+        for f in findings:
+            enrich_finding(f, "KUBERNETES")
 
         dist = {"critical": 0, "high": 0, "medium": 0, "low": 0}
         for f in findings:
