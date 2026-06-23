@@ -182,6 +182,7 @@ jobs:
                 \"set -eu\",\
                 \"export HOME=/root\",\
                 \"if [ ! -f /swapfile ]; then fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo 'Swap 1G ativado'; else echo 'Swap ja existe'; fi\",\
+                \"(apt-get install -y redis-server -qq && systemctl enable redis-server && systemctl start redis-server && echo 'Redis OK') 2>/dev/null || true\",\
                 \"if [ ! -d $APP_DIR ]; then echo 'Bootstrap - clonando repositorio'; git clone 'https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git' $APP_DIR && python3 -m venv $APP_DIR/venv && mkdir -p $APP_DIR/logs && chown -R ubuntu:ubuntu $APP_DIR && echo 'Bootstrap concluido'; fi\",\
                 \"git config --global --add safe.directory $APP_DIR\",\
                 \"cd $APP_DIR\",\
@@ -235,19 +236,18 @@ jobs:
 
             [ "$STATUS" = "Success" ] || { echo "❌ Timeout em $INSTANCE_ID"; FAILED=1; }
 
-            # Re-registra no ALB apenas se instância ainda está em running
-            if [ "${#REGISTERED_TGS[@]}" -gt 0 ]; then
-              INST_STATE=$(aws ec2 describe-instances \
-                --instance-ids "$INSTANCE_ID" \
-                --region "$REGION" \
-                --query "Reservations[0].Instances[0].State.Name" \
-                --output text 2>/dev/null || echo "unknown")
-              echo "Estado EC2 de $INSTANCE_ID: $INST_STATE"
+            # Re-registra em TODOS os TGs (garante simetria blue/green independente do estado anterior)
+            INST_STATE=$(aws ec2 describe-instances \
+              --instance-ids "$INSTANCE_ID" \
+              --region "$REGION" \
+              --query "Reservations[0].Instances[0].State.Name" \
+              --output text 2>/dev/null || echo "unknown")
+            echo "Estado EC2 de $INSTANCE_ID: $INST_STATE"
 
-              if [ "$INST_STATE" != "running" ]; then
-                echo "⚠️ $INSTANCE_ID não está running ($INST_STATE) — pulando re-registro no ALB"
-              else
-              for TG_ARN in "${REGISTERED_TGS[@]}"; do
+            if [ "$INST_STATE" != "running" ]; then
+              echo "⚠️ $INSTANCE_ID não está running ($INST_STATE) — pulando re-registro no ALB"
+            else
+              for TG_ARN in "${TG_ARNS[@]}"; do
                 echo "Re-registrando $INSTANCE_ID em $TG_ARN..."
                 aws elbv2 register-targets \
                   --target-group-arn "$TG_ARN" \
@@ -275,7 +275,6 @@ jobs:
                 fi
               done
               echo "✅ $INSTANCE_ID re-registrado no ALB"
-              fi  # fim do check running
             fi
           done
 

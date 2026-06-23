@@ -188,7 +188,21 @@ def get_client_ip(request: Request) -> str:
 
 app = FastAPI(title="Security Multicloud Storage Scanner (MFA)")
 
-limiter = Limiter(key_func=get_client_ip)
+_redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
+try:
+    import redis as _redis_lib
+    _redis_client = _redis_lib.Redis.from_url(_redis_url, socket_connect_timeout=1, socket_timeout=1)
+    _redis_client.ping()
+    _storage_uri = _redis_url
+    _redis_available = True
+    print("✅ Rate limiter: Redis backend ativo")
+except Exception as _e:
+    _redis_client = None
+    _storage_uri = "memory://"
+    _redis_available = False
+    print(f"⚠️ Rate limiter: Redis indisponível ({_e}), usando memória por worker")
+
+limiter = Limiter(key_func=get_client_ip, storage_uri=_storage_uri)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
@@ -208,14 +222,35 @@ _login_ts_hour: Dict[str, List[float]] = defaultdict(list)
 
 def _check_login_rate(ip: str) -> None:
     now = time.time()
-    _login_ts_minute[ip] = [t for t in _login_ts_minute[ip] if now - t < 60]
-    _login_ts_hour[ip]   = [t for t in _login_ts_hour[ip]   if now - t < 3600]
-    if len(_login_ts_minute[ip]) >= 3:
-        raise HTTPException(status_code=429, detail="Muitas tentativas. Aguarde 1 minuto.")
-    if len(_login_ts_hour[ip]) >= 10:
-        raise HTTPException(status_code=429, detail="Limite por hora atingido. Aguarde antes de tentar novamente.")
-    _login_ts_minute[ip].append(now)
-    _login_ts_hour[ip].append(now)
+    if _redis_available and _redis_client:
+        key_min = f"login_rate:min:{ip}"
+        key_hr  = f"login_rate:hr:{ip}"
+        pipe = _redis_client.pipeline()
+        pipe.zremrangebyscore(key_min, 0, now - 60)
+        pipe.zcard(key_min)
+        pipe.zremrangebyscore(key_hr, 0, now - 3600)
+        pipe.zcard(key_hr)
+        results = pipe.execute()
+        count_min, count_hr = results[1], results[3]
+        if count_min >= 3:
+            raise HTTPException(status_code=429, detail="Muitas tentativas. Aguarde 1 minuto.")
+        if count_hr >= 10:
+            raise HTTPException(status_code=429, detail="Limite por hora atingido. Aguarde antes de tentar novamente.")
+        pipe = _redis_client.pipeline()
+        pipe.zadd(key_min, {str(now): now})
+        pipe.expire(key_min, 61)
+        pipe.zadd(key_hr, {str(now): now})
+        pipe.expire(key_hr, 3601)
+        pipe.execute()
+    else:
+        _login_ts_minute[ip] = [t for t in _login_ts_minute[ip] if now - t < 60]
+        _login_ts_hour[ip]   = [t for t in _login_ts_hour[ip]   if now - t < 3600]
+        if len(_login_ts_minute[ip]) >= 3:
+            raise HTTPException(status_code=429, detail="Muitas tentativas. Aguarde 1 minuto.")
+        if len(_login_ts_hour[ip]) >= 10:
+            raise HTTPException(status_code=429, detail="Limite por hora atingido. Aguarde antes de tentar novamente.")
+        _login_ts_minute[ip].append(now)
+        _login_ts_hour[ip].append(now)
 
 _cors_raw = os.environ.get("CORS_ORIGINS", "")
 CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()] or [
