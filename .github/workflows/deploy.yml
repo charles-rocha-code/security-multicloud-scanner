@@ -181,6 +181,7 @@ jobs:
               --parameters "commands=[\
                 \"set -eu\",\
                 \"export HOME=/root\",\
+                \"if [ ! -f /swapfile ]; then fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo 'Swap 1G ativado'; else echo 'Swap ja existe'; fi\",\
                 \"if [ ! -d $APP_DIR ]; then echo 'SKIP - app nao instalado'; exit 0; fi\",\
                 \"git config --global --add safe.directory $APP_DIR\",\
                 \"cd $APP_DIR\",\

@@ -14,7 +14,7 @@ Environment="AWS_DEFAULT_REGION=us-east-2"
 Environment="DB_S3_BUCKET=security-scanner-db-442042548551"
 Environment="CORS_ORIGINS=http://127.0.0.1:8000,http://localhost:8000"
 EnvironmentFile=/home/ubuntu/security-scanner/.env
-ExecStart=/home/ubuntu/security-scanner/venv/bin/uvicorn api_with_mfa:app --host 0.0.0.0 --port 8000 --workers 4
+ExecStart=/home/ubuntu/security-scanner/venv/bin/uvicorn api_with_mfa:app --host 0.0.0.0 --port 8000 --workers 2
 Restart=always
 RestartSec=5
 StandardOutput=append:/home/ubuntu/security-scanner/logs/api.log
