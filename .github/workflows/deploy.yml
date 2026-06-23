@@ -100,6 +100,7 @@ jobs:
           fi
 
           FAILED=0
+          DEPLOYED=0
 
           for INSTANCE_ID in $INSTANCE_IDS; do
             echo ""
@@ -168,8 +169,7 @@ jobs:
               sleep 15
             done
             if [ "$SSM_READY" -eq 0 ]; then
-              echo "❌ SSM Agent não ficou Online em $INSTANCE_ID — pulando instância"
-              FAILED=1
+              echo "⚠️ SSM Agent não ficou Online em $INSTANCE_ID — pulando (ASG substituirá a instância)"
               continue
             fi
 
@@ -222,7 +222,7 @@ jobs:
                 --output text 2>/dev/null || echo "Pending")
               echo "[${i}] $INSTANCE_ID — Status: $STATUS"
               case "$STATUS" in
-                Success) echo "✅ $INSTANCE_ID — deploy concluído"; break ;;
+                Success) echo "✅ $INSTANCE_ID — deploy concluído"; DEPLOYED=$((DEPLOYED+1)); break ;;
                 Failed|Cancelled|TimedOut|DeliveryTimedOut|ExecutionTimedOut)
                   echo "❌ $INSTANCE_ID — falhou"
                   aws ssm get-command-invocation \
@@ -278,4 +278,8 @@ jobs:
             fi
           done
 
-          [ $FAILED -eq 0 ] && echo "" && echo "✅ Deploy concluído em todas as instâncias" || exit 1
+          if [ "$DEPLOYED" -eq 0 ]; then
+            echo "❌ Nenhuma instância recebeu o deploy com sucesso"
+            exit 1
+          fi
+          [ $FAILED -eq 0 ] && echo "" && echo "✅ Deploy concluído em $DEPLOYED instância(s)" || exit 1
