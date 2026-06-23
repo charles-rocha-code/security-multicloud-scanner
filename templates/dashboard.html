@@ -4018,11 +4018,12 @@ function logout() {
         </div>`;
       }).join('');
 
-      requestAnimationFrame(() => {
+      // Double-rAF: garante que o browser pintou width:0% antes de animar
+      requestAnimationFrame(() => requestAnimationFrame(() => {
         fbody.querySelectorAll('.funnel-bar[data-w]').forEach((bar, i) => {
-          setTimeout(() => { bar.style.width = bar.dataset.w + '%'; }, i * 90);
+          setTimeout(() => { bar.style.width = bar.dataset.w + '%'; }, i * 120);
         });
-      });
+      }));
     }
 
     // ============================================================
@@ -4352,9 +4353,6 @@ function logout() {
     // 5. SEVERITY CHART (Chart.js Bar - Vertical Tower com Melhor Visibilidade)
     // ============================================================
     function updateSeverityChart(dist) {
-      const ctx = document.getElementById("severityChart");
-      if (!ctx) return;
-
       const values = [
         dist.critical || 0,
         dist.high || 0,
@@ -4362,6 +4360,15 @@ function logout() {
         dist.low || 0
       ];
       const total = values.reduce((a, b) => a + b, 0);
+
+      const ctx = document.getElementById("severityChart");
+      if (!ctx) {
+        // Canvas removido — só atualiza os cards e badge
+        const ANIM_MS = 900;
+        updateSeveritySummary(dist, values, ANIM_MS);
+        _updateSeverityBadge(dist, values, total, ANIM_MS);
+        return;
+      }
 
       if (severityChart) severityChart.destroy();
 
@@ -4457,11 +4464,15 @@ function logout() {
         });
       }
 
-      // Badge no header: total + nível dominante + borda colorida + subtítulo dinâmico
-      const riskScore  = document.getElementById('donut-score');
-      const riskLabel  = document.getElementById('donut-label');
-      const sevBadge   = document.getElementById('sev-badge');
-      const sevPanel   = document.getElementById('severity-panel');
+      _updateSeverityBadge(dist, values, total, ANIM_MS);
+      updateSeveritySummary(dist, values, ANIM_MS);
+    }
+
+    function _updateSeverityBadge(dist, values, total, animMs) {
+      const riskScore   = document.getElementById('donut-score');
+      const riskLabel   = document.getElementById('donut-label');
+      const sevBadge    = document.getElementById('sev-badge');
+      const sevPanel    = document.getElementById('severity-panel');
       const sevSubtitle = document.getElementById('sev-subtitle');
 
       const sevLabels = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
@@ -4473,7 +4484,7 @@ function logout() {
         riskLabel.textContent = riskLevel;
         riskLabel.style.color = riskColor + 'bb';
         if (total > 0) {
-          animateSevCounter(riskScore, 0, total, ANIM_MS);
+          animateSevCounter(riskScore, 0, total, animMs);
         } else {
           riskScore.textContent = '–';
         }
@@ -4486,8 +4497,6 @@ function logout() {
         const ativas = values.filter(v => v > 0).length;
         sevSubtitle.textContent = `${total} finding${total !== 1 ? 's' : ''} · ${ativas} severidade${ativas !== 1 ? 's' : ''} ativa${ativas !== 1 ? 's' : ''}`;
       }
-
-      updateSeveritySummary(dist, values, ANIM_MS);
     }
 
     // ============================================================
@@ -4544,15 +4553,15 @@ function logout() {
           </div>`;
       }).join('');
 
-      // Dispara animações no próximo frame (dá tempo ao DOM renderizar width:0)
-      requestAnimationFrame(() => {
+      // Double-rAF: garante que o browser pintou width:0% antes de animar
+      requestAnimationFrame(() => requestAnimationFrame(() => {
         container.querySelectorAll('.sev-bar').forEach(bar => {
           bar.style.width = bar.dataset.w + '%';
         });
         container.querySelectorAll('.sev-num').forEach(el => {
           animateSevCounter(el, 0, parseInt(el.dataset.target) || 0, animMs);
         });
-      });
+      }));
     }
 
     // ============================================================
