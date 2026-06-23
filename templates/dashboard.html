@@ -2751,32 +2751,6 @@
 
 
         <!-- ============================================================
-             Painel: Top Achados por Categoria
-             ============================================================ -->
-        <div class="panel" id="top-findings-panel" style="display:none; grid-column: 2;">
-          <div class="panel-header">
-            <div>
-              <div class="panel-title">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:6px;margin-top:-2px"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-                Top Achados por Categoria
-              </div>
-              <div class="panel-sub">Tipos de arquivo com maior exposição</div>
-            </div>
-          </div>
-          <table style="width:100%; border-collapse:collapse;">
-            <thead>
-              <tr style="border-bottom:1px solid #1f2937;">
-                <th style="width:24px; padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:center;">#</th>
-                <th style="padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:left;">Categoria</th>
-                <th style="padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:center; width:72px;">Risk Score</th>
-                <th style="padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:left; min-width:100px;">Arquivos Afetados</th>
-              </tr>
-            </thead>
-            <tbody id="top-findings-body"></tbody>
-          </table>
-        </div>
-
-        <!-- ============================================================
              Painel 1: Arquivos expostos + Filtros PRO + Recomendações
              ============================================================ -->
         <div class="panel">
@@ -2882,10 +2856,39 @@
 
         </div>
 
-        <!-- ============================================================
-             Painel 2: Gráfico com Sumário
-             ============================================================ -->
-        <div class="panel" id="severity-panel" style="border-top: 3px solid #374151; transition: border-top-color 0.5s ease; grid-column: 2;">
+        <!-- Coluna direita: Top Achados + Distribuição + Exportar -->
+        <div style="display:flex; flex-direction:column; gap:16px; min-width:0;">
+
+          <!-- ============================================================
+               Painel: Top Achados por Categoria
+               ============================================================ -->
+          <div class="panel" id="top-findings-panel" style="display:none;">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:6px;margin-top:-2px"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                  Top Achados por Categoria
+                </div>
+                <div class="panel-sub">Tipos de arquivo com maior exposição</div>
+              </div>
+            </div>
+            <table style="width:100%; border-collapse:collapse;">
+              <thead>
+                <tr style="border-bottom:1px solid #1f2937;">
+                  <th style="width:24px; padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:center;">#</th>
+                  <th style="padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:left;">Categoria</th>
+                  <th style="padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:center; width:72px;">Risk Score</th>
+                  <th style="padding:6px 8px 10px; font-size:11px; color:#6b7280; font-weight:600; text-align:left; min-width:100px;">Arquivos Afetados</th>
+                </tr>
+              </thead>
+              <tbody id="top-findings-body"></tbody>
+            </table>
+          </div>
+
+          <!-- ============================================================
+               Painel 2: Distribuição de Severidade
+               ============================================================ -->
+          <div class="panel" id="severity-panel" style="border-top: 3px solid #374151; transition: border-top-color 0.5s ease;">
           <div class="panel-header">
             <div>
               <div class="panel-title">Distribuição de Severidade</div>
@@ -2920,7 +2923,7 @@
         <!-- ============================================================
              BOTÕES DE AÇÃO / RELATÓRIOS
              ============================================================ -->
-        <div class="action-buttons-container" id="action-buttons" style="display: none; grid-column: 2;">
+        <div class="action-buttons-container" id="action-buttons" style="display: none;">
 
           <!-- Header com metadados dinâmicos -->
           <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:12px;">
@@ -3005,6 +3008,8 @@
 
           </div>
         </div>
+
+        </div><!-- /right-column wrapper -->
 
       </section>
 
