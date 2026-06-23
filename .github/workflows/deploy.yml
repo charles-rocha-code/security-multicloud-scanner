@@ -181,7 +181,7 @@ jobs:
                 \"sudo -u ubuntu $APP_DIR/venv/bin/python $APP_DIR/cve_updater.py >> /var/log/cve_updater.log 2>&1 & echo 'cve_updater iniciado em background'\",\
                 \"crontab -u ubuntu -l 2>/dev/null | grep -v cve_updater > /tmp/.cron_cveu 2>/dev/null || true; echo '0 3 * * 1 cd $APP_DIR && $APP_DIR/venv/bin/python $APP_DIR/cve_updater.py >> /var/log/cve_updater.log 2>&1' >> /tmp/.cron_cveu; crontab -u ubuntu /tmp/.cron_cveu && rm -f /tmp/.cron_cveu && echo 'cron cve_updater configurado'\",\
                 \"sudo systemctl restart security-scanner\",\
-                \"READY=0; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do sleep 5; curl -sf http://127.0.0.1:8000/health && echo HEALTH_OK && READY=1 && break || echo Aguardando \\$i/12...; done; [ \\$READY -eq 1 ] || { journalctl -u security-scanner -n 40 --no-pager 2>/dev/null || true; exit 1; }\"\
+                \"sleep 5 && curl -sf --retry 11 --retry-delay 5 --retry-connrefused http://127.0.0.1:8000/health && echo HEALTH_OK || { journalctl -u security-scanner -n 40 --no-pager 2>/dev/null || true; exit 1; }\"\
               ]" \
               --region "$REGION" \
               --query 'Command.CommandId' \
