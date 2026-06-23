@@ -29,6 +29,7 @@ Obs:
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections import defaultdict
@@ -129,6 +130,55 @@ def _download_report_s3(filename: str) -> Path | None:
         return None
 
 
+def _email_safe(email: str) -> str:
+    return email.replace("@", "_at_").replace(".", "_").lower()
+
+
+def _save_last_scan(email: str, result: Dict[str, Any]) -> None:
+    if not S3_BUCKET or not email:
+        return
+    try:
+        s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
+        key = f"last-scan/{_email_safe(email)}.json"
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=key,
+            Body=json.dumps(result, default=str).encode("utf-8"),
+            ContentType="application/json",
+        )
+    except Exception as e:
+        print(f"⚠️ _save_last_scan error: {e}")
+
+
+def _load_last_scan(email: str) -> Optional[Dict[str, Any]]:
+    if not S3_BUCKET or not email:
+        return None
+    try:
+        s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
+        key = f"last-scan/{_email_safe(email)}.json"
+        resp = s3.get_object(Bucket=S3_BUCKET, Key=key)
+        return json.loads(resp["Body"].read().decode("utf-8"))
+    except Exception:
+        return None
+
+
+class _ScanCache:
+    """Cache do último scan por email — persiste no S3 para suportar múltiplas instâncias EC2."""
+
+    def __init__(self) -> None:
+        self._mem: Dict[str, Dict[str, Any]] = {}
+
+    def __setitem__(self, email: str, result: Dict[str, Any]) -> None:
+        self._mem[email] = result
+        _save_last_scan(email, result)
+
+    def get(self, email: Optional[str], default: Any = None) -> Any:
+        if not email:
+            return default
+        if email in self._mem:
+            return self._mem[email]
+        return _load_last_scan(email) or default
+
 
 def get_client_ip(request: Request) -> str:
     forwarded_for = request.headers.get("x-forwarded-for")
@@ -148,8 +198,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     errors = exc.errors()
     print(f"❌ 422 em {request.method} {request.url.path}: {errors}")
     return JSONResponse(status_code=422, content={"detail": errors})
-# Cache em memória do último scan por usuário (email) - ajuda a gerar relatório
-LAST_SCAN_BY_EMAIL: Dict[str, Dict[str, Any]] = {}
+# Cache do último scan por usuário — persiste no S3 para suportar múltiplas instâncias
+LAST_SCAN_BY_EMAIL: _ScanCache = _ScanCache()
 
 # Rate limiting manual para /auth/login — os decorators @limiter.limit encadeados
 # corrompem a inspeção de assinatura do FastAPI e causam 422 "Field required"
@@ -167,12 +217,15 @@ def _check_login_rate(ip: str) -> None:
     _login_ts_minute[ip].append(now)
     _login_ts_hour[ip].append(now)
 
+_cors_raw = os.environ.get("CORS_ORIGINS", "")
+CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()] or [
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:8000",
-        "http://localhost:8000",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -188,7 +241,7 @@ REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 # IMPORTANTE: no seu ambiente AWS, o browser abre diretamente o PDF/DOCX.
 # Para evitar 401 no GET do arquivo (porque o browser não manda Authorization),
 # exponho o diretório como estático (mesmo comportamento do seu print).
-app.mount("/reports_executive", StaticFiles(directory=str(REPORTS_DIR)), name="reports_executive")
+# /reports_executive/{filename} é servido pela rota dinâmica definida na seção de relatórios (com fallback S3)
 
 
 # -----------------------------------------------------------------------------
@@ -1135,6 +1188,27 @@ def generate_report(data: GenerateReportIn, user=Depends(require_mfa)):
         },
         "message": "Relatórios gerados com sucesso",
     }
+
+@app.get("/reports_executive/{filename}", include_in_schema=False)
+def serve_report_file(filename: str):
+    """Serve relatório do disco local ou baixa do S3 se não encontrado nesta instância."""
+    safe = _safe_filename(filename)
+    if not safe:
+        raise HTTPException(status_code=400, detail="Nome de arquivo inválido")
+    path = REPORTS_DIR / safe
+    if not path.exists():
+        downloaded = _download_report_s3(safe)
+        if downloaded:
+            path = downloaded
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Relatório não encontrado")
+    media_type = (
+        "application/pdf"
+        if safe.lower().endswith(".pdf")
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    return FileResponse(str(path), media_type=media_type)
+
 
 # Rota opcional (quando quiser forçar download com filename)
 @app.get("/download-report/{filename}")

@@ -22,6 +22,7 @@ import secrets
 import hashlib
 import json
 import os
+import time
 import boto3
 from botocore.exceptions import ClientError
 
@@ -81,6 +82,19 @@ def sync_from_s3():
     USERS_DB.update(fresh_users)
     ACTIVE_SESSIONS.clear()
     ACTIVE_SESSIONS.update(fresh_sessions)
+
+_last_sync_ts: float = 0.0
+_SYNC_TTL: float = 30.0  # sync do S3 no máximo a cada 30 s por worker
+
+
+def sync_if_stale() -> None:
+    """Recarrega users/sessions do S3 apenas se o último sync foi há mais de _SYNC_TTL segundos."""
+    global _last_sync_ts
+    now = time.monotonic()
+    if now - _last_sync_ts >= _SYNC_TTL:
+        sync_from_s3()
+        _last_sync_ts = now
+
 
 # Carregar bancos de dados
 USERS_DB: Dict[str, Dict[str, Any]] = load_db(USERS_DB_FILE)
@@ -203,6 +217,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     Middleware para verificar autenticação via Bearer token
     USADO POR: Endpoints de API REST
     """
+    sync_if_stale()
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -248,6 +263,7 @@ def get_current_user_from_cookie(request: Request) -> Dict[str, Any]:
     Middleware para verificar autenticação via Cookie
     USADO POR: Páginas HTML (/dashboard, etc.)
     """
+    sync_if_stale()
     # Pegar token do cookie
     token = request.cookies.get(COOKIE_NAME)
     
