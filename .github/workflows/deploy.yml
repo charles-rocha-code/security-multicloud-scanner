@@ -152,6 +152,27 @@ jobs:
               continue
             fi
 
+            # Aguarda SSM Agent ficar Online (nova instância pode demorar até 3 min para registrar)
+            SSM_READY=0
+            for ssm_attempt in $(seq 1 12); do
+              SSM_PING=$(aws ssm describe-instance-information \
+                --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+                --region "$REGION" \
+                --query "InstanceInformationList[0].PingStatus" \
+                --output text 2>/dev/null || echo "none")
+              echo "  SSM ping [$ssm_attempt/12]: $SSM_PING"
+              if [ "$SSM_PING" = "Online" ]; then
+                SSM_READY=1
+                break
+              fi
+              sleep 15
+            done
+            if [ "$SSM_READY" -eq 0 ]; then
+              echo "❌ SSM Agent não ficou Online em $INSTANCE_ID — pulando instância"
+              FAILED=1
+              continue
+            fi
+
             # Deploy via SSM
             COMMAND_ID=$(aws ssm send-command \
               --instance-ids "$INSTANCE_ID" \
