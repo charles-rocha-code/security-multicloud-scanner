@@ -1,38 +1,25 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
-import re
 
 from google.cloud import storage
 from google.oauth2 import service_account
 
+from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk, build_recommendations
+from cve_mapping import enrich_finding
+
 
 def _extract_bucket_name(bucket: str) -> str:
-    """
-    Aceita:
-      - portalnovafibra-bkp
-      - portalnovafibra-bkp.storage.googleapis.com
-      - https://storage.googleapis.com/portalnovafibra-bkp
-      - gs://portalnovafibra-bkp
-    e retorna somente: portalnovafibra-bkp
-    """
     b = (bucket or "").strip()
-
-    # gs://bucket
     if b.startswith("gs://"):
         return b[5:].split("/", 1)[0]
-
-    # https://storage.googleapis.com/bucket/...
     m = re.match(r"^https?://storage\.googleapis\.com/([^/]+)", b)
     if m:
         return m.group(1)
-
-    # bucket.storage.googleapis.com
     if b.endswith(".storage.googleapis.com"):
         return b.split(".storage.googleapis.com")[0]
-
-    # bucket puro
     return b
 
 
@@ -45,7 +32,6 @@ class GCSAuthenticatedAuditor:
     def _client(self) -> storage.Client:
         if not isinstance(self.service_account_key, dict) or self.service_account_key.get("type") != "service_account":
             raise ValueError("service_account_key deve ser um JSON dict de Service Account (type=service_account).")
-
         creds = service_account.Credentials.from_service_account_info(self.service_account_key)
         project_id = self.service_account_key.get("project_id")
         return storage.Client(project=project_id, credentials=creds)
@@ -53,44 +39,44 @@ class GCSAuthenticatedAuditor:
     def run(self) -> Dict[str, Any]:
         bucket_name = _extract_bucket_name(self.bucket_name)
         client = self._client()
-
         bucket = client.bucket(bucket_name)
 
-        findings: List[Dict[str, Any]] = []
-        risk_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+        files: List[Dict[str, Any]] = []
+        errors: List[str] = []
 
-        # Listar blobs (objetos). Campos comuns para score/criticidade:
-        # - public access (IAM/ACL) -> normalmente seu motor calcula
-        # - name, size, content_type, updated, md5_hash, storage_class
-        blobs_iter = client.list_blobs(bucket, max_results=int(self.max_objects))
+        try:
+            blobs_iter = client.list_blobs(bucket, max_results=int(self.max_objects))
+            for blob in blobs_iter:
+                key = blob.name or ""
+                size = int(blob.size or 0)
+                sev, reason = classify_severity(key)
+                files.append(enrich_finding({
+                    "key": key,
+                    "size": size,
+                    "severity": sev,
+                    "reason": reason,
+                    "url": f"https://storage.googleapis.com/{bucket_name}/{key}",
+                }, "GCS"))
+        except Exception as e:
+            errors.append(str(e))
 
-        for blob in blobs_iter:
-            findings.append({
-                "object": blob.name,
-                "size": int(blob.size or 0),
-                "content_type": blob.content_type,
-                "updated": blob.updated.isoformat() if blob.updated else None,
-                "md5_hash": blob.md5_hash,
-                "storage_class": blob.storage_class,
-                # placeholders para seu engine (se ele usar):
-                "severity": "LOW",
-                "issue": "Object enumerated (authenticated)",
-                "recommendation": "Review bucket/object access policies; ensure least privilege."
-            })
-
-        # Exemplo: aqui não estamos inferindo severidade real (isso é do engine_risk),
-        # mas deixamos estrutura compatível.
-        # Se seu engine recalcula, tudo bem.
-
-        summary = {
-            "bucket": bucket_name,
+        payload: Dict[str, Any] = {
             "provider": "GCS",
-            "scanned_objects": len(findings),
-            "max_objects": int(self.max_objects),
-            "risk_counts": risk_counts,
+            "bucket": bucket_name,
+            "region": "global",
+            "account_id": self.service_account_key.get("project_id", "-"),
+            "public_access": False,
+            "public_listing": False,
+            "summary": {
+                "objects_scanned": len(files),
+                "total_size_bytes": sum(f.get("size", 0) for f in files),
+            },
+            "files": files,
+            "errors": errors,
         }
 
-        return {
-            "summary": summary,
-            "findings": findings,
-        }
+        payload.update(calculate_advanced_risk(payload))
+        payload["severity_distribution"] = build_severity_distribution(payload["files"])
+        payload["recommendations"] = build_recommendations(payload)
+
+        return payload

@@ -5098,6 +5098,7 @@ function logout() {
         const _relTime = ts => {
           try {
             const d = new Date(ts);
+            if (isNaN(d.getTime())) return '—';
             const now = new Date();
             const diffMs = now - d;
             const diffMin = Math.floor(diffMs / 60000);
