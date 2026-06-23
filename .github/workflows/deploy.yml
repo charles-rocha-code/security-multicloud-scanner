@@ -178,6 +178,8 @@ jobs:
                 \"aws s3 cp s3://$DB_BUCKET/db/users_db.json $APP_DIR/users_db.json 2>/dev/null || echo 'AVISO: users_db nao encontrado no S3'\",\
                 \"aws s3 cp s3://$DB_BUCKET/db/sessions_db.json $APP_DIR/sessions_db.json 2>/dev/null || echo 'AVISO: sessions_db nao encontrado no S3'\",\
                 \"chown ubuntu:ubuntu $APP_DIR/users_db.json $APP_DIR/sessions_db.json 2>/dev/null || true\",\
+                \"sudo -u ubuntu $APP_DIR/venv/bin/python $APP_DIR/cve_updater.py >> /var/log/cve_updater.log 2>&1 & echo 'cve_updater iniciado em background'\",\
+                \"crontab -u ubuntu -l 2>/dev/null | grep -v cve_updater > /tmp/.cron_cveu 2>/dev/null || true; echo '0 3 * * 1 cd $APP_DIR && $APP_DIR/venv/bin/python $APP_DIR/cve_updater.py >> /var/log/cve_updater.log 2>&1' >> /tmp/.cron_cveu; crontab -u ubuntu /tmp/.cron_cveu && rm -f /tmp/.cron_cveu && echo 'cron cve_updater configurado'\",\
                 \"sudo systemctl restart security-scanner\",\
                 \"sleep 8\",\
                 \"curl -sf http://127.0.0.1:8000/health && echo HEALTH_OK\"\
