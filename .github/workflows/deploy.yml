@@ -182,10 +182,11 @@ jobs:
                 \"set -eu\",\
                 \"export HOME=/root\",\
                 \"if [ ! -f /swapfile ]; then fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo 'Swap 1G ativado'; else echo 'Swap ja existe'; fi\",\
-                \"if [ ! -d $APP_DIR ]; then echo 'SKIP - app nao instalado'; exit 0; fi\",\
+                \"if [ ! -d $APP_DIR ]; then echo 'Bootstrap - clonando repositorio'; git clone 'https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git' $APP_DIR && python3 -m venv $APP_DIR/venv && mkdir -p $APP_DIR/logs && chown -R ubuntu:ubuntu $APP_DIR && echo 'Bootstrap concluido'; fi\",\
                 \"git config --global --add safe.directory $APP_DIR\",\
                 \"cd $APP_DIR\",\
-                \"git remote set-url origin 'https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git'\",\
+                \"git remote remove origin 2>/dev/null || true\",\
+                \"git remote add origin 'https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git'\",\
                 \"git fetch origin main\",\
                 \"git reset --hard origin/main\",\
                 \"git clean -fd\",\
@@ -256,7 +257,7 @@ jobs:
                 # Aguarda healthy apenas se o deploy teve sucesso
                 if [ "$STATUS" = "Success" ]; then
                   ALB_HEALTHY=0
-                  for h in $(seq 1 12); do
+                  for h in $(seq 1 20); do
                     sleep 5
                     STATE=$(aws elbv2 describe-target-health \
                       --target-group-arn "$TG_ARN" \
