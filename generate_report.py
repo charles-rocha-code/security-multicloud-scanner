@@ -33,6 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from collections import Counter
 import hashlib, json, io, tempfile, os
+from xml.sax.saxutils import escape as _xml_escape
 
 # ── python-docx ───────────────────────────────────────────────────────
 try:
@@ -1041,7 +1042,7 @@ class ProfessionalReportGenerator:
             if crit > 0:
                 recs.append({'priority':'CRÍTICA','title':'Remover Bindings Públicos e SA com Owner Imediatamente',
                              'description':f'{crit} finding(s) CRÍTICO(s) no projeto GCP — bindings allUsers/allAuthenticatedUsers ou SA com roles/owner.',
-                             'actions':['Executar: gcloud projects get-iam-policy <PROJECT> e auditar cada binding',
+                             'actions':['Executar: gcloud projects get-iam-policy [PROJECT] e auditar cada binding',
                                         'Remover bindings allUsers/allAuthenticatedUsers de todas as roles',
                                         'Revogar roles/owner de Service Accounts — substituir por roles mínimas',
                                         'Ativar VPC Service Controls para impedir exfiltração',
@@ -2180,7 +2181,7 @@ class ProfessionalReportGenerator:
                 f"[{rec['priority']}] {rec['title']}",
                 ParagraphStyle('RT', fontSize=11, fontName='Helvetica-Bold',
                                textColor=pcols.get(rec['priority'],self.COLOR_MEDIUM), spaceAfter=5)))
-            story.append(Paragraph(rec['description'], styles['Normal']))
+            story.append(Paragraph(_xml_escape(rec['description']), styles['Normal']))
             meta = Table([[
                 'Prazo', rec.get('timeline','A definir'),
                 'Responsável', rec.get('responsible','A definir'),
@@ -2203,7 +2204,7 @@ class ProfessionalReportGenerator:
             story.append(Spacer(1,0.05*inch))
             story.append(Paragraph("<b>Ações:</b>", styles['Normal']))
             for a in rec['actions'][:5]:
-                story.append(Paragraph(f"• {a}", styles['Normal']))
+                story.append(Paragraph(f"• {_xml_escape(a)}", styles['Normal']))
             story.append(Spacer(1, 0.2*inch))
         story.append(PageBreak())
         next_sec += 1
