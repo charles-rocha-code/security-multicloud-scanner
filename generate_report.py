@@ -1716,6 +1716,8 @@ class ProfessionalReportGenerator:
 
         # ── KPIs IAM adicionais ───────────────────────────────────────
         iam_prov_kpi = self.scan_data.get('provider', '').upper()
+        is_iam  = 'IAM' in iam_prov_kpi
+        iam_summ = self.scan_data.get('summary', {}) if is_iam else {}
         if is_iam and iam_summ:
             def _iam_kpi(label, val, ok, unit=''):
                 col  = self.COLOR_LOW if ok else self.COLOR_CRITICAL
