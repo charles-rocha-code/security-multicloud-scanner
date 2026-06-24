@@ -1726,7 +1726,7 @@ class ProfessionalReportGenerator:
                         Paragraph(f"<b>{sval}</b>",
                                   ParagraphStyle('ik_v', fontSize=20, textColor=col,
                                                  fontName='Helvetica-Bold', alignment=TA_CENTER, leading=24)),
-                        Paragraph('✅ OK' if ok else '❌ Risco',
+                        Paragraph('OK' if ok else 'Risco',
                                   ParagraphStyle('ik_s', fontSize=8, textColor=col,
                                                  fontName='Helvetica-Bold', alignment=TA_CENTER))]
 
@@ -2212,9 +2212,12 @@ class ProfessionalReportGenerator:
         # ── COMPLIANCE ────────────────────────────────────────────────
         if self.compliance_status:
             story.append(Paragraph(f"{next_sec}. STATUS DE CONFORMIDADE", H1))
+            # Helvetica suporta apenas Latin-1 (U+0000–U+00FF);
+            # emojis nos status quebram doc.build() — remover antes de renderizar.
+            _lat1 = lambda s: ''.join(c for c in str(s) if ord(c) <= 255).strip()
             comp_t2 = Table(
-                [['Framework','Status','Observações']] +
-                [[fw['name'],fw['status'],fw['issues']] for fw in self.compliance_status],
+                [['Framework','Status','Observacoes']] +
+                [[_lat1(fw['name']), _lat1(fw['status']), _lat1(fw['issues'])] for fw in self.compliance_status],
                 colWidths=[1.5*inch,1.8*inch,2.8*inch])
             comp_t2.setStyle(TableStyle([
                 ('BACKGROUND',(0,0),(-1,0),self.COLOR_PRIMARY),
@@ -2248,14 +2251,23 @@ class ProfessionalReportGenerator:
             "Relatório gerado automaticamente<br/>Este documento contém informações confidenciais",
             ParagraphStyle('SIG', fontSize=8, textColor=colors.grey, alignment=TA_CENTER)))
 
-        print("🔨 Construindo PDF...")
-        doc.build(story, onFirstPage=self._create_cover_page,
-                  onLaterPages=self._create_header_footer)
+        print(f"🔨 Construindo PDF... ({len(story)} flowables)")
+        try:
+            doc.build(story, onFirstPage=self._create_cover_page,
+                      onLaterPages=self._create_header_footer)
+        except Exception as _build_err:
+            import traceback as _tb
+            print(f"❌ doc.build() falhou: {_build_err}")
+            _tb.print_exc()
+            raise
 
-        report_hash = self._compute_hash(str(filepath))
-        (filepath.with_suffix('.sha256')).write_text(
-            f"SHA-256: {report_hash}\nArquivo: {filename}\nGerado em: {self.report_date.isoformat()}\n")
-        print(f"✅ PDF: {filepath}")
+        print(f"✅ PDF gerado: {filepath}")
+        try:
+            report_hash = self._compute_hash(str(filepath))
+            (filepath.with_suffix('.sha256')).write_text(
+                f"SHA-256: {report_hash}\nArquivo: {filename}\nGerado em: {self.report_date.isoformat()}\n")
+        except Exception as _hash_err:
+            print(f"⚠️  SHA256 falhou (PDF ok): {_hash_err}")
         return str(filepath)
 
     # ══════════════════════════════════════════════════════════════════

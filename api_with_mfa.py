@@ -1379,6 +1379,7 @@ def generate_report(data: GenerateReportIn, user=Depends(require_mfa)):
                     "pdf": f"reports_executive/{pdf_file.name}" if pdf_file and pdf_file.exists() and pdf_file.name else None,
                     "docx": f"reports_executive/{docx_file.name}" if docx_file and docx_file.exists() and docx_file.name else None,
                 },
+                "pdf_error": results.get("pdf_error"),
                 "message": "Relatórios profissionais gerados com sucesso",
             }
         except Exception as e:
