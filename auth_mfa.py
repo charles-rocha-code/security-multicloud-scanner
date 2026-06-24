@@ -17,6 +17,7 @@ import base64
 from datetime import datetime, timedelta
 import secrets
 import hashlib
+import bcrypt
 import json
 import os
 import time
@@ -204,10 +205,13 @@ class MFARegenerateBackup(BaseModel):
 # ==================== FUNÇÕES AUXILIARES ====================
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return hash_password(plain_password) == hashed_password
+    if not hashed_password.startswith("$2"):
+        # Hash legado SHA256 — aceita auth mas marca para upgrade
+        return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
+    return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
 
 def generate_mfa_secret() -> str:
     return pyotp.random_base32()
@@ -321,6 +325,11 @@ def login_user(email: str, password: str, mfa_code: Optional[str] = None, respon
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
     if not verify_password(password, user["password"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
+
+    # Migração silenciosa SHA256 → bcrypt no primeiro login após atualização
+    if not user["password"].startswith("$2"):
+        user["password"] = hash_password(password)
+        _user_put(email, user)
 
     if user["mfa_enabled"]:
         if not mfa_code:
