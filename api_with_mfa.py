@@ -57,6 +57,7 @@ from auth_mfa import (  # type: ignore
     USERS_DB,
     get_current_user,
     login_user,
+    logout_all_sessions,
     register_user,
     require_mfa,
     setup_mfa,
@@ -793,11 +794,7 @@ def auth_mfa_verify(data: MFAVerifyIn):
 @app.post("/auth/logout")
 def auth_logout(user=Depends(get_current_user)):
     email = user.get("email")
-    removed = 0
-    to_delete = [t for t, s in ACTIVE_SESSIONS.items() if s.get("email") == email]
-    for t in to_delete:
-        del ACTIVE_SESSIONS[t]
-        removed += 1
+    removed = logout_all_sessions(email)
     return {"ok": True, "removed_sessions": removed}
 
 

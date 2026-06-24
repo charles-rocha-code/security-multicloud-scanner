@@ -1,12 +1,9 @@
 """
-auth_mfa.py - Módulo de Autenticação MFA com PERSISTÊNCIA
-Integrado ao Security Multicloud Storage Scanner
+auth_mfa.py - Autenticação MFA com persistência em DynamoDB.
 
-VERSÃO COM PERSISTÊNCIA:
-- Dados salvos em users_db.json (não são perdidos ao reiniciar)
-- Sessões salvas em sessions_db.json
-- Suporte a Bearer token (API REST)
-- Suporte a Cookie (páginas HTML)
+Sessões: DynamoDB (security-scanner-sessions) — sem race condition entre instâncias.
+Usuários: DynamoDB (security-scanner-users) com cache em memória — consistência forte.
+Migration: na primeira inicialização, se DynamoDB vazio, migra de users_db.json no S3.
 """
 
 from fastapi import HTTPException, Depends, status, Request, Response
@@ -28,118 +25,178 @@ from botocore.exceptions import ClientError
 
 # ==================== CONFIGURAÇÃO ====================
 
-USERS_DB_FILE = "users_db.json"
-SESSIONS_DB_FILE = "sessions_db.json"
-
 S3_BUCKET = os.environ.get("DB_S3_BUCKET", "security-scanner-db-442042548551")
-S3_PREFIX = "db/"
+DYNAMO_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-2")
+SESSIONS_TABLE = os.environ.get("SESSIONS_DYNAMO_TABLE", "security-scanner-sessions")
+USERS_TABLE = os.environ.get("USERS_DYNAMO_TABLE", "security-scanner-users")
 
-def _s3_key(filename: str) -> str:
-    return S3_PREFIX + os.path.basename(filename)
+SESSION_TTL_SECONDS = 86400  # 24 h
 
-def load_db(filename: str) -> Dict:
-    """Carrega banco de dados do S3 (com fallback para arquivo local)"""
-    if S3_BUCKET:
-        try:
-            s3 = boto3.client("s3", region_name="us-east-2")
-            response = s3.get_object(Bucket=S3_BUCKET, Key=_s3_key(filename))
-            return json.loads(response["Body"].read().decode("utf-8"))
-        except ClientError as e:
-            if e.response["Error"]["Code"] != "NoSuchKey":
-                print(f"⚠️ S3 load error: {e}")
-        except Exception as e:
-            print(f"⚠️ S3 load error: {e}")
-    if os.path.exists(filename):
-        try:
-            with open(filename, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+_dynamo = boto3.resource("dynamodb", region_name=DYNAMO_REGION)
+_tbl_sessions = _dynamo.Table(SESSIONS_TABLE)
+_tbl_users = _dynamo.Table(USERS_TABLE)
 
-def save_db(filename: str, data: Dict):
-    """Salva banco de dados no S3 e arquivo local"""
-    if S3_BUCKET:
-        try:
-            s3 = boto3.client("s3", region_name="us-east-2")
-            s3.put_object(
-                Bucket=S3_BUCKET,
-                Key=_s3_key(filename),
-                Body=json.dumps(data, indent=2).encode("utf-8"),
-                ContentType="application/json"
-            )
-        except Exception as e:
-            print(f"⚠️ S3 save error: {e}")
-    with open(filename, "w") as f:
-        json.dump(data, f, indent=2)
+# ==================== DYNAMO — SESSÕES ====================
 
-def sync_from_s3():
-    """Recarrega USERS_DB e ACTIVE_SESSIONS do S3 para garantir consistência entre instâncias"""
-    # Atualiza in-place para que referências já importadas (api_with_mfa.USERS_DB) vejam os dados frescos
-    fresh_users = load_db(USERS_DB_FILE)
-    fresh_sessions = load_db(SESSIONS_DB_FILE)
-    USERS_DB.clear()
-    USERS_DB.update(fresh_users)
-    ACTIVE_SESSIONS.clear()
-    ACTIVE_SESSIONS.update(fresh_sessions)
-
-_last_sync_ts: float = 0.0
-_SYNC_TTL: float = 30.0  # sync do S3 no máximo a cada 30 s por worker
+def _session_put(token: str, email: str) -> None:
+    _tbl_sessions.put_item(Item={
+        "token": token,
+        "email": email,
+        "created_at": datetime.now().isoformat(),
+        "authenticated": True,
+        "mfa_verified": True,
+        "expires_at_unix": int(time.time()) + SESSION_TTL_SECONDS,
+    })
 
 
-def sync_if_stale() -> None:
-    """Recarrega users/sessions do S3 apenas se o último sync foi há mais de _SYNC_TTL segundos."""
-    global _last_sync_ts
-    now = time.monotonic()
-    if now - _last_sync_ts >= _SYNC_TTL:
-        sync_from_s3()
-        _last_sync_ts = now
+def _session_get(token: str) -> Optional[Dict[str, Any]]:
+    try:
+        resp = _tbl_sessions.get_item(Key={"token": token})
+        item = resp.get("Item")
+        if not item:
+            return None
+        # Verificação manual de expiração (TTL do DynamoDB não é instantâneo)
+        if int(item.get("expires_at_unix", 0)) < int(time.time()):
+            _tbl_sessions.delete_item(Key={"token": token})
+            return None
+        return dict(item)
+    except Exception as e:
+        print(f"⚠️ DynamoDB get_session error: {e}")
+        return None
 
 
-# Carregar bancos de dados
-USERS_DB: Dict[str, Dict[str, Any]] = load_db(USERS_DB_FILE)
-ACTIVE_SESSIONS: Dict[str, Dict[str, Any]] = load_db(SESSIONS_DB_FILE)
+def _session_delete(token: str) -> None:
+    try:
+        _tbl_sessions.delete_item(Key={"token": token})
+    except Exception as e:
+        print(f"⚠️ DynamoDB delete_session error: {e}")
+
+
+def _sessions_for_email(email: str):
+    """Retorna todos os tokens ativos de um email via GSI."""
+    try:
+        resp = _tbl_sessions.query(
+            IndexName="email-index",
+            KeyConditionExpression=boto3.dynamodb.conditions.Key("email").eq(email),
+        )
+        return [item["token"] for item in resp.get("Items", [])]
+    except Exception as e:
+        print(f"⚠️ DynamoDB query sessions by email error: {e}")
+        return []
+
+# ==================== DYNAMO — USUÁRIOS ====================
+
+# Cache em memória; DynamoDB é a fonte de verdade
+USERS_DB: Dict[str, Dict[str, Any]] = {}
+ACTIVE_SESSIONS: Dict[str, Dict[str, Any]] = {}  # mantido para compatibilidade de importação
+
+
+def _user_put(email: str, data: Dict[str, Any]) -> None:
+    try:
+        _tbl_users.put_item(Item={"email": email, **data})
+        USERS_DB[email] = data
+    except Exception as e:
+        print(f"⚠️ DynamoDB put_user error: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao salvar usuário")
+
+
+def _user_get(email: str) -> Optional[Dict[str, Any]]:
+    if email in USERS_DB:
+        return USERS_DB[email]
+    try:
+        resp = _tbl_users.get_item(Key={"email": email})
+        item = resp.get("Item")
+        if item:
+            USERS_DB[email] = dict(item)
+            return dict(item)
+        return None
+    except Exception as e:
+        print(f"⚠️ DynamoDB get_user error: {e}")
+        return None
+
+
+def _users_load_all() -> Dict[str, Dict[str, Any]]:
+    try:
+        resp = _tbl_users.scan()
+        return {item["email"]: dict(item) for item in resp.get("Items", [])}
+    except Exception as e:
+        print(f"⚠️ DynamoDB scan_users error: {e}")
+        return {}
+
+
+def _migrate_from_s3() -> None:
+    """Migração única: copia users_db.json do S3 para DynamoDB."""
+    if not S3_BUCKET:
+        return
+    try:
+        s3 = boto3.client("s3", region_name=DYNAMO_REGION)
+        resp = s3.get_object(Bucket=S3_BUCKET, Key="db/users_db.json")
+        users = json.loads(resp["Body"].read().decode("utf-8"))
+        if not users:
+            return
+        print(f"🔄 Migrando {len(users)} usuário(s) do S3 para DynamoDB...")
+        for email, data in users.items():
+            _tbl_users.put_item(Item={"email": email, **data})
+        print(f"✅ Migração completa: {len(users)} usuário(s)")
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            return
+        print(f"⚠️ S3 migration error: {e}")
+    except Exception as e:
+        print(f"⚠️ Migration error: {e}")
+
+
+# Carrega usuários na inicialização; migra do S3 se DynamoDB estiver vazio
+USERS_DB = _users_load_all()
+if not USERS_DB:
+    _migrate_from_s3()
+    USERS_DB = _users_load_all()
 
 print(f"✅ Banco de dados carregado: {len(USERS_DB)} usuário(s)")
 
+# ==================== COMPATIBILIDADE DE API ====================
+
+def sync_from_s3() -> None:
+    """No-op: mantido para compatibilidade. DynamoDB garante consistência."""
+    pass
+
+
+def sync_if_stale() -> None:
+    """No-op: mantido para compatibilidade. DynamoDB garante consistência."""
+    pass
+
+
 security = HTTPBearer(auto_error=False)
 
-# Configurações do Cookie
 COOKIE_NAME = "scanner_session"
-COOKIE_MAX_AGE = 86400  # 24 horas
+COOKIE_MAX_AGE = SESSION_TTL_SECONDS
 
 # ==================== MODELOS ====================
 
 class UserRegister(BaseModel):
-    """Modelo de registro de usuário"""
     email: EmailStr
     password: str
     full_name: Optional[str] = None
 
 class UserLogin(BaseModel):
-    """Modelo de login"""
     email: EmailStr
     password: str
     mfa_code: Optional[str] = None
 
 class MFASetup(BaseModel):
-    """Modelo para configuração de MFA"""
     email: EmailStr
     password: str
 
 class MFAVerify(BaseModel):
-    """Modelo para verificação de MFA"""
     email: EmailStr
     code: str
 
 class MFAToggle(BaseModel):
-    """Modelo para ativar/desativar MFA"""
     email: EmailStr
     password: str
     code: Optional[str] = None
 
 class MFARegenerateBackup(BaseModel):
-    """Modelo para regenerar backup codes"""
     email: EmailStr
     password: str
     code: str
@@ -147,521 +204,264 @@ class MFARegenerateBackup(BaseModel):
 # ==================== FUNÇÕES AUXILIARES ====================
 
 def hash_password(password: str) -> str:
-    """Hash de senha - use bcrypt em produção"""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifica senha"""
     return hash_password(plain_password) == hashed_password
 
 def generate_mfa_secret() -> str:
-    """Gera secret aleatório para TOTP"""
     return pyotp.random_base32()
 
 def generate_backup_codes(count: int = 10) -> list[str]:
-    """Gera códigos de backup"""
     return [secrets.token_hex(4).upper() for _ in range(count)]
 
 def generate_qr_code(email: str, secret: str, issuer: str = "Security Scanner") -> str:
-    """Gera QR code para Google Authenticator"""
     totp = pyotp.TOTP(secret)
-    provisioning_uri = totp.provisioning_uri(
-        name=email,
-        issuer_name=issuer
-    )
-    
+    provisioning_uri = totp.provisioning_uri(name=email, issuer_name=issuer)
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(provisioning_uri)
     qr.make(fit=True)
-    
     img = qr.make_image(fill_color="black", back_color="white")
-    
     buffer = io.BytesIO()
     img.save(buffer, format='PNG')
-    img_str = base64.b64encode(buffer.getvalue()).decode()
-    
-    return f"data:image/png;base64,{img_str}"
+    return f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
 
 def verify_totp_code(secret: str, code: str, window: int = 1) -> bool:
-    """Verifica código TOTP"""
-    totp = pyotp.TOTP(secret)
-    return totp.verify(code, valid_window=window)
+    return pyotp.TOTP(secret).verify(code, valid_window=window)
 
-def verify_backup_code(user_backup_codes: list[str], code: str) -> tuple[bool, Optional[list[str]]]:
-    """Verifica código de backup e remove se válido"""
+def verify_backup_code(user_backup_codes: list[str], code: str):
     code_upper = code.upper().replace("-", "").replace(" ", "")
-    
     if code_upper in user_backup_codes:
-        updated_codes = [c for c in user_backup_codes if c != code_upper]
-        return True, updated_codes
-    
+        return True, [c for c in user_backup_codes if c != code_upper]
     return False, user_backup_codes
 
 def create_session_token(email: str) -> str:
-    """Cria token de sessão"""
     token = f"scanner_session_{secrets.token_hex(32)}"
-    ACTIVE_SESSIONS[token] = {
-        "email": email,
-        "created_at": datetime.now().isoformat(),
-        "authenticated": True,
-        "mfa_verified": True
-    }
-    # PERSISTIR SESSÕES
-    save_db(SESSIONS_DB_FILE, ACTIVE_SESSIONS)
+    _session_put(token, email)
     return token
 
 # ==================== DEPENDÊNCIAS ====================
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
-    """
-    Middleware para verificar autenticação via Bearer token
-    USADO POR: Endpoints de API REST
-    """
-    sync_if_stale()
     if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token não fornecido"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token não fornecido")
     token = credentials.credentials
-    
-    if token not in ACTIVE_SESSIONS:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido ou expirado"
-        )
-    
-    session = ACTIVE_SESSIONS[token]
+    session = _session_get(token)
+    if not session:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido ou expirado")
     email = session["email"]
-    
-    if email not in USERS_DB:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuário não encontrado"
-        )
-    
-    user = USERS_DB[email]
-    
-    # Verificar se MFA está ativado e foi verificado
+    user = _user_get(email)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário não encontrado")
     if user.get("mfa_enabled") and not session.get("mfa_verified"):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="MFA não verificado"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MFA não verificado")
     return {
         "email": email,
         "full_name": user.get("full_name"),
         "mfa_enabled": user.get("mfa_enabled", False),
-        "session": session
+        "session": session,
     }
 
 
 def get_current_user_from_cookie(request: Request) -> Dict[str, Any]:
-    """
-    Middleware para verificar autenticação via Cookie
-    USADO POR: Páginas HTML (/dashboard, etc.)
-    """
-    sync_if_stale()
-    # Pegar token do cookie
     token = request.cookies.get(COOKIE_NAME)
-    
     if not token:
         print(f"❌ Cookie '{COOKIE_NAME}' não encontrado")
-        print(f"   Cookies disponíveis: {list(request.cookies.keys())}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     print(f"✅ Cookie encontrado: {token[:20]}...")
-    
-    if token not in ACTIVE_SESSIONS:
-        print(f"❌ Token não existe em ACTIVE_SESSIONS")
-        print(f"   Sessões ativas: {len(ACTIVE_SESSIONS)}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
-        )
-    
-    session = ACTIVE_SESSIONS[token]
+    session = _session_get(token)
+    if not session:
+        print(f"❌ Token não encontrado no DynamoDB")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     email = session["email"]
-    
     print(f"✅ Sessão válida para: {email}")
-    
-    if email not in USERS_DB:
-        print(f"❌ Usuário {email} não existe em USERS_DB")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
-        )
-    
-    user = USERS_DB[email]
-    
-    # Verificar se MFA está ativado e foi verificado
+    user = _user_get(email)
+    if not user:
+        print(f"❌ Usuário {email} não encontrado")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     if user.get("mfa_enabled") and not session.get("mfa_verified"):
         print(f"❌ MFA não verificado para {email}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="MFA não verificado"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MFA não verificado")
     print(f"✅ Autenticação completa para: {email}")
-    
     return {
         "email": email,
         "full_name": user.get("full_name"),
         "mfa_enabled": user.get("mfa_enabled", False),
-        "session": session
+        "session": session,
     }
 
 
 def require_mfa(user: Dict[str, Any] = Depends(get_current_user_from_cookie)) -> Dict[str, Any]:
-    """Requer que MFA esteja ativado"""
     if not user.get("mfa_enabled"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="MFA necessário para esta operação"
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="MFA necessário para esta operação")
     return user
-
 
 # ==================== FUNÇÕES DE AUTENTICAÇÃO ====================
 
 def register_user(email: str, password: str, full_name: Optional[str] = None) -> Dict[str, Any]:
-    """Registra novo usuário"""
-    sync_from_s3()
-    if email in USERS_DB:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Usuário já existe"
-        )
-    
-    USERS_DB[email] = {
+    if _user_get(email):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuário já existe")
+    user_data = {
         "email": email,
         "password": hash_password(password),
         "full_name": full_name,
         "mfa_secret": None,
         "mfa_enabled": False,
         "backup_codes": [],
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now().isoformat(),
     }
-    
-    # PERSISTIR USUÁRIOS
-    save_db(USERS_DB_FILE, USERS_DB)
+    _user_put(email, user_data)
     print(f"✅ Usuário registrado: {email}")
-    
-    return {
-        "message": "Usuário criado com sucesso",
-        "email": email
-    }
+    return {"message": "Usuário criado com sucesso", "email": email}
 
 
 def login_user(email: str, password: str, mfa_code: Optional[str] = None, response: Optional[Response] = None) -> Dict[str, Any]:
-    """Login de usuário"""
-    sync_from_s3()
-    if email not in USERS_DB:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciais inválidas"
-        )
-    
-    user = USERS_DB[email]
-    
-    # Verificar senha
+    user = _user_get(email)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
     if not verify_password(password, user["password"]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciais inválidas"
-        )
-    
-    # Se MFA está ativado
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
+
     if user["mfa_enabled"]:
         if not mfa_code:
-            return {
-                "message": "MFA requerido",
-                "mfa_required": True,
-                "authenticated": False
-            }
-        
-        # Verificar código TOTP
+            return {"message": "MFA requerido", "mfa_required": True, "authenticated": False}
+
         if verify_totp_code(user["mfa_secret"], mfa_code):
             token = create_session_token(email)
-            
-            # Criar cookie
             if response:
-                response.set_cookie(
-                    key=COOKIE_NAME,
-                    value=token,
-                    max_age=COOKIE_MAX_AGE,
-                    httponly=True,
-                    samesite="lax",
-                    secure=False
-                )
+                response.set_cookie(key=COOKIE_NAME, value=token, max_age=COOKIE_MAX_AGE,
+                                    httponly=True, samesite="lax", secure=False)
                 print(f"✅ Cookie criado para {email}: {token[:20]}...")
-            
-            return {
-                "message": "Login bem-sucedido",
-                "authenticated": True,
-                "email": email,
-                "full_name": user.get("full_name"),
-                "token": token,
-                "mfa_enabled": True
-            }
-        
-        # Verificar backup code
+            return {"message": "Login bem-sucedido", "authenticated": True, "email": email,
+                    "full_name": user.get("full_name"), "token": token, "mfa_enabled": True}
+
         is_valid, updated_codes = verify_backup_code(user["backup_codes"], mfa_code)
-        
         if is_valid:
             user["backup_codes"] = updated_codes
-            # PERSISTIR MUDANÇA
-            save_db(USERS_DB_FILE, USERS_DB)
-            
+            _user_put(email, user)
             token = create_session_token(email)
-            
             if response:
-                response.set_cookie(
-                    key=COOKIE_NAME,
-                    value=token,
-                    max_age=COOKIE_MAX_AGE,
-                    httponly=True,
-                    samesite="lax",
-                    secure=False
-                )
+                response.set_cookie(key=COOKIE_NAME, value=token, max_age=COOKIE_MAX_AGE,
+                                    httponly=True, samesite="lax", secure=False)
                 print(f"✅ Cookie criado para {email}: {token[:20]}...")
-            
-            return {
-                "message": "Login bem-sucedido (backup code usado)",
-                "authenticated": True,
-                "email": email,
-                "full_name": user.get("full_name"),
-                "token": token,
-                "mfa_enabled": True,
-                "warning": f"Você tem {len(updated_codes)} backup codes restantes"
-            }
-        
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Código MFA inválido"
-        )
-    
-    # Login sem MFA
+            return {"message": "Login bem-sucedido (backup code usado)", "authenticated": True, "email": email,
+                    "full_name": user.get("full_name"), "token": token, "mfa_enabled": True,
+                    "warning": f"Você tem {len(updated_codes)} backup codes restantes"}
+
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código MFA inválido")
+
     token = create_session_token(email)
-    
     if response:
-        response.set_cookie(
-            key=COOKIE_NAME,
-            value=token,
-            max_age=COOKIE_MAX_AGE,
-            httponly=True,
-            samesite="lax",
-            secure=False
-        )
+        response.set_cookie(key=COOKIE_NAME, value=token, max_age=COOKIE_MAX_AGE,
+                            httponly=True, samesite="lax", secure=False)
         print(f"✅ Cookie criado para {email}: {token[:20]}...")
-    
-    return {
-        "message": "Login bem-sucedido",
-        "authenticated": True,
-        "email": email,
-        "full_name": user.get("full_name"),
-        "token": token,
-        "mfa_enabled": False
-    }
+    return {"message": "Login bem-sucedido", "authenticated": True, "email": email,
+            "full_name": user.get("full_name"), "token": token, "mfa_enabled": False}
 
 
 def setup_mfa(email: str) -> Dict[str, Any]:
-    """Configura MFA para usuário"""
-    if email not in USERS_DB:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuário não encontrado"
-        )
-
-    user = USERS_DB[email]
-
-    # Gerar secret e códigos
+    user = _user_get(email)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
     secret = generate_mfa_secret()
     backup_codes = generate_backup_codes()
     qr_code = generate_qr_code(email, secret)
-
-    # Criar URI de provisionamento
     totp = pyotp.TOTP(secret)
-    provisioning_uri = totp.provisioning_uri(
-        name=email,
-        issuer_name="Security Scanner"
-    )
-
-    # Salvar (mas não ativar ainda)
+    provisioning_uri = totp.provisioning_uri(name=email, issuer_name="Security Scanner")
     user["mfa_secret"] = secret
     user["backup_codes"] = backup_codes
-
-    # PERSISTIR MUDANÇAS
-    save_db(USERS_DB_FILE, USERS_DB)
+    _user_put(email, user)
     print(f"✅ MFA configurado para {email}")
     print(f"   Secret: {secret}")
     print(f"   Código atual: {pyotp.TOTP(secret).now()}")
-
-    return {
-        "secret": secret,
-        "qr_code": qr_code,
-        "backup_codes": backup_codes,
-        "provisioning_uri": provisioning_uri
-    }
+    return {"secret": secret, "qr_code": qr_code, "backup_codes": backup_codes, "provisioning_uri": provisioning_uri}
 
 
 def verify_and_activate_mfa(email: str, code: str) -> Dict[str, Any]:
-    """Verifica código e ativa MFA"""
-    if email not in USERS_DB:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuário não encontrado"
-        )
-    
-    user = USERS_DB[email]
-    
+    user = _user_get(email)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
     if not user.get("mfa_secret"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="MFA não configurado. Execute setup primeiro"
-        )
-    
-    # Log de debug
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="MFA não configurado. Execute setup primeiro")
     print(f"🔍 Verificando MFA para {email}")
     print(f"   Secret: {user['mfa_secret']}")
     print(f"   Código recebido: {code}")
     print(f"   Código esperado: {pyotp.TOTP(user['mfa_secret']).now()}")
-    
-    # Verificar código
     if verify_totp_code(user["mfa_secret"], code):
         user["mfa_enabled"] = True
-        # PERSISTIR MUDANÇA
-        save_db(USERS_DB_FILE, USERS_DB)
+        _user_put(email, user)
         print(f"✅ MFA ativado para {email}")
-        
-        return {
-            "message": "MFA ativado com sucesso!",
-            "mfa_enabled": True
-        }
-    else:
-        print(f"❌ Código inválido para {email}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Código inválido"
-        )
+        return {"message": "MFA ativado com sucesso!", "mfa_enabled": True}
+    print(f"❌ Código inválido para {email}")
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código inválido")
 
 
 def disable_mfa(email: str, password: str, code: str) -> Dict[str, Any]:
-    """Desativa MFA"""
-    if email not in USERS_DB:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuário não encontrado"
-        )
-    
-    user = USERS_DB[email]
-    
-    # Verificar senha
+    user = _user_get(email)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
     if not verify_password(password, user["password"]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Senha incorreta"
-        )
-    
-    # Verificar código MFA
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Senha incorreta")
     if not verify_totp_code(user["mfa_secret"], code):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Código MFA inválido"
-        )
-    
-    # Desativar
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código MFA inválido")
     user["mfa_enabled"] = False
     user["mfa_secret"] = None
     user["backup_codes"] = []
-    
-    # PERSISTIR MUDANÇA
-    save_db(USERS_DB_FILE, USERS_DB)
+    _user_put(email, user)
     print(f"✅ MFA desativado para {email}")
-    
     return {"message": "MFA desativado com sucesso"}
 
 
 def get_mfa_status(email: str) -> Dict[str, Any]:
-    """Retorna status MFA do usuário"""
-    if email not in USERS_DB:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuário não encontrado"
-        )
-    
-    user = USERS_DB[email]
-    
+    user = _user_get(email)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
     return {
         "email": email,
         "mfa_enabled": user.get("mfa_enabled", False),
-        "backup_codes_remaining": len(user.get("backup_codes", []))
+        "backup_codes_remaining": len(user.get("backup_codes", [])),
     }
 
 
 def regenerate_backup_codes(email: str, password: str, code: str) -> Dict[str, Any]:
-    """Regenera backup codes"""
-    if email not in USERS_DB:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuário não encontrado"
-        )
-    
-    user = USERS_DB[email]
-    
-    # Verificar senha
+    user = _user_get(email)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
     if not verify_password(password, user["password"]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Senha incorreta"
-        )
-    
-    # Verificar código MFA
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Senha incorreta")
     if not verify_totp_code(user["mfa_secret"], code):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Código MFA inválido"
-        )
-    
-    # Gerar novos códigos
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código MFA inválido")
     new_codes = generate_backup_codes()
     user["backup_codes"] = new_codes
-    
-    # PERSISTIR MUDANÇA
-    save_db(USERS_DB_FILE, USERS_DB)
-    
-    return {
-        "message": "Backup codes regenerados",
-        "backup_codes": new_codes
-    }
+    _user_put(email, user)
+    return {"message": "Backup codes regenerados", "backup_codes": new_codes}
 
 
 def logout_user(token: str, response: Optional[Response] = None) -> Dict[str, Any]:
-    """Logout - invalida token"""
-    if token in ACTIVE_SESSIONS:
-        del ACTIVE_SESSIONS[token]
-        # PERSISTIR MUDANÇA
-        save_db(SESSIONS_DB_FILE, ACTIVE_SESSIONS)
-    
-    # Remover cookie
+    _session_delete(token)
     if response:
         response.delete_cookie(key=COOKIE_NAME)
         print(f"✅ Cookie removido")
-    
     return {"message": "Logout realizado com sucesso"}
 
+
+def logout_all_sessions(email: str) -> int:
+    """Remove todas as sessões ativas de um email via DynamoDB GSI."""
+    tokens = _sessions_for_email(email)
+    for token in tokens:
+        _session_delete(token)
+    return len(tokens)
 
 # ==================== INFORMAÇÕES ====================
 
 def get_system_stats() -> Dict[str, Any]:
-    """Retorna estatísticas do sistema"""
+    try:
+        resp = _tbl_sessions.scan(Select="COUNT")
+        active_count = resp.get("Count", 0)
+    except Exception:
+        active_count = -1
     return {
         "total_users": len(USERS_DB),
         "users_with_mfa": sum(1 for u in USERS_DB.values() if u.get("mfa_enabled")),
-        "active_sessions": len(ACTIVE_SESSIONS)
+        "active_sessions": active_count,
     }

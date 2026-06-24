@@ -12,6 +12,8 @@ Environment="PATH=/home/ubuntu/security-scanner/venv/bin:/usr/local/bin:/usr/bin
 Environment="PYTHONUNBUFFERED=1"
 Environment="AWS_DEFAULT_REGION=us-east-2"
 Environment="DB_S3_BUCKET=security-scanner-db-442042548551"
+Environment="SESSIONS_DYNAMO_TABLE=security-scanner-sessions"
+Environment="USERS_DYNAMO_TABLE=security-scanner-users"
 Environment="CORS_ORIGINS=http://127.0.0.1:8000,http://localhost:8000,http://security-scanner-alb-268477170.us-east-2.elb.amazonaws.com"
 EnvironmentFile=/home/ubuntu/security-scanner/.env
 ExecStart=/home/ubuntu/security-scanner/venv/bin/uvicorn api_with_mfa:app --host 0.0.0.0 --port 8000 --workers 4
