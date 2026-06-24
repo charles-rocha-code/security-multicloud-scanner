@@ -3377,7 +3377,7 @@ function logout() {
         animateScanStart();
 
         const __iamToken = (localStorage.getItem("scanner_token") || localStorage.getItem("token") || "");
-        fetch("/scan/iam", {
+        fetch("/scan/iam?async=true", {
           method: "POST",
           credentials: "include",
           headers: {
@@ -3393,20 +3393,11 @@ function logout() {
         })
           .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
           .then(({ ok, status, data }) => {
-            console.log("IAM SCAN RESULT:", data);
-            if (!ok || data.error || data.detail) {
-              alert(data.error || data.detail || `Erro HTTP ${status}: falha no scan IAM.`);
-              return;
-            }
-            updateUI(data);
-            saveScanToHistory(data);
-            showActionButtons();
+            if (!ok || data.detail) { alert(data.detail || `Erro HTTP ${status}`); iamBtn.disabled = false; iamBtn.textContent = "Iniciar Scan IAM (AWS)"; return; }
+            if (data.job_id) { _pollJob(data.job_id, __iamToken, iamBtn, "Iniciar Scan IAM (AWS)", Date.now()); }
+            else { updateUI(data); saveScanToHistory(data); showActionButtons(); iamBtn.disabled = false; iamBtn.textContent = "Iniciar Scan IAM (AWS)"; }
           })
-          .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam."); })
-          .finally(() => {
-            iamBtn.disabled = false;
-            iamBtn.textContent = "Iniciar Scan IAM (AWS)";
-          });
+          .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam."); iamBtn.disabled = false; iamBtn.textContent = "Iniciar Scan IAM (AWS)"; });
         return;
       }
       // ---- FIM IAM SCAN ----
@@ -3433,7 +3424,7 @@ function logout() {
         animateScanStart();
 
         const __gcpToken = (localStorage.getItem("scanner_token") || localStorage.getItem("token") || "");
-        fetch("/scan/iam/gcp", {
+        fetch("/scan/iam/gcp?async=true", {
           method: "POST",
           credentials: "include",
           headers: {
@@ -3444,19 +3435,11 @@ function logout() {
         })
           .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
           .then(({ ok, status, data }) => {
-            if (!ok || data.error || data.detail) {
-              alert(data.error || data.detail || `Erro HTTP ${status}: falha no scan GCP IAM.`);
-              return;
-            }
-            updateUI(data);
-            saveScanToHistory(data);
-            showActionButtons();
+            if (!ok || data.detail) { alert(data.detail || `Erro HTTP ${status}`); gcpIamBtn.disabled = false; gcpIamBtn.textContent = "Iniciar Scan IAM (GCP)"; return; }
+            if (data.job_id) { _pollJob(data.job_id, __gcpToken, gcpIamBtn, "Iniciar Scan IAM (GCP)", Date.now()); }
+            else { updateUI(data); saveScanToHistory(data); showActionButtons(); gcpIamBtn.disabled = false; gcpIamBtn.textContent = "Iniciar Scan IAM (GCP)"; }
           })
-          .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam/gcp."); })
-          .finally(() => {
-            gcpIamBtn.disabled = false;
-            gcpIamBtn.textContent = "Iniciar Scan IAM (GCP)";
-          });
+          .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam/gcp."); gcpIamBtn.disabled = false; gcpIamBtn.textContent = "Iniciar Scan IAM (GCP)"; });
         return;
       }
       // ---- FIM GCP IAM SCAN ----
@@ -3480,7 +3463,7 @@ function logout() {
         animateScanStart();
 
         const __azureToken = (localStorage.getItem("scanner_token") || localStorage.getItem("token") || "");
-        fetch("/scan/iam/azure", {
+        fetch("/scan/iam/azure?async=true", {
           method: "POST",
           credentials: "include",
           headers: {
@@ -3496,19 +3479,11 @@ function logout() {
         })
           .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
           .then(({ ok, status, data }) => {
-            if (!ok || data.error || data.detail) {
-              alert(data.error || data.detail || `Erro HTTP ${status}: falha no scan Azure IAM.`);
-              return;
-            }
-            updateUI(data);
-            saveScanToHistory(data);
-            showActionButtons();
+            if (!ok || data.detail) { alert(data.detail || `Erro HTTP ${status}`); azureIamBtn.disabled = false; azureIamBtn.textContent = "Iniciar Scan IAM (Azure / Entra ID)"; return; }
+            if (data.job_id) { _pollJob(data.job_id, __azureToken, azureIamBtn, "Iniciar Scan IAM (Azure / Entra ID)", Date.now()); }
+            else { updateUI(data); saveScanToHistory(data); showActionButtons(); azureIamBtn.disabled = false; azureIamBtn.textContent = "Iniciar Scan IAM (Azure / Entra ID)"; }
           })
-          .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam/azure."); })
-          .finally(() => {
-            azureIamBtn.disabled = false;
-            azureIamBtn.textContent = "Iniciar Scan IAM (Azure / Entra ID)";
-          });
+          .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/iam/azure."); azureIamBtn.disabled = false; azureIamBtn.textContent = "Iniciar Scan IAM (Azure / Entra ID)"; });
         return;
       }
       // ---- FIM AZURE IAM SCAN ----
@@ -3586,7 +3561,7 @@ function logout() {
         resetFilters();
         animateScanStart();
         const __k8sToken = (localStorage.getItem("scanner_token") || localStorage.getItem("token") || "");
-        fetch("/scan/k8s", {
+        fetch("/scan/k8s?async=true", {
           method: "POST",
           credentials: "include",
           headers: {
@@ -3597,17 +3572,11 @@ function logout() {
         })
           .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
           .then(({ ok, status, data }) => {
-            console.log("K8S SCAN RESULT:", data);
-            if (!ok || data.error || data.detail) {
-              alert(data.error || data.detail || `Erro HTTP ${status}: falha no scan Kubernetes.`);
-              return;
-            }
-            updateUI(data);
-            saveScanToHistory(data);
-            showActionButtons();
+            if (!ok || data.detail) { alert(data.detail || `Erro HTTP ${status}`); setIdle(); return; }
+            if (data.job_id) { _pollJob(data.job_id, __k8sToken, k8sBtn, "▶ Iniciar Scan Kubernetes", Date.now()); }
+            else { updateUI(data); saveScanToHistory(data); showActionButtons(); setIdle(); }
           })
-          .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/k8s."); })
-          .finally(setIdle);
+          .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan/k8s."); setIdle(); });
         return;
       }
 
@@ -3621,7 +3590,7 @@ function logout() {
 
       const __token = (localStorage.getItem("scanner_token") || localStorage.getItem("token") || "");
 
-      fetch("/scan/authenticated", {
+      fetch("/scan/authenticated?async=true", {
         method: "POST",
         credentials: "include",
         headers: {
@@ -3632,16 +3601,9 @@ function logout() {
       })
         .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
         .then(({ ok, status, data }) => {
-          console.log("AUTHENTICATED SCAN RESULT:", data);
-          if (!ok || data.error || data.detail) {
-            alert(data.error || data.detail || `Erro HTTP ${status}: falha no scan.`);
-            return;
-          }
-          updateUI(data);
-          saveScanToHistory(data);
-
-          // Mostrar botões de relatório após scan bem-sucedido
-          showActionButtons();
+          if (!ok || data.detail) { alert(data.detail || `Erro HTTP ${status}: falha no scan.`); scanBtn.disabled = false; scanBtn.textContent = "▶ Iniciar Scan"; return; }
+          if (data.job_id) { _pollJob(data.job_id, __token, scanBtn, "▶ Iniciar Scan", Date.now()); }
+          else { updateUI(data); saveScanToHistory(data); showActionButtons(); scanBtn.disabled = false; scanBtn.textContent = "▶ Iniciar Scan"; }
         })
         .catch(err => {
           console.error(err);
@@ -3651,6 +3613,37 @@ function logout() {
           scanBtn.disabled = false;
           scanBtn.textContent = "▶ Iniciar Scan";
         });
+    }
+
+    // ============================================================
+    // ASYNC SCAN POLLING
+    // ============================================================
+    function _pollJob(jobId, token, btn, btnOriginalText, startTime) {
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const iv = setInterval(async () => {
+        try {
+          const res = await fetch(`/scan/job/${jobId}`, { headers, credentials: "include" });
+          if (!res.ok) { clearInterval(iv); btn.disabled = false; btn.textContent = btnOriginalText; alert(`Erro ao consultar job: HTTP ${res.status}`); return; }
+          const job = await res.json();
+          const elapsed = Math.round((Date.now() - startTime) / 1000);
+          if (job.status === "done") {
+            clearInterval(iv);
+            btn.disabled = false; btn.textContent = btnOriginalText;
+            if (job.result) { updateUI(job.result); saveScanToHistory(job.result); showActionButtons(); }
+          } else if (job.status === "error") {
+            clearInterval(iv);
+            btn.disabled = false; btn.textContent = btnOriginalText;
+            alert(`Erro no scan: ${job.error || "Erro desconhecido"}`);
+          } else {
+            btn.textContent = `⏳ Scaneando... ${elapsed}s`;
+          }
+        } catch (err) {
+          clearInterval(iv);
+          btn.disabled = false; btn.textContent = btnOriginalText;
+          alert(`Erro ao verificar status do scan: ${err.message}`);
+        }
+      }, 3000);
     }
 
     // ============================================================

@@ -32,14 +32,17 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
+from botocore.exceptions import NoCredentialsError
 
-from fastapi import Depends, FastAPI, HTTPException, Request , Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -178,6 +181,80 @@ class _ScanCache:
         if email in self._mem:
             return self._mem[email]
         return _load_last_scan(email) or default
+
+
+# ── Async scan job store ──────────────────────────────────────────────────────
+_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="scan-worker")
+_JOBS_S3_PREFIX = "scan-jobs/"
+_JOB_STORE_MEM: Dict[str, Dict[str, Any]] = {}
+
+
+def _job_write(job_id: str, data: Dict[str, Any]) -> None:
+    _JOB_STORE_MEM[job_id] = data
+    if not S3_BUCKET:
+        return
+    try:
+        s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=f"{_JOBS_S3_PREFIX}{job_id}.json",
+            Body=json.dumps(data, default=str).encode("utf-8"),
+            ContentType="application/json",
+        )
+    except Exception as _e:
+        print(f"⚠️ _job_write S3 error: {_e}")
+
+
+def _job_read(job_id: str) -> Optional[Dict[str, Any]]:
+    if job_id in _JOB_STORE_MEM:
+        return _JOB_STORE_MEM[job_id]
+    if not S3_BUCKET:
+        return None
+    try:
+        s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
+        resp = s3.get_object(Bucket=S3_BUCKET, Key=f"{_JOBS_S3_PREFIX}{job_id}.json")
+        data = json.loads(resp["Body"].read().decode("utf-8"))
+        _JOB_STORE_MEM[job_id] = data
+        return data
+    except Exception:
+        return None
+
+
+def _run_in_background(
+    job_id: str,
+    scan_type: str,
+    started_at: str,
+    email: Optional[str],
+    fn,
+    *args,
+    **kwargs,
+) -> None:
+    _job_write(job_id, {
+        "job_id": job_id, "type": scan_type, "status": "running",
+        "started_at": started_at, "finished_at": None, "result": None, "error": None,
+    })
+    try:
+        result = fn(*args, **kwargs)
+        if email:
+            LAST_SCAN_BY_EMAIL[email] = result
+            if HISTORY_AVAILABLE:
+                try:
+                    save_scan(email, scan_type, result)
+                except Exception as _e:
+                    print(f"⚠️ save_scan error: {_e}")
+        _job_write(job_id, {
+            "job_id": job_id, "type": scan_type, "status": "done",
+            "started_at": started_at, "finished_at": datetime.now().isoformat(),
+            "result": result, "error": None,
+        })
+    except Exception as _e:
+        import traceback
+        traceback.print_exc()
+        _job_write(job_id, {
+            "job_id": job_id, "type": scan_type, "status": "error",
+            "started_at": started_at, "finished_at": datetime.now().isoformat(),
+            "result": None, "error": str(_e),
+        })
 
 
 def get_client_ip(request: Request) -> str:
@@ -733,6 +810,20 @@ def dashboard_api(user=Depends(require_mfa)):
 
 
 # -----------------------------------------------------------------------------
+# Status de job assíncrono
+# -----------------------------------------------------------------------------
+@app.get("/scan/job/{job_id}")
+def scan_job_status(job_id: str, user=Depends(require_mfa)):
+    """Consulta o status de um scan assíncrono iniciado com ?async=true."""
+    job = _job_read(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado.")
+    if job.get("status") != "done":
+        return {k: v for k, v in job.items() if k != "result"}
+    return job
+
+
+# -----------------------------------------------------------------------------
 # Scan público (compatível com dashboard)
 # -----------------------------------------------------------------------------
 @app.get("/scan/{target:path}")
@@ -814,8 +905,36 @@ def scan_public(payload: PublicScanIn, user=Depends(require_mfa)):
 # Scan autenticado (AWS S3)
 # -----------------------------------------------------------------------------
 @app.post("/scan/authenticated")
-def scan_authenticated(payload: AuthenticatedScanIn, user=Depends(require_mfa)):
+def scan_authenticated(payload: AuthenticatedScanIn, user=Depends(require_mfa), async_mode: bool = Query(False, alias="async")):
     provider = (payload.provider or "AWS_S3").upper()
+    email = user.get("email") if isinstance(user, dict) else None
+
+    if async_mode:
+        job_id = str(uuid.uuid4())
+        started_at = datetime.now().isoformat()
+        _job_write(job_id, {"job_id": job_id, "type": provider.lower(), "status": "queued",
+                            "started_at": started_at, "finished_at": None, "result": None, "error": None})
+        def _do_authenticated():
+            p = (payload.provider or "AWS_S3").upper()
+            if p == "GCS":
+                from auditor_gcs_authenticated import GCSAuthenticatedAuditor
+                key = dict(payload.service_account_key or {})
+                if "private_key" in key and isinstance(key["private_key"], str):
+                    key["private_key"] = key["private_key"].replace("\\n", "\n")
+                result = GCSAuthenticatedAuditor(bucket_name=payload.bucket, service_account_key=key, max_objects=payload.max_objects).run()
+                return _normalize_scan_result(result, provider="GCS", target=payload.bucket)
+            region_name = payload.region_name or payload.region
+            result = S3AuthenticatedAuditor(
+                bucket_name=payload.bucket,
+                aws_access_key_id=payload.aws_access_key_id,
+                aws_secret_access_key=payload.aws_secret_access_key,
+                aws_session_token=payload.aws_session_token,
+                region_name=region_name,
+                max_objects=payload.max_objects,
+            ).run()
+            return _normalize_scan_result(result, provider="AWS_S3", target=payload.bucket)
+        _EXECUTOR.submit(_run_in_background, job_id, provider.lower(), started_at, email, _do_authenticated)
+        return JSONResponse({"job_id": job_id, "status": "queued"})
 
     try:
         # GCS AUTENTICADO
@@ -897,11 +1016,29 @@ class IamScanIn(BaseModel):
 
 
 @app.post("/scan/iam")
-def scan_iam(payload: IamScanIn, user=Depends(require_mfa)):
+def scan_iam(payload: IamScanIn, user=Depends(require_mfa), async_mode: bool = Query(False, alias="async")):
     """
     Audita a postura de segurança IAM da conta AWS (CSPM).
     Requer permissões: iam:Get*, iam:List*, sts:GetCallerIdentity.
     """
+    email = user.get("email") if isinstance(user, dict) else None
+
+    if async_mode:
+        job_id = str(uuid.uuid4())
+        started_at = datetime.now().isoformat()
+        _job_write(job_id, {"job_id": job_id, "type": "aws_iam", "status": "queued",
+                            "started_at": started_at, "finished_at": None, "result": None, "error": None})
+        def _do_iam():
+            from auditor_iam import IAMAuditor
+            return IAMAuditor(
+                aws_access_key_id=payload.aws_access_key_id,
+                aws_secret_access_key=payload.aws_secret_access_key,
+                aws_session_token=payload.aws_session_token,
+                region_name=payload.region_name or "us-east-1",
+            ).run()
+        _EXECUTOR.submit(_run_in_background, job_id, "aws_iam", started_at, email, _do_iam)
+        return JSONResponse({"job_id": job_id, "status": "queued"})
+
     try:
         from auditor_iam import IAMAuditor
         auditor = IAMAuditor(
@@ -911,7 +1048,6 @@ def scan_iam(payload: IamScanIn, user=Depends(require_mfa)):
             region_name=payload.region_name or "us-east-1",
         )
         result = auditor.run()
-        email = user.get("email") if isinstance(user, dict) else None
         if email:
             LAST_SCAN_BY_EMAIL[email] = result
             if HISTORY_AVAILABLE:
@@ -936,16 +1072,28 @@ class GcpIamScanIn(BaseModel):
 
 
 @app.post("/scan/iam/gcp")
-def scan_iam_gcp(payload: GcpIamScanIn, user=Depends(require_mfa)):
+def scan_iam_gcp(payload: GcpIamScanIn, user=Depends(require_mfa), async_mode: bool = Query(False, alias="async")):
     """
     Audita postura de segurança IAM de um projeto GCP (CSPM).
     Requer permissões: roles/iam.securityReviewer ou roles/viewer no projeto.
     """
+    email = user.get("email") if isinstance(user, dict) else None
+
+    if async_mode:
+        job_id = str(uuid.uuid4())
+        started_at = datetime.now().isoformat()
+        _job_write(job_id, {"job_id": job_id, "type": "gcp_iam", "status": "queued",
+                            "started_at": started_at, "finished_at": None, "result": None, "error": None})
+        def _do_gcp_iam():
+            from auditor_iam_gcp import GCPIAMAuditor
+            return GCPIAMAuditor(service_account_key=payload.service_account_key).run()
+        _EXECUTOR.submit(_run_in_background, job_id, "gcp_iam", started_at, email, _do_gcp_iam)
+        return JSONResponse({"job_id": job_id, "status": "queued"})
+
     try:
         from auditor_iam_gcp import GCPIAMAuditor
         auditor = GCPIAMAuditor(service_account_key=payload.service_account_key)
         result = auditor.run()
-        email = user.get("email") if isinstance(user, dict) else None
         if email:
             LAST_SCAN_BY_EMAIL[email] = result
             if HISTORY_AVAILABLE:
@@ -971,11 +1119,29 @@ class AzureIamScanIn(BaseModel):
 
 
 @app.post("/scan/iam/azure")
-def scan_iam_azure(payload: AzureIamScanIn, user=Depends(require_mfa)):
+def scan_iam_azure(payload: AzureIamScanIn, user=Depends(require_mfa), async_mode: bool = Query(False, alias="async")):
     """
     Audita postura de segurança IAM da subscription Azure + Entra ID (CSPM).
     Requer permissões: Reader na subscription + Microsoft Graph: Policy.Read.All, RoleManagement.Read.All.
     """
+    email = user.get("email") if isinstance(user, dict) else None
+
+    if async_mode:
+        job_id = str(uuid.uuid4())
+        started_at = datetime.now().isoformat()
+        _job_write(job_id, {"job_id": job_id, "type": "azure_iam", "status": "queued",
+                            "started_at": started_at, "finished_at": None, "result": None, "error": None})
+        def _do_azure_iam():
+            from auditor_iam_azure import AzureIAMAuditor
+            return AzureIAMAuditor(
+                tenant_id=payload.tenant_id,
+                client_id=payload.client_id,
+                client_secret=payload.client_secret,
+                subscription_id=payload.subscription_id,
+            ).run()
+        _EXECUTOR.submit(_run_in_background, job_id, "azure_iam", started_at, email, _do_azure_iam)
+        return JSONResponse({"job_id": job_id, "status": "queued"})
+
     try:
         from auditor_iam_azure import AzureIAMAuditor
         auditor = AzureIAMAuditor(
@@ -985,7 +1151,6 @@ def scan_iam_azure(payload: AzureIamScanIn, user=Depends(require_mfa)):
             subscription_id=payload.subscription_id,
         )
         result = auditor.run()
-        email = user.get("email") if isinstance(user, dict) else None
         if email:
             LAST_SCAN_BY_EMAIL[email] = result
             if HISTORY_AVAILABLE:
@@ -1009,11 +1174,24 @@ class K8sScanIn(BaseModel):
 
 
 @app.post("/scan/k8s")
-def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa)):
+def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa), async_mode: bool = Query(False, alias="async")):
     """
     Audita storage de um cluster Kubernetes via kubeconfig YAML.
     Analisa PVs, PVCs, Secrets, ConfigMaps e StorageClasses.
     """
+    email = user.get("email") if isinstance(user, dict) else None
+
+    if async_mode:
+        job_id = str(uuid.uuid4())
+        started_at = datetime.now().isoformat()
+        _job_write(job_id, {"job_id": job_id, "type": "k8s", "status": "queued",
+                            "started_at": started_at, "finished_at": None, "result": None, "error": None})
+        def _do_k8s():
+            from auditor_k8s import K8sStorageAuditor
+            return K8sStorageAuditor(kubeconfig_yaml=payload.kubeconfig, max_objects=payload.max_objects).run()
+        _EXECUTOR.submit(_run_in_background, job_id, "k8s", started_at, email, _do_k8s)
+        return JSONResponse({"job_id": job_id, "status": "queued"})
+
     try:
         from auditor_k8s import K8sStorageAuditor
         auditor = K8sStorageAuditor(
@@ -1021,7 +1199,6 @@ def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa)):
             max_objects=payload.max_objects,
         )
         result = auditor.run()
-        email = user.get("email") if isinstance(user, dict) else None
         if email:
             LAST_SCAN_BY_EMAIL[email] = result
             if HISTORY_AVAILABLE:
