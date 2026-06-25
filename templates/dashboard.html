@@ -3393,6 +3393,23 @@ function logout() {
       resetFilters();
       animateScanStart();
 
+      // Barra de progresso pseudo-animada
+      const progressWrap = document.getElementById("scan-btn-progress");
+      const progressFill = progressWrap ? progressWrap.querySelector(".scan-progress-fill") : null;
+      const progressLbl  = progressWrap ? progressWrap.querySelector(".scan-progress-lbl")  : null;
+      const startTime = Date.now();
+      if (progressWrap) {
+        progressWrap.style.display = "block";
+        if (progressFill) progressFill.style.width = "4%";
+        if (progressLbl)  progressLbl.textContent  = "Iniciando scan...";
+      }
+      const progressIv = setInterval(() => {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        const pct = Math.min(90, Math.round(90 * (1 - Math.exp(-elapsed / 25))));
+        if (progressFill) progressFill.style.width = pct + "%";
+        if (progressLbl)  progressLbl.textContent  = `Analisando recursos... ${elapsed}s`;
+      }, 1000);
+
       fetch("/scan/" + encodeURIComponent(bucket), { headers: { "Authorization": `Bearer ${getAuthToken()}` }, credentials: "include" })
         .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
         .then(({ ok, status, data }) => {
@@ -3406,6 +3423,10 @@ function logout() {
         })
         .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan."); })
         .finally(() => {
+          clearInterval(progressIv);
+          if (progressFill) progressFill.style.width = "100%";
+          if (progressLbl)  progressLbl.textContent  = "Scan concluído!";
+          setTimeout(() => { if (progressWrap) progressWrap.style.display = "none"; }, 1800);
           scanBtn.disabled = false;
           scanBtn.classList.remove("scanning");
           if (btnIcon) btnIcon.textContent = "▶";
