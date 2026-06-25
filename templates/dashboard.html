@@ -686,6 +686,41 @@
     }
     .btn-scan-pro.scanning { animation: scan-pulse 1.2s ease-in-out infinite; }
 
+    /* ── Scan Progress Bar ──────────────────────────────────────── */
+    .scan-progress-wrap {
+      margin-top: 8px;
+      width: 100%;
+    }
+    .scan-progress-track {
+      width: 100%;
+      height: 5px;
+      background: #111827;
+      border-radius: 3px;
+      overflow: hidden;
+      border: 1px solid #1f2937;
+    }
+    .scan-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #1d4ed8 0%, #3b82f6 50%, #60a5fa 100%);
+      background-size: 200% 100%;
+      border-radius: 3px;
+      transition: width 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+      animation: progress-shimmer 2s linear infinite;
+    }
+    @keyframes progress-shimmer {
+      0%   { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
+    .scan-progress-lbl {
+      display: block;
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 5px;
+      text-align: center;
+      letter-spacing: 0.3px;
+    }
+
     .scan-form-row {
       display: flex;
       gap: 10px;
@@ -2335,6 +2370,12 @@
               <span id="scan-btn-text">Iniciar Scan</span>
             </button>
           </div>
+          <div class="scan-progress-wrap" id="scan-btn-progress" style="display:none">
+            <div class="scan-progress-track">
+              <div class="scan-progress-fill" id="scan-btn-progress-fill"></div>
+            </div>
+            <span class="scan-progress-lbl" id="scan-btn-progress-lbl">Iniciando...</span>
+          </div>
 
           <!-- Container de Credenciais (visível apenas em modo privado) -->
           <div id="credentials-container" class="credentials-container">
@@ -2507,6 +2548,10 @@
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   Iniciar Scan Kubernetes
                 </button>
+                <div class="scan-progress-wrap" id="scan-btn-k8s-progress" style="display:none">
+                  <div class="scan-progress-track"><div class="scan-progress-fill"></div></div>
+                  <span class="scan-progress-lbl">Iniciando...</span>
+                </div>
               </div>
             </div>
 
@@ -2526,6 +2571,10 @@
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   Iniciar Scan IAM (AWS)
                 </button>
+                <div class="scan-progress-wrap" id="scan-btn-iam-progress" style="display:none">
+                  <div class="scan-progress-track"><div class="scan-progress-fill" style="background: linear-gradient(90deg,#7c3aed,#a855f7,#c084fc); background-size:200% 100%;"></div></div>
+                  <span class="scan-progress-lbl">Iniciando...</span>
+                </div>
               </div>
             </div>
 
@@ -2564,6 +2613,10 @@
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   Iniciar Scan IAM (GCP)
                 </button>
+                <div class="scan-progress-wrap" id="scan-btn-gcp-iam-progress" style="display:none">
+                  <div class="scan-progress-track"><div class="scan-progress-fill"></div></div>
+                  <span class="scan-progress-lbl">Iniciando...</span>
+                </div>
               </div>
             </div>
 
@@ -2611,6 +2664,10 @@
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                   Iniciar Scan IAM (Azure / Entra ID)
                 </button>
+                <div class="scan-progress-wrap" id="scan-btn-azure-iam-progress" style="display:none">
+                  <div class="scan-progress-track"><div class="scan-progress-fill" style="background: linear-gradient(90deg,#0284c7,#0ea5e9,#38bdf8); background-size:200% 100%;"></div></div>
+                  <span class="scan-progress-lbl">Iniciando...</span>
+                </div>
               </div>
             </div>
           </div>
@@ -3621,26 +3678,53 @@ function logout() {
     function _pollJob(jobId, token, btn, btnOriginalText, startTime) {
       const headers = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const progressWrap = btn.id ? document.getElementById(btn.id + '-progress') : null;
+      const progressFill = progressWrap ? progressWrap.querySelector('.scan-progress-fill') : null;
+      const progressLbl  = progressWrap ? progressWrap.querySelector('.scan-progress-lbl')  : null;
+
+      if (progressWrap) {
+        progressWrap.style.display = 'block';
+        if (progressFill) progressFill.style.width = '4%';
+        if (progressLbl)  progressLbl.textContent  = 'Iniciando scan...';
+      }
+
       const iv = setInterval(async () => {
         try {
           const res = await fetch(`/scan/job/${jobId}`, { headers, credentials: "include" });
-          if (!res.ok) { clearInterval(iv); btn.disabled = false; btn.textContent = btnOriginalText; alert(`Erro ao consultar job: HTTP ${res.status}`); return; }
+          if (!res.ok) {
+            clearInterval(iv);
+            btn.disabled = false; btn.textContent = btnOriginalText;
+            if (progressWrap) progressWrap.style.display = 'none';
+            alert(`Erro ao consultar job: HTTP ${res.status}`);
+            return;
+          }
           const job = await res.json();
           const elapsed = Math.round((Date.now() - startTime) / 1000);
+          // Pseudo-progress: curva logarítmica que se aproxima de 90%
+          const pseudoPct = Math.min(90, Math.round(90 * (1 - Math.exp(-elapsed / 25))));
+
           if (job.status === "done") {
             clearInterval(iv);
             btn.disabled = false; btn.textContent = btnOriginalText;
+            if (progressFill) progressFill.style.width = '100%';
+            if (progressLbl)  progressLbl.textContent  = 'Scan concluído!';
+            setTimeout(() => { if (progressWrap) progressWrap.style.display = 'none'; }, 1800);
             if (job.result) { updateUI(job.result); saveScanToHistory(job.result); showActionButtons(); }
           } else if (job.status === "error") {
             clearInterval(iv);
             btn.disabled = false; btn.textContent = btnOriginalText;
+            if (progressWrap) progressWrap.style.display = 'none';
             alert(`Erro no scan: ${job.error || "Erro desconhecido"}`);
           } else {
             btn.textContent = `⏳ Scaneando... ${elapsed}s`;
+            if (progressFill) progressFill.style.width = pseudoPct + '%';
+            if (progressLbl)  progressLbl.textContent  = `Analisando recursos... ${elapsed}s`;
           }
         } catch (err) {
           clearInterval(iv);
           btn.disabled = false; btn.textContent = btnOriginalText;
+          if (progressWrap) progressWrap.style.display = 'none';
           alert(`Erro ao verificar status do scan: ${err.message}`);
         }
       }, 3000);
