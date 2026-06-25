@@ -3297,6 +3297,8 @@ function logout() {
         // Restaura linha de target/scan ao voltar para modo público
         const scanFormRow = document.getElementById("scan-form-row");
         if (scanFormRow) scanFormRow.style.display = "";
+        const targetWrapper = document.getElementById("scan-target-wrapper");
+        if (targetWrapper) targetWrapper.style.display = "";
       } else {
         privateBtn.classList.add("active");
         publicBtn.classList.remove("active");
