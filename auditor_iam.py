@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import time
 from collections import Counter
 from datetime import datetime, timezone
@@ -29,9 +30,6 @@ from cve_mapping import enrich_finding
 KEY_AGE_HIGH_DAYS = 90
 KEY_AGE_WARN_DAYS = 45
 INACTIVE_DAYS = 90
-
-SEVERITY_SCORE = {"CRITICAL": 40, "HIGH": 25, "MEDIUM": 15, "LOW": 5}
-
 
 class IAMAuditor:
     def __init__(
@@ -346,7 +344,16 @@ class IAMAuditor:
         return {"critical": c["CRITICAL"], "high": c["HIGH"], "medium": c["MEDIUM"], "low": c["LOW"]}
 
     def _risk_score(self) -> int:
-        return min(sum(SEVERITY_SCORE.get(f["severity"], 0) for f in self._findings), 100)
+        dist = self._severity_distribution()
+        def _log(n: int, w: float, r: float) -> float:
+            return w * (1 - math.exp(-n / r)) if n > 0 else 0.0
+        score = (
+            _log(dist["critical"], 65.0, 1.0) +
+            _log(dist["high"],     45.0, 3.0) +
+            _log(dist["medium"],   15.0, 8.0) +
+            _log(dist["low"],       8.0, 20.0)
+        )
+        return min(round(score), 100)
 
     def _recommendations(self, score: int) -> List[str]:
         recs = []
