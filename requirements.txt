@@ -17,6 +17,7 @@ azure-mgmt-authorization>=4.0.0
 python-multipart>=0.0.6
 pydantic>=2.5.0
 jinja2>=3.1.2
+markupsafe>=2.1.0
 
 # ==================== MFA Dependencies ====================
 bcrypt>=4.0.0
