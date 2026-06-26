@@ -140,9 +140,14 @@ class ChartEngine:
         ax.text(0, -0.34, dominant_sev, ha='center', va='center', zorder=3,
                 fontsize=8.5, fontweight='bold', color=dom_col)
 
+        if sum(nz_vals) == 0:
+            ax.set_xlim(-1.2, 1.2)
+            ax.set_ylim(-1.2, 1.2)
+
         ax.set_title('Distribuição de Severidade', fontsize=13,
                      fontweight='bold', color=P['primary'], pad=14)
-        ax.axis('equal')
+        ax.set_aspect('equal')
+        ax.axis('off')
         fig.tight_layout(pad=1.2)
         return self._save(fig, 'donut_severity')
 
@@ -1022,20 +1027,21 @@ class ProfessionalReportGenerator:
                                         'Revisar e desabilitar usuários inativos há mais de 90 dias',
                                         'Implementar AWS IAM Access Analyzer para detecção contínua'],
                              'timeline':'24-72 horas','responsible':'Equipe de DevSecOps'})
-            recs.append({'priority':'MÉDIA','title':'Fortalecer Política de Senhas e Governança IAM',
-                         'description':'Políticas de senha fracas e ausência de rotação periódica aumentam risco de comprometimento.',
-                         'actions':['Configurar MinimumPasswordLength=14 e MaxPasswordAge=90',
-                                    'Habilitar PasswordReusePrevention=24',
-                                    'Implementar Service Control Policies (SCPs) via AWS Organizations',
-                                    'Realizar revisões trimestrais de permissões IAM'],
-                         'timeline':'7-14 dias','responsible':'Equipe de Segurança / Compliance'})
-            recs.append({'priority':'MÉDIA','title':'Implementar Monitoramento Contínuo de IAM',
-                         'description':'Detecção proativa de mudanças e acessos anômalos em identidades é essencial para CSPM efetivo.',
-                         'actions':['Habilitar AWS CloudTrail em todas as regiões para auditoria IAM',
-                                    'Configurar AWS Config Rules para verificação de CIS Benchmark',
-                                    'Ativar AWS GuardDuty para detecção de comportamentos anômalos',
-                                    'Implementar revisão mensal de achados do AWS Security Hub'],
-                         'timeline':'14-30 dias','responsible':'Equipe de SecOps'})
+            if total > 0:
+                recs.append({'priority':'MÉDIA','title':'Fortalecer Política de Senhas e Governança IAM',
+                             'description':'Políticas de senha fracas e ausência de rotação periódica aumentam risco de comprometimento.',
+                             'actions':['Configurar MinimumPasswordLength=14 e MaxPasswordAge=90',
+                                        'Habilitar PasswordReusePrevention=24',
+                                        'Implementar Service Control Policies (SCPs) via AWS Organizations',
+                                        'Realizar revisões trimestrais de permissões IAM'],
+                             'timeline':'7-14 dias','responsible':'Equipe de Segurança / Compliance'})
+                recs.append({'priority':'MÉDIA','title':'Implementar Monitoramento Contínuo de IAM',
+                             'description':'Detecção proativa de mudanças e acessos anômalos em identidades é essencial para CSPM efetivo.',
+                             'actions':['Habilitar AWS CloudTrail em todas as regiões para auditoria IAM',
+                                        'Configurar AWS Config Rules para verificação de CIS Benchmark',
+                                        'Ativar AWS GuardDuty para detecção de comportamentos anômalos',
+                                        'Implementar revisão mensal de achados do AWS Security Hub'],
+                             'timeline':'14-30 dias','responsible':'Equipe de SecOps'})
             return recs
 
         if prov == 'GCP_IAM':
@@ -1057,20 +1063,21 @@ class ProfessionalReportGenerator:
                                         'Criar SAs dedicadas por workload com permissões mínimas',
                                         'Auditar Cloud Audit Logs de criação de service account keys'],
                              'timeline':'24-72 horas','responsible':'Equipe de DevSecOps GCP'})
-            recs.append({'priority':'MÉDIA','title':'Reduzir Project Owners e Implantar Governança',
-                         'description':'Excesso de owners aumenta superfície de comprometimento no projeto GCP.',
-                         'actions':['Limitar Project Owners a no máximo 2 identidades (CIS GCP 1.2)',
-                                    'Ativar Organization Policies para restringir domínios de identidade',
-                                    'Usar IAM Conditions para acesso granular baseado em contexto',
-                                    'Realizar revisões trimestrais de permissões no projeto'],
-                         'timeline':'7-14 dias','responsible':'Equipe de Segurança / Compliance GCP'})
-            recs.append({'priority':'MÉDIA','title':'Implementar Monitoramento e Auditoria GCP IAM',
-                         'description':'Visibilidade contínua sobre mudanças de IAM é essencial para CSPM em GCP.',
-                         'actions':['Ativar Cloud Audit Logs (Data Access) em todos os serviços críticos',
-                                    'Configurar Security Command Center para alertas de IAM',
-                                    'Usar IAM Recommender semanalmente para detectar permissões excessivas',
-                                    'Implementar VPC Service Controls para isolamento de projetos sensíveis'],
-                         'timeline':'14-30 dias','responsible':'Equipe de SecOps GCP'})
+            if total > 0:
+                recs.append({'priority':'MÉDIA','title':'Reduzir Project Owners e Implantar Governança',
+                             'description':'Excesso de owners aumenta superfície de comprometimento no projeto GCP.',
+                             'actions':['Limitar Project Owners a no máximo 2 identidades (CIS GCP 1.2)',
+                                        'Ativar Organization Policies para restringir domínios de identidade',
+                                        'Usar IAM Conditions para acesso granular baseado em contexto',
+                                        'Realizar revisões trimestrais de permissões no projeto'],
+                             'timeline':'7-14 dias','responsible':'Equipe de Segurança / Compliance GCP'})
+                recs.append({'priority':'MÉDIA','title':'Implementar Monitoramento e Auditoria GCP IAM',
+                             'description':'Visibilidade contínua sobre mudanças de IAM é essencial para CSPM em GCP.',
+                             'actions':['Ativar Cloud Audit Logs (Data Access) em todos os serviços críticos',
+                                        'Configurar Security Command Center para alertas de IAM',
+                                        'Usar IAM Recommender semanalmente para detectar permissões excessivas',
+                                        'Implementar VPC Service Controls para isolamento de projetos sensíveis'],
+                             'timeline':'14-30 dias','responsible':'Equipe de SecOps GCP'})
             return recs
 
         if prov == 'AZURE_IAM':
@@ -1092,20 +1099,21 @@ class ProfessionalReportGenerator:
                                         'Remover Owners excessivos da subscription',
                                         'Auditar Entra ID Sign-in logs para comportamentos anômalos'],
                              'timeline':'24-72 horas','responsible':'Equipe de DevSecOps Azure'})
-            recs.append({'priority':'MÉDIA','title':'Eliminar Wildcard Roles e Classic Admins',
-                         'description':'Custom roles com wildcard e Co-Administrators aumentam superfície de ataque no Azure.',
-                         'actions':['Substituir ações wildcard em custom roles por ações específicas do Resource Provider',
-                                    'Remover todos os Classic Administrators (Co-Admin) — migrar para RBAC',
-                                    'Revisar atribuições em escopo de Management Group/Root',
-                                    'Implementar Azure Policy com iniciativa CIS Azure Foundations Benchmark'],
-                         'timeline':'7-14 dias','responsible':'Equipe de Segurança / Compliance Azure'})
-            recs.append({'priority':'MÉDIA','title':'Implementar Monitoramento Contínuo de Postura Azure',
-                         'description':'Visibilidade contínua sobre identidades e acessos é essencial para CSPM no Azure.',
-                         'actions':['Ativar Microsoft Defender for Cloud — plano de Identidade',
-                                    'Configurar Microsoft Sentinel para alertas de IAM e Entra ID',
-                                    'Habilitar Entra ID Identity Protection para detectar identidades comprometidas',
-                                    'Realizar revisões mensais de Conditional Access e role assignments'],
-                         'timeline':'14-30 dias','responsible':'Equipe de SecOps Azure'})
+            if total > 0:
+                recs.append({'priority':'MÉDIA','title':'Eliminar Wildcard Roles e Classic Admins',
+                             'description':'Custom roles com wildcard e Co-Administrators aumentam superfície de ataque no Azure.',
+                             'actions':['Substituir ações wildcard em custom roles por ações específicas do Resource Provider',
+                                        'Remover todos os Classic Administrators (Co-Admin) — migrar para RBAC',
+                                        'Revisar atribuições em escopo de Management Group/Root',
+                                        'Implementar Azure Policy com iniciativa CIS Azure Foundations Benchmark'],
+                             'timeline':'7-14 dias','responsible':'Equipe de Segurança / Compliance Azure'})
+                recs.append({'priority':'MÉDIA','title':'Implementar Monitoramento Contínuo de Postura Azure',
+                             'description':'Visibilidade contínua sobre identidades e acessos é essencial para CSPM no Azure.',
+                             'actions':['Ativar Microsoft Defender for Cloud — plano de Identidade',
+                                        'Configurar Microsoft Sentinel para alertas de IAM e Entra ID',
+                                        'Habilitar Entra ID Identity Protection para detectar identidades comprometidas',
+                                        'Realizar revisões mensais de Conditional Access e role assignments'],
+                             'timeline':'14-30 dias','responsible':'Equipe de SecOps Azure'})
             return recs
 
         if 'KUBERNETES' in prov:
@@ -2048,6 +2056,13 @@ class ProfessionalReportGenerator:
         story.append(Paragraph(sec3_desc, styles['Normal']))
         add_chart(self.ch.get('risk_all'), width=5.8*inch,
                   caption="Figura 5 — Score de Criticidade por Finding" if is_iam else "Figura 5 — Score de Criticidade por Arquivo")
+        if is_iam and not self.ch.get('risk_all'):
+            story.append(Spacer(1, 0.5*inch))
+            story.append(Paragraph(
+                "Nenhum finding identificado — postura IAM dentro dos parâmetros de segurança.",
+                ParagraphStyle('OK_MSG', fontSize=11, textColor=self.COLOR_LOW,
+                               alignment=TA_CENTER, fontName='Helvetica-Bold')))
+            story.append(Spacer(1, 0.5*inch))
         if not is_iam:
             story.append(Paragraph("Volume de dados expostos por arquivo:", H2))
             add_chart(self.ch.get('size'), width=5.8*inch,
@@ -2072,7 +2087,8 @@ class ProfessionalReportGenerator:
                 styles['Normal']))
             add_chart(self.ch.get('heatmap'), width=6.0*inch,
                       caption="Figura 6 — Mapa de Calor Multidimensional de Risco")
-        story.append(PageBreak())
+        if not is_iam or self.ch.get('cat_bars'):
+            story.append(PageBreak())
 
         # ── 5. GAUGES INDIVIDUAIS ──────────────────────────────────────
         if self.ch.get('gauges'):
@@ -2189,7 +2205,7 @@ class ProfessionalReportGenerator:
                 'Responsável', rec.get('responsible','A definir'),
                 'Esforço', effort_map.get(rec['priority'],'Médio'),
                 'Impacto', impact_map.get(rec['priority'],'Alto'),
-            ]], colWidths=[0.8*inch,1.3*inch,1.0*inch,1.7*inch,0.8*inch,0.9*inch,0.7*inch,0.8*inch])
+            ]], colWidths=[0.6*inch,1.0*inch,0.85*inch,1.6*inch,0.65*inch,0.7*inch,0.6*inch,0.7*inch])
             meta.setStyle(TableStyle([
                 ('BACKGROUND',(0,0),(-1,-1),self.COLOR_BG_LIGHT),
                 ('FONTNAME',(0,0),(0,-1),'Helvetica-Bold'),
@@ -2217,18 +2233,25 @@ class ProfessionalReportGenerator:
             # Helvetica suporta apenas Latin-1 (U+0000–U+00FF);
             # emojis nos status quebram doc.build() — remover antes de renderizar.
             _lat1 = lambda s: ''.join(c for c in str(s) if ord(c) <= 255).strip()
+            _cst_hdr = ParagraphStyle('_csth', fontSize=9, fontName='Helvetica-Bold',
+                                      textColor=colors.white, leading=12)
+            _cst_val = ParagraphStyle('_cstv', fontSize=8, fontName='Helvetica',
+                                      textColor=colors.HexColor('#1e293b'), leading=11)
             comp_t2 = Table(
-                [['Framework','Status','Observacoes']] +
-                [[_lat1(fw['name']), _lat1(fw['status']), _lat1(fw['issues'])] for fw in self.compliance_status],
-                colWidths=[1.5*inch,1.8*inch,2.8*inch])
+                [[Paragraph('Framework', _cst_hdr),
+                  Paragraph('Status', _cst_hdr),
+                  Paragraph('Observacoes', _cst_hdr)]] +
+                [[Paragraph(_lat1(fw['name']), _cst_val),
+                  Paragraph(_lat1(fw['status']), _cst_val),
+                  Paragraph(_lat1(fw['issues']), _cst_val)] for fw in self.compliance_status],
+                colWidths=[2.3*inch, 1.1*inch, 2.8*inch])
             comp_t2.setStyle(TableStyle([
                 ('BACKGROUND',(0,0),(-1,0),self.COLOR_PRIMARY),
-                ('TEXTCOLOR',(0,0),(-1,0),colors.white),
-                ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
                 ('FONTSIZE',(0,0),(-1,-1),9),
                 ('PADDING',(0,0),(-1,-1),8),
                 ('GRID',(0,0),(-1,-1),0.5,self.COLOR_PRIMARY),
                 ('VALIGN',(0,0),(-1,-1),'TOP'),
+                ('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white, self.COLOR_BG_LIGHT]),
             ]))
             story.append(comp_t2)
             story.append(Spacer(1,0.3*inch))
