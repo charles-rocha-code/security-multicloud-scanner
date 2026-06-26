@@ -3409,8 +3409,8 @@ function logout() {
       } else {
         privateBtn.classList.add("active");
         publicBtn.classList.remove("active");
-        credentialsContainer.classList.remove("collapsed");
-        credentialsContainer.classList.add("active");
+        credentialsContainer.classList.remove("active");
+        credentialsContainer.classList.add("collapsed");
         if (hintEl) hintEl.textContent = "Com credenciais — acesso autenticado ao bucket";
       }
     }
@@ -3870,7 +3870,7 @@ function logout() {
     // ============================================================
     function collapseCredentials() {
       const container = document.getElementById("credentials-container");
-      if (!container || !container.classList.contains("active")) return;
+      if (!container || container.classList.contains("collapsed") || !container.classList.contains("active")) return;
       const provider = document.getElementById("provider-select");
       const providerLabel = provider ? provider.options[provider.selectedIndex].text : "Scan Privado";
       const summaryEl = document.getElementById("cred-summary-text");
