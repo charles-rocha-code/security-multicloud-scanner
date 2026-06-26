@@ -7,6 +7,7 @@
 
 from typing import Dict, List, Tuple
 from collections import Counter
+import math
 
 # ------------------------------------------------------------
 # Regras de severidade por extensão / padrão
@@ -97,24 +98,35 @@ def calculate_advanced_risk(payload: Dict) -> Dict:
     files = payload.get("files", [])
     public_access = payload.get("public_access", False)
 
-    score = 0
-    details = []
+    dist = build_severity_distribution(files)
+    c = dist["critical"]
+    h = dist["high"]
+    m = dist["medium"]
+    l = dist["low"]
+
+    # Curva logarítmica: cresce rápido no início, acomoda volumes grandes.
+    # ref = número de findings que atinge ~63% do peso máximo da categoria.
+    def _log(count: int, weight: float, ref: float) -> float:
+        return weight * (1 - math.exp(-count / ref))
+
+    score = 0.0
+    score += _log(c, 65.0, 3.0)   # 3 críticos  ≈ 65 pts
+    score += _log(h, 25.0, 8.0)   # 8 altos     ≈ 25 pts
+    score += _log(m, 12.0, 15.0)  # 15 médios   ≈ 12 pts
+    score += _log(l,  8.0, 50.0)  # 50 baixos   ≈  8 pts
 
     if public_access:
-        score += 35
-        details.append("Bucket com listagem pública habilitada (+35)")
+        score += 15.0
 
-    for f in files:
-        sev = f.get("severity", "LOW")
-        weight = SEVERITY_SCORE.get(sev, 0)
-        score += weight
+    score = min(round(score), 100)
 
-        if weight:
-            details.append(
-                f"{f.get('key')} classificado como {sev} (+{weight})"
-            )
-
-    score = min(score, 100)
+    details = []
+    if public_access:
+        details.append("Bucket com listagem pública habilitada (+15)")
+    if c: details.append(f"{c} arquivo(s) CRITICAL detectado(s)")
+    if h: details.append(f"{h} arquivo(s) HIGH detectado(s)")
+    if m: details.append(f"{m} arquivo(s) MEDIUM detectado(s)")
+    if l: details.append(f"{l} arquivo(s) LOW detectado(s)")
 
     if score >= 80:
         level = "CRITICAL"
