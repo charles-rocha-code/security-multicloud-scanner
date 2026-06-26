@@ -14,50 +14,58 @@ import math
 # ------------------------------------------------------------
 
 SENSITIVE_EXTENSIONS = {
-    ".env": ("CRITICAL", "Arquivo de ambiente exposto"),
-    ".pem": ("CRITICAL", "Chave privada exposta"),
-    ".key": ("CRITICAL", "Chave criptográfica exposta"),
-    ".p12": ("CRITICAL", "Certificado PKCS#12 exposto"),
-    ".pfx": ("CRITICAL", "Certificado PFX exposto"),
-    ".crt": ("HIGH", "Certificado exposto"),
-    ".cer": ("HIGH", "Certificado exposto"),
-    ".sql": ("HIGH", "Dump SQL exposto"),
-    ".db": ("HIGH", "Banco de dados exposto"),
+    # CRITICAL — chaves, certificados e ambientes
+    ".env":      ("CRITICAL", "Arquivo de ambiente exposto"),
+    ".pem":      ("CRITICAL", "Chave privada exposta"),
+    ".key":      ("CRITICAL", "Chave criptográfica exposta"),
+    ".p12":      ("CRITICAL", "Certificado PKCS#12 exposto"),
+    ".pfx":      ("CRITICAL", "Certificado PFX exposto"),
+    ".p8":       ("CRITICAL", "Chave privada JWT/APNs exposta"),
+    ".ppk":      ("CRITICAL", "Chave privada PuTTY exposta"),
+    ".kdbx":     ("CRITICAL", "Banco de senhas KeePass exposto"),
+    ".jks":      ("CRITICAL", "Java KeyStore exposto"),
+    ".keystore": ("CRITICAL", "Java KeyStore exposto"),
+    # HIGH — certificados públicos, dumps e backups
+    ".crt":    ("HIGH", "Certificado exposto"),
+    ".cer":    ("HIGH", "Certificado exposto"),
+    ".sql":    ("HIGH", "Dump SQL exposto"),
+    ".db":     ("HIGH", "Banco de dados exposto"),
     ".sqlite": ("HIGH", "Banco de dados SQLite exposto"),
-    ".bak": ("HIGH", "Backup exposto"),
+    ".bak":    ("HIGH", "Backup exposto"),
     ".backup": ("HIGH", "Backup exposto"),
-    ".dump": ("HIGH", "Dump de dados exposto"),
+    ".dump":   ("HIGH", "Dump de dados exposto"),
+    # MEDIUM — configurações e compactados
     ".config": ("MEDIUM", "Arquivo de configuração exposto"),
-    ".conf": ("MEDIUM", "Arquivo de configuração exposto"),
-    ".ini": ("MEDIUM", "Arquivo de configuração exposto"),
-    ".zip": ("MEDIUM", "Arquivo compactado exposto"),
-    ".tar": ("MEDIUM", "Arquivo compactado exposto"),
-    ".gz": ("MEDIUM", "Arquivo compactado exposto"),
-    ".rar": ("MEDIUM", "Arquivo compactado exposto"),
-    ".7z": ("MEDIUM", "Arquivo compactado exposto"),
+    ".conf":   ("MEDIUM", "Arquivo de configuração exposto"),
+    ".ini":    ("MEDIUM", "Arquivo de configuração exposto"),
+    ".zip":    ("MEDIUM", "Arquivo compactado exposto"),
+    ".tar":    ("MEDIUM", "Arquivo compactado exposto"),
+    ".gz":     ("MEDIUM", "Arquivo compactado exposto"),
+    ".rar":    ("MEDIUM", "Arquivo compactado exposto"),
+    ".7z":     ("MEDIUM", "Arquivo compactado exposto"),
+    # LOW — dados estruturados
     ".json": ("LOW", "Arquivo de dados exposto"),
     ".yaml": ("LOW", "Arquivo de configuração exposto"),
-    ".yml": ("LOW", "Arquivo de configuração exposto"),
-    ".xml": ("LOW", "Arquivo XML exposto"),
-    ".csv": ("LOW", "Arquivo CSV exposto"),
+    ".yml":  ("LOW", "Arquivo de configuração exposto"),
+    ".xml":  ("LOW", "Arquivo XML exposto"),
+    ".csv":  ("LOW", "Arquivo CSV exposto"),
 }
 
 # Padrões sensíveis em nomes de arquivos
 SENSITIVE_PATTERNS = [
-    ("password", "CRITICAL", "Arquivo com nome sensível (password)"),
-    ("secret", "CRITICAL", "Arquivo com nome sensível (secret)"),
+    ("password",    "CRITICAL", "Arquivo com nome sensível (password)"),
+    ("secret",      "CRITICAL", "Arquivo com nome sensível (secret)"),
     ("credentials", "CRITICAL", "Arquivo com credenciais"),
-    ("private", "HIGH", "Arquivo privado exposto"),
-    ("confidential", "HIGH", "Arquivo confidencial exposto"),
-    ("internal", "MEDIUM", "Arquivo interno exposto"),
+    ("token",       "CRITICAL", "Arquivo com token/chave de API exposto"),
+    ("apikey",      "CRITICAL", "Arquivo com chave de API exposta"),
+    ("api_key",     "CRITICAL", "Arquivo com chave de API exposta"),
+    ("private",     "HIGH",     "Arquivo privado exposto"),
+    ("confidential","HIGH",     "Arquivo confidencial exposto"),
+    ("internal",    "MEDIUM",   "Arquivo interno exposto"),
 ]
 
-SEVERITY_SCORE = {
-    "CRITICAL": 40,
-    "HIGH": 25,
-    "MEDIUM": 15,
-    "LOW": 5
-}
+# Ranking de severidade para comparação (usado em classify_severity)
+_SEV_RANK = {"CRITICAL": 3, "HIGH": 2, "MEDIUM": 1, "LOW": 0}
 
 # ------------------------------------------------------------
 # 1️⃣ Classificação de severidade (CONTRATO DO AUDITOR)
@@ -65,17 +73,23 @@ SEVERITY_SCORE = {
 def classify_severity(key: str) -> Tuple[str, str]:
     key_lower = key.lower()
 
-    # Verifica extensões sensíveis
+    ext_result: Tuple[str, str] | None = None
     for ext, (sev, reason) in SENSITIVE_EXTENSIONS.items():
         if key_lower.endswith(ext):
-            return sev, reason
+            ext_result = (sev, reason)
+            break
 
-    # Verifica padrões sensíveis no nome
+    pat_result: Tuple[str, str] | None = None
     for pattern, sev, reason in SENSITIVE_PATTERNS:
         if pattern in key_lower:
-            return sev, reason
+            pat_result = (sev, reason)
+            break
 
-    return "LOW", "Arquivo público sem padrão sensível detectado"
+    # Retorna a severidade mais alta entre extensão e padrão de nome.
+    # Ex: credentials.sql → CRITICAL (padrão) > HIGH (extensão)
+    if ext_result and pat_result:
+        return ext_result if _SEV_RANK[ext_result[0]] >= _SEV_RANK[pat_result[0]] else pat_result
+    return ext_result or pat_result or ("LOW", "Arquivo sem padrão sensível detectado")
 
 # ------------------------------------------------------------
 # 2️⃣ Distribuição de severidade
@@ -242,8 +256,13 @@ def build_recommendations(payload: Dict) -> List[str]:
                 recs.append("Aplicar princípio do menor privilégio nas permissões IAM.")
         
         if has_critical or has_high:
-            recs.append("Revisar e remover arquivos sensíveis expostos (certificados, backups, dumps SQL).")
-            recs.append("Implementar política de retenção e lifecycle para arquivos temporários.")
+            if "database" in high_types:
+                recs.append("⚠️ Remover imediatamente dumps SQL e arquivos de banco de dados expostos.")
+            if "backup" in high_types:
+                recs.append("⚠️ Remover imediatamente arquivos de backup expostos.")
+            if not high_types:
+                recs.append("Revisar e remover arquivos sensíveis expostos (certificados, backups, dumps SQL).")
+            recs.append("Implementar política de retenção e lifecycle para arquivos temporários e backups.")
         
         if provider == "AWS_S3":
             recs.append("Habilitar S3 Access Logging para auditoria de acessos.")
@@ -261,15 +280,26 @@ def build_recommendations(payload: Dict) -> List[str]:
         if public_access:
             recs.append("Revisar necessidade de listagem pública do bucket.")
             recs.append("Considerar uso de URLs assinadas para acesso temporário controlado.")
-        
+
+        # Arquivos HIGH presentes mesmo com score total MEDIUM ainda requerem ação
+        if has_high:
+            if "database" in high_types:
+                recs.append("⚠️ Remover ou mover para armazenamento seguro dumps SQL e arquivos de banco de dados expostos.")
+            if "backup" in high_types:
+                recs.append("⚠️ Remover arquivos de backup expostos e revisar conteúdo potencialmente sensível.")
+            if not high_types:
+                recs.append("Revisar e remover arquivos de alta criticidade detectados no bucket.")
+            recs.append("Implementar política de retenção e lifecycle para arquivos temporários e backups.")
+
         if has_medium:
             recs.append("Restringir acesso aos arquivos de configuração e compactados expostos.")
-        
+
         if provider == "AWS_S3":
-            recs.append("Aplicar S3 Bucket Keys para reduzir custos de criptografia KMS.")
-            recs.append("Configurar S3 Inventory para rastreamento de objetos.")
+            recs.append("Habilitar S3 Access Logging para auditoria de acessos ao bucket.")
+            recs.append("Configurar S3 Inventory para rastreamento e classificação de objetos.")
             recs.append("Implementar tags de classificação de dados (Public, Internal, Confidential).")
         elif provider == "GCS":
+            recs.append("Habilitar Access Logs para auditoria de requisições ao bucket.")
             recs.append("Aplicar labels de classificação de dados nos objetos.")
             recs.append("Configurar Lifecycle Rules para arquivamento automático de dados antigos.")
     
