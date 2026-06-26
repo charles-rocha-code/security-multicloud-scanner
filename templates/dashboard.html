@@ -311,6 +311,58 @@
     }
     .history-sev-bar span { display: block; height: 100%; min-width: 2px; border-radius: 2px; }
 
+    .history-search-wrap {
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-bottom: 2px;
+    }
+    .history-search {
+      width: 100%;
+      background: var(--bg-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 11px;
+      padding: 5px 8px;
+      outline: none;
+      box-sizing: border-box;
+    }
+    .history-search:focus { border-color: #3b82f6; }
+    .history-search::placeholder { color: #4b5563; }
+
+    .history-group-lbl {
+      font-size: 10px;
+      font-weight: 700;
+      color: #4b5563;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 8px 2px 4px;
+      margin-top: 4px;
+    }
+    .history-group-lbl:first-child { padding-top: 4px; margin-top: 0; }
+
+    .history-risk-badge {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 3px;
+      letter-spacing: 0.03em;
+      vertical-align: middle;
+      margin-left: 3px;
+    }
+
+    .history-count-badge {
+      background: #1f2937;
+      color: #9ca3af;
+      border-radius: 10px;
+      font-size: 10px;
+      padding: 1px 7px;
+      font-weight: 600;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+
     /* Copy button na tabela */
     .btn-copy-key {
       background: none; border: none; cursor: pointer; padding: 3px 5px;
@@ -2242,10 +2294,13 @@
          ============================ -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <h3>Histórico de Scans</h3>
+        <h3>Histórico de Scans <span class="history-count-badge" id="history-count-badge" style="display:none">0</span></h3>
         <button class="btn-clear-history" onclick="clearHistory()">
           🗑️ Limpar
         </button>
+      </div>
+      <div class="history-search-wrap" id="history-search-wrap" style="display:none;">
+        <input type="search" class="history-search" id="history-search" placeholder="Buscar bucket..." oninput="loadHistory()">
       </div>
       <div id="history-list" class="history-list">
         <!-- Populado via JS -->
@@ -5185,94 +5240,143 @@ function logout() {
     }
 
     function loadHistory() {
-      let history = JSON.parse(localStorage.getItem("scanHistory") || "[]");
+      const history = JSON.parse(localStorage.getItem("scanHistory") || "[]");
       const container = document.getElementById("history-list");
       container.innerHTML = "";
+
+      // Atualiza counter badge e search wrap
+      const countBadge = document.getElementById("history-count-badge");
+      const searchWrap = document.getElementById("history-search-wrap");
+      if (countBadge) {
+        if (history.length > 0) { countBadge.textContent = history.length; countBadge.style.display = "inline-block"; }
+        else { countBadge.style.display = "none"; }
+      }
+      if (searchWrap) searchWrap.style.display = history.length > 0 ? "block" : "none";
 
       if (!history.length) {
         const div = document.createElement("div");
         div.className = "history-item";
         div.style.cursor = "default";
         div.style.borderLeft = "4px solid #4b5563";
-        div.innerHTML =
-          "<span class='history-meta'>Nenhum scan realizado ainda.</span>";
+        div.innerHTML = "<span class='history-meta'>Nenhum scan realizado ainda.</span>";
         container.appendChild(div);
         return;
       }
 
-      history.forEach((item, index) => {
+      // Filtro por busca
+      const q = (document.getElementById("history-search")?.value || "").toLowerCase().trim();
+      let filtered = history.map((item, idx) => ({ item, idx }));
+      if (q) {
+        filtered = filtered.filter(({ item }) =>
+          (item.bucket || "").toLowerCase().includes(q) ||
+          (item.provider || "").toLowerCase().includes(q)
+        );
+      }
+
+      if (!filtered.length) {
         const div = document.createElement("div");
         div.className = "history-item";
-        
-        // Marca como selecionado se for o índice atual
-        if (selectedHistoryIndex === index) {
-          div.classList.add("selected");
-        }
-
-        const contentDiv = document.createElement("div");
-        contentDiv.className = "history-item-content";
-        const sd = (item.data && item.data.severity_distribution) || {};
-        const c = sd.critical || 0, h = sd.high || 0, m = sd.medium || 0, l = sd.low || 0;
-        const total = c + h + m + l || 1;
-        const pct = v => Math.max(v / total * 100, v > 0 ? 4 : 0).toFixed(1);
-        const barHtml = (c + h + m + l) > 0 ? `
-          <div class="history-sev-bar">
-            ${c > 0 ? `<span style="width:${pct(c)}%;background:#ef4444;" title="Critical: ${c}"></span>` : ''}
-            ${h > 0 ? `<span style="width:${pct(h)}%;background:#f97316;" title="High: ${h}"></span>` : ''}
-            ${m > 0 ? `<span style="width:${pct(m)}%;background:#eab308;" title="Medium: ${m}"></span>` : ''}
-            ${l > 0 ? `<span style="width:${pct(l)}%;background:#22c55e;" title="Low: ${l}"></span>` : ''}
-          </div>` : '';
-        const _relTime = ts => {
-          try {
-            const d = new Date(ts);
-            if (isNaN(d.getTime())) return '—';
-            const now = new Date();
-            const diffMs = now - d;
-            const diffMin = Math.floor(diffMs / 60000);
-            const diffH   = Math.floor(diffMs / 3600000);
-            const diffD   = Math.floor(diffMs / 86400000);
-            const hhmm = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-            if (diffMin < 1)   return 'Agora mesmo';
-            if (diffMin < 60)  return `${diffMin}min atrás`;
-            if (diffD === 0)   return `Hoje ${hhmm}`;
-            if (diffD === 1)   return `Ontem ${hhmm}`;
-            if (diffD < 7)     return `${diffD} dias atrás`;
-            return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) + ' ' + hhmm;
-          } catch { return ts; }
-        };
-        contentDiv.innerHTML = `
-          <div class="history-bucket">${escapeHtml(item.bucket)}</div>
-          <div class="history-meta">
-            ${item.provider} · Score: ${item.risk_score}/100<br/>
-            ${_relTime(item.timestamp)}
-          </div>
-          ${barHtml}
-        `;
-
-        // Área de ações (botão deletar)
-        const actionsDiv = document.createElement("div");
-        actionsDiv.className = "history-actions";
-        
-        const deleteBtn = document.createElement("button");
-        deleteBtn.className = "btn-delete-item";
-        deleteBtn.innerHTML = "🗑️ Excluir";
-        deleteBtn.title = "Excluir este item";
-        deleteBtn.onclick = (e) => {
-          e.stopPropagation(); // Não dispara o click do item
-          deleteHistoryItem(index);
-        };
-        
-        actionsDiv.appendChild(deleteBtn);
-
-        // Clique no item para carregar/selecionar
-        contentDiv.onclick = () => {
-          selectedHistoryIndex = index;
-          loadHistoryItem(index);
-        };
-
-        div.appendChild(contentDiv);
-        div.appendChild(actionsDiv);
+        div.style.cursor = "default";
+        div.style.borderLeft = "4px solid #4b5563";
+        div.innerHTML = "<span class='history-meta'>Nenhum resultado encontrado.</span>";
         container.appendChild(div);
+        return;
+      }
+
+      // Agrupamento por data
+      const getGroup = ts => {
+        try {
+          const d = new Date(ts);
+          if (isNaN(d.getTime())) return 'Sem data';
+          const diffD = Math.floor((new Date() - d) / 86400000);
+          if (diffD === 0) return 'Hoje';
+          if (diffD === 1) return 'Ontem';
+          if (diffD < 7)  return 'Esta semana';
+          return 'Mais antigos';
+        } catch { return 'Sem data'; }
+      };
+      const GROUP_ORDER = ['Hoje', 'Ontem', 'Esta semana', 'Mais antigos', 'Sem data'];
+      const groups = {};
+      filtered.forEach(({ item, idx }) => {
+        const g = getGroup(item.timestamp);
+        (groups[g] = groups[g] || []).push({ item, idx });
+      });
+
+      const RISK_COLOR = { CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#eab308', LOW: '#22c55e', NONE: '#6b7280' };
+
+      const _relTime = ts => {
+        try {
+          const d = new Date(ts);
+          if (isNaN(d.getTime())) return '—';
+          const now = new Date();
+          const diffMs = now - d;
+          const diffMin = Math.floor(diffMs / 60000);
+          const diffD   = Math.floor(diffMs / 86400000);
+          const hhmm = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          if (diffMin < 1)  return 'Agora mesmo';
+          if (diffMin < 60) return `${diffMin}min atrás`;
+          if (diffD === 0)  return `Hoje ${hhmm}`;
+          if (diffD === 1)  return `Ontem ${hhmm}`;
+          if (diffD < 7)    return `${diffD} dias atrás`;
+          return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) + ' ' + hhmm;
+        } catch { return ts; }
+      };
+
+      GROUP_ORDER.forEach(g => {
+        if (!groups[g]) return;
+
+        const hdr = document.createElement("div");
+        hdr.className = "history-group-lbl";
+        hdr.textContent = g;
+        container.appendChild(hdr);
+
+        groups[g].forEach(({ item, idx }) => {
+          const div = document.createElement("div");
+          div.className = "history-item";
+          if (selectedHistoryIndex === idx) div.classList.add("selected");
+
+          const sd = (item.data && item.data.severity_distribution) || {};
+          const c = sd.critical || 0, h = sd.high || 0, m = sd.medium || 0, l = sd.low || 0;
+          const total = c + h + m + l || 1;
+          const pct = v => Math.max(v / total * 100, v > 0 ? 4 : 0).toFixed(1);
+          const barHtml = (c + h + m + l) > 0 ? `
+            <div class="history-sev-bar">
+              ${c > 0 ? `<span style="width:${pct(c)}%;background:#ef4444;" title="Critical: ${c}"></span>` : ''}
+              ${h > 0 ? `<span style="width:${pct(h)}%;background:#f97316;" title="High: ${h}"></span>` : ''}
+              ${m > 0 ? `<span style="width:${pct(m)}%;background:#eab308;" title="Medium: ${m}"></span>` : ''}
+              ${l > 0 ? `<span style="width:${pct(l)}%;background:#22c55e;" title="Low: ${l}"></span>` : ''}
+            </div>` : '';
+
+          const level = (item.data && item.data.risk_level) || "NONE";
+          const score = item.risk_score || 0;
+          const bColor = RISK_COLOR[level] || '#6b7280';
+          const badgeHtml = `<span class="history-risk-badge" style="background:${bColor}22;color:${bColor};border:1px solid ${bColor}55">${level} ${score}</span>`;
+
+          const contentDiv = document.createElement("div");
+          contentDiv.className = "history-item-content";
+          contentDiv.innerHTML = `
+            <div class="history-bucket">${escapeHtml(item.bucket)}</div>
+            <div class="history-meta">
+              ${escapeHtml(item.provider)} ${badgeHtml}<br/>
+              ${_relTime(item.timestamp)}
+            </div>
+            ${barHtml}
+          `;
+
+          const actionsDiv = document.createElement("div");
+          actionsDiv.className = "history-actions";
+          const deleteBtn = document.createElement("button");
+          deleteBtn.className = "btn-delete-item";
+          deleteBtn.innerHTML = "🗑️ Excluir";
+          deleteBtn.title = "Excluir este item";
+          deleteBtn.onclick = e => { e.stopPropagation(); deleteHistoryItem(idx); };
+          actionsDiv.appendChild(deleteBtn);
+
+          contentDiv.onclick = () => { selectedHistoryIndex = idx; loadHistoryItem(idx); };
+          div.appendChild(contentDiv);
+          div.appendChild(actionsDiv);
+          container.appendChild(div);
+        });
       });
     }
 
