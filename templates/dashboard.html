@@ -3421,7 +3421,11 @@ function logout() {
           saveScanToHistory(data);
           showActionButtons();
         })
-        .catch(err => { console.error(err); alert("Erro ao conectar com a API /scan."); })
+        .catch(err => {
+          console.error(err);
+          const msg = (err && err.name === "TypeError") ? "Erro ao conectar com a API /scan." : `Erro inesperado: ${err.message}`;
+          alert(msg);
+        })
         .finally(() => {
           clearInterval(progressIv);
           if (progressFill) progressFill.style.width = "100%";
@@ -5154,18 +5158,29 @@ function logout() {
     // 10. HISTORY SYSTEM (LOCALSTORAGE)
     // ============================================================
     function saveScanToHistory(data) {
-      let history = JSON.parse(localStorage.getItem("scanHistory") || "[]");
+      try {
+        let history = JSON.parse(localStorage.getItem("scanHistory") || "[]");
 
-      history.unshift({
-        bucket: data.bucket || "-",
-        provider: data.provider || "UNIVERSAL",
-        risk_score: data.risk_score || 0,
-        timestamp: new Date().toISOString(),
-        data: data
-      });
+        // Trunca arquivos para evitar QuotaExceededError no localStorage
+        const slim = Object.assign({}, data);
+        if (Array.isArray(slim.files) && slim.files.length > 500) {
+          slim.files = slim.files.slice(0, 500);
+          slim._files_truncated = true;
+        }
 
-      history = history.slice(0, 30); // limita histórico
-      localStorage.setItem("scanHistory", JSON.stringify(history));
+        history.unshift({
+          bucket: data.bucket || "-",
+          provider: data.provider || "UNIVERSAL",
+          risk_score: data.risk_score || 0,
+          timestamp: new Date().toISOString(),
+          data: slim
+        });
+
+        history = history.slice(0, 30);
+        localStorage.setItem("scanHistory", JSON.stringify(history));
+      } catch (e) {
+        console.warn("saveScanToHistory: não foi possível salvar no localStorage:", e.message);
+      }
       loadHistory();
     }
 
