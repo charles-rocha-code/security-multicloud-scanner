@@ -185,8 +185,8 @@
     .risk-none::before { background: #6b7280; }
     .risk-low      { background: rgba(22,163,74,0.15);  border: 1px solid rgba(22,163,74,0.35); color: #4ade80; }
     .risk-low::before { background: #22c55e; }
-    .risk-medium   { background: rgba(2,132,199,0.15);  border: 1px solid rgba(2,132,199,0.35); color: #60a5fa; }
-    .risk-medium::before { background: #3b82f6; }
+    .risk-medium   { background: rgba(234,179,8,0.15);  border: 1px solid rgba(234,179,8,0.35); color: #fbbf24; }
+    .risk-medium::before { background: #eab308; }
     .risk-high     { background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.35); color: #fbbf24; }
     .risk-high::before { background: #f59e0b; }
     .risk-critical { background: rgba(220,38,38,0.15);  border: 1px solid rgba(220,38,38,0.40); color: #f87171; }
@@ -3339,6 +3339,10 @@ function logout() {
     function setScanMode(mode) {
       scanMode = mode;
 
+      // Limpa o campo target ao trocar de modo
+      const bucketInputEl = document.getElementById("bucket-input");
+      if (bucketInputEl) { bucketInputEl.value = ""; onScanInputChange(""); }
+
       const publicBtn = document.getElementById("btn-mode-public");
       const privateBtn = document.getElementById("btn-mode-private");
       const credentialsContainer = document.getElementById("credentials-container");
@@ -4536,7 +4540,7 @@ function logout() {
 
       const sevLabels = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
       const riskLevel = total > 0 ? sevLabels[values.indexOf(Math.max(...values))] : 'LOW';
-      const riskColor = { CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#3b82f6', LOW: '#22c55e' }[riskLevel];
+      const riskColor = { CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#eab308', LOW: '#22c55e' }[riskLevel];
 
       if (riskScore && riskLabel) {
         riskScore.style.color = riskColor;
