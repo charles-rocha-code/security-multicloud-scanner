@@ -111,7 +111,7 @@ def calculate_advanced_risk(payload: Dict) -> Dict:
 
     score = 0.0
     score += _log(c, 65.0, 3.0)   # 3 críticos  ≈ 65 pts
-    score += _log(h, 25.0, 8.0)   # 8 altos     ≈ 25 pts
+    score += _log(h, 45.0, 8.0)   # 8 altos     ≈ 28 pts; ~20 → 41 pts (MEDIUM); ~75 → 45 pts (MEDIUM)
     score += _log(m, 12.0, 15.0)  # 15 médios   ≈ 12 pts
     score += _log(l,  8.0, 50.0)  # 50 baixos   ≈  8 pts
 
