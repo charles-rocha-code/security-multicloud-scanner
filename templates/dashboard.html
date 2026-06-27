@@ -3804,7 +3804,7 @@ function logout() {
             _restoreAuthBtn(); return;
           }
           if (data.job_id) {
-            _pollJob(data.job_id, __token, scanBtn, "▶ Iniciar Scan", Date.now());
+            _pollJob(data.job_id, __token, scanBtn, "Iniciar Scan", Date.now());
           } else {
             updateUI(data); saveScanToHistory(data); showActionButtons();
             _restoreAuthBtn();
@@ -3830,9 +3830,15 @@ function logout() {
       const progressFill = progressWrap ? progressWrap.querySelector('.scan-progress-fill') : null;
       const progressLbl  = progressWrap ? progressWrap.querySelector('.scan-progress-lbl')  : null;
 
-      // Salva innerHTML para restaurar spans internos (ícone + texto) ao finalizar
+      // Restaura botão: usa span de texto se existir (evita restaurar estado "Scaneando"),
+      // senão fallback para innerHTML completo
       const _btnOriginalHTML = btn.innerHTML;
-      const _restoreBtn = () => { btn.disabled = false; btn.innerHTML = _btnOriginalHTML; };
+      const _textSpan = btn.querySelector('[id$="-text"]');
+      const _restoreBtn = () => {
+        btn.disabled = false;
+        if (_textSpan && btnOriginalText) { _textSpan.textContent = btnOriginalText; }
+        else { btn.innerHTML = _btnOriginalHTML; }
+      };
 
       if (progressWrap) {
         progressWrap.style.display = 'block';
