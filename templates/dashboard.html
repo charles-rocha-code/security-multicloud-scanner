@@ -3501,44 +3501,43 @@ function logout() {
       resetFilters();
       animateScanStart();
 
-      // Barra de progresso pseudo-animada
-      const progressWrap = document.getElementById("scan-btn-progress");
-      const progressFill = progressWrap ? progressWrap.querySelector(".scan-progress-fill") : null;
-      const progressLbl  = progressWrap ? progressWrap.querySelector(".scan-progress-lbl")  : null;
-      const startTime = Date.now();
-      if (progressWrap) {
-        progressWrap.style.display = "block";
-        if (progressFill) progressFill.style.width = "4%";
-        if (progressLbl)  progressLbl.textContent  = "Iniciando scan...";
-      }
-      const progressIv = setInterval(() => {
-        const elapsed = Math.round((Date.now() - startTime) / 1000);
-        const pct = Math.min(90, Math.round(90 * (1 - Math.exp(-elapsed / 25))));
-        if (progressFill) progressFill.style.width = pct + "%";
-        if (progressLbl)  progressLbl.textContent  = `Analisando recursos... ${elapsed}s`;
-      }, 1000);
+      const __pubToken = getAuthToken() || "";
 
-      fetch("/scan/" + encodeURIComponent(bucket), { headers: { "Authorization": `Bearer ${getAuthToken()}` }, credentials: "include" })
+      fetch("/scan/public?async=true", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(__pubToken ? { "Authorization": `Bearer ${__pubToken}` } : {})
+        },
+        body: JSON.stringify({ target: bucket, max_objects: 5000 })
+      })
         .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
         .then(({ ok, status, data }) => {
           if (!ok || data.error || data.detail) {
             alert(data.error || data.detail || `Erro HTTP ${status}: falha no scan.`);
+            scanBtn.disabled = false;
+            scanBtn.classList.remove("scanning");
+            if (btnIcon) btnIcon.textContent = "▶";
+            if (btnText) btnText.textContent = "Iniciar Scan";
             return;
           }
-          updateUI(data);
-          saveScanToHistory(data);
-          showActionButtons();
+          if (data.job_id) {
+            _pollJob(data.job_id, __pubToken, scanBtn, "Iniciar Scan", Date.now());
+          } else {
+            updateUI(data);
+            saveScanToHistory(data);
+            showActionButtons();
+            scanBtn.disabled = false;
+            scanBtn.classList.remove("scanning");
+            if (btnIcon) btnIcon.textContent = "▶";
+            if (btnText) btnText.textContent = "Iniciar Scan";
+          }
         })
         .catch(err => {
           console.error(err);
           const msg = (err && err.name === "TypeError") ? "Erro ao conectar com a API /scan." : `Erro inesperado: ${err.message}`;
           alert(msg);
-        })
-        .finally(() => {
-          clearInterval(progressIv);
-          if (progressFill) progressFill.style.width = "100%";
-          if (progressLbl)  progressLbl.textContent  = "Scan concluído!";
-          setTimeout(() => { if (progressWrap) progressWrap.style.display = "none"; }, 1800);
           scanBtn.disabled = false;
           scanBtn.classList.remove("scanning");
           if (btnIcon) btnIcon.textContent = "▶";
@@ -3793,17 +3792,22 @@ function logout() {
       })
         .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
         .then(({ ok, status, data }) => {
-          if (!ok || data.detail) { alert(data.detail || `Erro HTTP ${status}: falha no scan.`); scanBtn.disabled = false; scanBtn.textContent = "▶ Iniciar Scan"; return; }
-          if (data.job_id) { _pollJob(data.job_id, __token, scanBtn, "▶ Iniciar Scan", Date.now()); }
-          else { updateUI(data); saveScanToHistory(data); showActionButtons(); scanBtn.disabled = false; scanBtn.textContent = "▶ Iniciar Scan"; }
+          if (!ok || data.detail) {
+            alert(data.detail || `Erro HTTP ${status}: falha no scan.`);
+            scanBtn.disabled = false; scanBtn.textContent = "▶ Iniciar Scan";
+            return;
+          }
+          if (data.job_id) {
+            _pollJob(data.job_id, __token, scanBtn, "▶ Iniciar Scan", Date.now());
+          } else {
+            updateUI(data); saveScanToHistory(data); showActionButtons();
+            scanBtn.disabled = false; scanBtn.textContent = "▶ Iniciar Scan";
+          }
         })
         .catch(err => {
           console.error(err);
           alert("Erro ao conectar com a API /scan/authenticated.");
-        })
-        .finally(() => {
-          scanBtn.disabled = false;
-          scanBtn.textContent = "▶ Iniciar Scan";
+          scanBtn.disabled = false; scanBtn.textContent = "▶ Iniciar Scan";
         });
     }
 
@@ -3818,6 +3822,10 @@ function logout() {
       const progressFill = progressWrap ? progressWrap.querySelector('.scan-progress-fill') : null;
       const progressLbl  = progressWrap ? progressWrap.querySelector('.scan-progress-lbl')  : null;
 
+      // Salva innerHTML para restaurar spans internos (ícone + texto) ao finalizar
+      const _btnOriginalHTML = btn.innerHTML;
+      const _restoreBtn = () => { btn.disabled = false; btn.innerHTML = _btnOriginalHTML; };
+
       if (progressWrap) {
         progressWrap.style.display = 'block';
         if (progressFill) progressFill.style.width = '4%';
@@ -3829,26 +3837,25 @@ function logout() {
           const res = await fetch(`/scan/job/${jobId}`, { headers, credentials: "include" });
           if (!res.ok) {
             clearInterval(iv);
-            btn.disabled = false; btn.textContent = btnOriginalText;
+            _restoreBtn();
             if (progressWrap) progressWrap.style.display = 'none';
             alert(`Erro ao consultar job: HTTP ${res.status}`);
             return;
           }
           const job = await res.json();
           const elapsed = Math.round((Date.now() - startTime) / 1000);
-          // Pseudo-progress: curva logarítmica que se aproxima de 90%
           const pseudoPct = Math.min(90, Math.round(90 * (1 - Math.exp(-elapsed / 25))));
 
           if (job.status === "done") {
             clearInterval(iv);
-            btn.disabled = false; btn.textContent = btnOriginalText;
+            _restoreBtn();
             if (progressFill) progressFill.style.width = '100%';
             if (progressLbl)  progressLbl.textContent  = 'Scan concluído!';
             setTimeout(() => { if (progressWrap) progressWrap.style.display = 'none'; }, 1800);
             if (job.result) { updateUI(job.result); saveScanToHistory(job.result); showActionButtons(); }
           } else if (job.status === "error") {
             clearInterval(iv);
-            btn.disabled = false; btn.textContent = btnOriginalText;
+            _restoreBtn();
             if (progressWrap) progressWrap.style.display = 'none';
             alert(`Erro no scan: ${job.error || "Erro desconhecido"}`);
           } else {
@@ -3858,7 +3865,7 @@ function logout() {
           }
         } catch (err) {
           clearInterval(iv);
-          btn.disabled = false; btn.textContent = btnOriginalText;
+          _restoreBtn();
           if (progressWrap) progressWrap.style.display = 'none';
           alert(`Erro ao verificar status do scan: ${err.message}`);
         }

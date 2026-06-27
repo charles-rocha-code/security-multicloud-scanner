@@ -829,28 +829,17 @@ def scan_public_compat(target: str, max_objects: int = 5000, user=Depends(requir
     return scan_public(payload, user)
 
 
-@app.post("/scan/public")
-def scan_public(payload: PublicScanIn, user=Depends(require_mfa)):
+def _exec_public_scan(payload: PublicScanIn, user) -> Dict[str, Any]:
+    """Lógica central do scan público — reutilizada pelo modo síncrono e async."""
     provider = _detect_provider(payload.target)
 
-    # Fast-path: para endpoints/buckets AWS S3, use o auditor S3 nativo (evita inconsistências de assinatura do universal).
     if provider == 'AWS_S3':
         try:
             from auditor import S3Auditor  # type: ignore
             aws_aud = S3Auditor(payload.target, max_objects=payload.max_objects)
             result = aws_aud.run()
-            result = _normalize_scan_result(result, provider=provider, target=payload.target)
-            email = user.get('email') if isinstance(user, dict) else None
-            if email:
-                LAST_SCAN_BY_EMAIL[email] = result
-                if HISTORY_AVAILABLE:
-                    try:
-                        save_scan(email, result.get("provider", "aws_s3").lower(), result)
-                    except Exception as _e:
-                        print(f"⚠️ save_scan error: {_e}")
-            return result
+            return _normalize_scan_result(result, provider=provider, target=payload.target)
         except Exception:
-            # se algo falhar, cai no fluxo universal abaixo
             pass
 
     Universal = _load_universal_auditor()
@@ -860,8 +849,6 @@ def scan_public(payload: PublicScanIn, user=Depends(require_mfa)):
             detail="auditor_universal.py não encontrado (scan público multicloud indisponível neste ambiente).",
         )
 
-    # Compat com diferentes assinaturas do UniversalAuditor.
-    # Queremos SEMPRE repassar max_objects quando possível.
     auditor = None
     for ctor_kwargs in (
         {"target": payload.target, "max_objects": payload.max_objects, "region": "global"},
@@ -876,17 +863,30 @@ def scan_public(payload: PublicScanIn, user=Depends(require_mfa)):
             continue
 
     if auditor is None:
-        # fallback final: positional
         try:
             auditor = Universal(payload.target, payload.max_objects)  # type: ignore
         except Exception:
             auditor = Universal(payload.target)  # type: ignore
 
     result = auditor.run() if hasattr(auditor, "run") else auditor.scan()  # type: ignore
-    result = _normalize_scan_result(result, provider=provider, target=payload.target)
+    return _normalize_scan_result(result, provider=provider, target=payload.target)
 
-    # cache para relatório
+
+@app.post("/scan/public")
+def scan_public(payload: PublicScanIn, user=Depends(require_mfa), async_mode: bool = Query(False, alias="async")):
     email = user.get("email") if isinstance(user, dict) else None
+
+    if async_mode:
+        job_id = str(uuid.uuid4())
+        started_at = datetime.now().isoformat()
+        _job_write(job_id, {"job_id": job_id, "type": "public", "status": "queued",
+                            "started_at": started_at, "finished_at": None, "result": None, "error": None})
+        def _do_public():
+            return _exec_public_scan(payload, user)
+        _EXECUTOR.submit(_run_in_background, job_id, "public", started_at, email, _do_public)
+        return JSONResponse({"job_id": job_id, "status": "queued"})
+
+    result = _exec_public_scan(payload, user)
     if email:
         LAST_SCAN_BY_EMAIL[email] = result
         if HISTORY_AVAILABLE:
@@ -894,7 +894,6 @@ def scan_public(payload: PublicScanIn, user=Depends(require_mfa)):
                 save_scan(email, result.get("provider", "unknown").lower(), result)
             except Exception as _e:
                 print(f"⚠️ save_scan error: {_e}")
-
     return result
 
 
