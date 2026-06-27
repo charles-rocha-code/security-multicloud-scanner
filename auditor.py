@@ -20,7 +20,7 @@ class S3Auditor:
       - Calcula score avançado no backend
     """
 
-    def __init__(self, bucket_or_url: str, max_objects: int = 200, timeout: int = 10):
+    def __init__(self, bucket_or_url: str, max_objects: int = 10000, timeout: int = 10):
         self.input = bucket_or_url.strip()
         self.max_objects = max_objects
         self.timeout = timeout

@@ -49,7 +49,7 @@ class AzureBlobAuthenticatedAuditor:
         connection_string: Optional[str] = None,
         sas_token: Optional[str] = None,
         account_key: Optional[str] = None,
-        max_objects: int = 1000,
+        max_objects: int = 10000,
         timeout: int = 30
     ):
         """
@@ -584,7 +584,7 @@ def scan_azure_blob_authenticated(
     connection_string: Optional[str] = None,
     sas_token: Optional[str] = None,
     account_key: Optional[str] = None,
-    max_objects: int = 1000
+    max_objects: int = 10000
 ) -> Dict[str, Any]:
     """
     Helper function para scan autenticado de Azure Blob Storage.

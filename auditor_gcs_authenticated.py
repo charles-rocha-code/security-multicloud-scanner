@@ -27,7 +27,7 @@ def _extract_bucket_name(bucket: str) -> str:
 class GCSAuthenticatedAuditor:
     bucket_name: str
     service_account_key: Dict[str, Any]
-    max_objects: int = 1000
+    max_objects: int = 10000
 
     def _client(self) -> storage.Client:
         if not isinstance(self.service_account_key, dict) or self.service_account_key.get("type") != "service_account":
