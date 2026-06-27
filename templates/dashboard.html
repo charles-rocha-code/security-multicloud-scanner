@@ -3772,7 +3772,9 @@ function logout() {
       }
 
       scanBtn.disabled = true;
-      scanBtn.textContent = "🔐 Scaneando com credenciais...";
+      const _authBtnText = document.getElementById("scan-btn-text");
+      if (_authBtnText) _authBtnText.textContent = "🔐 Scaneando com credenciais...";
+      else scanBtn.textContent = "🔐 Scaneando com credenciais...";
 
       // Reset filtros antes do scan
       resetFilters();
@@ -3792,22 +3794,28 @@ function logout() {
       })
         .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
         .then(({ ok, status, data }) => {
+          const _restoreAuthBtn = () => {
+            scanBtn.disabled = false;
+            const _t = document.getElementById("scan-btn-text");
+            if (_t) _t.textContent = "Iniciar Scan"; else scanBtn.textContent = "▶ Iniciar Scan";
+          };
           if (!ok || data.detail) {
             alert(data.detail || `Erro HTTP ${status}: falha no scan.`);
-            scanBtn.disabled = false; scanBtn.textContent = "▶ Iniciar Scan";
-            return;
+            _restoreAuthBtn(); return;
           }
           if (data.job_id) {
             _pollJob(data.job_id, __token, scanBtn, "▶ Iniciar Scan", Date.now());
           } else {
             updateUI(data); saveScanToHistory(data); showActionButtons();
-            scanBtn.disabled = false; scanBtn.textContent = "▶ Iniciar Scan";
+            _restoreAuthBtn();
           }
         })
         .catch(err => {
           console.error(err);
           alert("Erro ao conectar com a API /scan/authenticated.");
-          scanBtn.disabled = false; scanBtn.textContent = "▶ Iniciar Scan";
+          const _t = document.getElementById("scan-btn-text");
+          scanBtn.disabled = false;
+          if (_t) _t.textContent = "Iniciar Scan"; else scanBtn.textContent = "▶ Iniciar Scan";
         });
     }
 
@@ -3859,7 +3867,8 @@ function logout() {
             if (progressWrap) progressWrap.style.display = 'none';
             alert(`Erro no scan: ${job.error || "Erro desconhecido"}`);
           } else {
-            btn.textContent = `⏳ Scaneando... ${elapsed}s`;
+            const _pollTxt = btn.querySelector('[id$="-text"]') || btn;
+            _pollTxt.textContent = `⏳ Scaneando... ${elapsed}s`;
             if (progressFill) progressFill.style.width = pseudoPct + '%';
             if (progressLbl)  progressLbl.textContent  = `Analisando recursos... ${elapsed}s`;
           }
