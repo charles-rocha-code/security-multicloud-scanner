@@ -3510,7 +3510,7 @@ function logout() {
           "Content-Type": "application/json",
           ...(__pubToken ? { "Authorization": `Bearer ${__pubToken}` } : {})
         },
-        body: JSON.stringify({ target: bucket, max_objects: 5000 })
+        body: JSON.stringify({ target: bucket, max_objects: 10000 })
       })
         .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
         .then(({ ok, status, data }) => {
@@ -3688,7 +3688,7 @@ function logout() {
   let payload = {
     bucket: bucket,
     provider: providerMap[provider] || provider.toUpperCase(),
-    max_objects: 5000
+    max_objects: 10000
   };
 
       // Validação e montagem do payload por provider
@@ -3759,7 +3759,7 @@ function logout() {
             "Content-Type": "application/json",
             ...(__k8sToken ? { "Authorization": `Bearer ${__k8sToken}` } : {})
           },
-          body: JSON.stringify({ kubeconfig: kubeconfig, max_objects: 5000 })
+          body: JSON.stringify({ kubeconfig: kubeconfig, max_objects: 10000 })
         })
           .then(res => res.json().then(data => ({ ok: res.ok, status: res.status, data })))
           .then(({ ok, status, data }) => {

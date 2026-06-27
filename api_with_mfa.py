@@ -412,7 +412,7 @@ def auth_mfa_setup(data: MFASetupIn):
 
 class PublicScanIn(BaseModel):
     target: str = Field(..., description="Bucket/host alvo. Ex.: bucket.s3.amazonaws.com, storage.googleapis.com/bucket, *.blob.core.windows.net")
-    max_objects: int = 5000
+    max_objects: int = 10000
 
 
 class AuthenticatedScanIn(BaseModel):
@@ -431,7 +431,7 @@ class AuthenticatedScanIn(BaseModel):
     service_account_key: Optional[Dict[str, Any]] = None
 
 
-    max_objects: int = 5000
+    max_objects: int = 10000
 
 
 class GenerateReportIn(BaseModel):
@@ -824,7 +824,7 @@ def scan_job_status(job_id: str, user=Depends(require_mfa)):
 # Scan público (compatível com dashboard)
 # -----------------------------------------------------------------------------
 @app.get("/scan/{target:path}")
-def scan_public_compat(target: str, max_objects: int = 5000, user=Depends(require_mfa)):
+def scan_public_compat(target: str, max_objects: int = 10000, user=Depends(require_mfa)):
     payload = PublicScanIn(target=target, max_objects=max_objects)
     return scan_public(payload, user)
 
@@ -1166,7 +1166,7 @@ def scan_iam_azure(payload: AzureIamScanIn, user=Depends(require_mfa), async_mod
 # -----------------------------------------------------------------------------
 class K8sScanIn(BaseModel):
     kubeconfig: str = Field(..., description="Conteúdo do arquivo ~/.kube/config em YAML")
-    max_objects: int = 5000
+    max_objects: int = 10000
 
 
 @app.post("/scan/k8s")

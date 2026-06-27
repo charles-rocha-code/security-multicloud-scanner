@@ -27,7 +27,7 @@ class S3AuthenticatedAuditor:
         aws_secret_access_key: str,
         aws_session_token: Optional[str] = None,
         region_name: Optional[str] = None,
-        max_objects: int = 5000,
+        max_objects: int = 10000,
         timeout: int = 30
     ):
         self.bucket = bucket_name.strip()
