@@ -1,22 +1,19 @@
 """
-notifier.py — Notificações por email (Microsoft 365) para os agentes de infraestrutura.
+notifier.py — Notificações por email via AWS SES para os agentes de infraestrutura.
+Remetente: alertas@oisolucoes.app.br
+Destinatário: charles.rocha@oi.net.br
 """
 from __future__ import annotations
 
 import os
-import smtplib
 from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from enum import Enum
 
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.office365.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASS = os.getenv("SMTP_PASS", "")
-SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER)
-ALERT_TO  = os.getenv("ALERT_EMAIL", SMTP_USER)
+import boto3
 
+SES_REGION  = os.getenv("SES_REGION", "us-east-1")
+SES_FROM    = os.getenv("SES_FROM", "alertas@oisolucoes.app.br")
+ALERT_TO    = os.getenv("ALERT_EMAIL", "charles.rocha@oi.net.br")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "security-scanner [us-east-2]")
 
 
@@ -46,14 +43,7 @@ def send_alert(
     action_id: str | None = None,
     proposed_action: str | None = None,
 ) -> bool:
-    """
-    Envia alerta de infraestrutura por email Microsoft 365.
-    Inclui botão de aprovação se action_id for fornecido.
-    """
-    if not SMTP_USER or not SMTP_PASS:
-        print(f"[NOTIFIER] SMTP não configurado — alerta não enviado: {subject}")
-        return False
-
+    """Envia alerta de infraestrutura via AWS SES."""
     emoji   = SEVERITY_EMOJI[severity]
     color   = SEVERITY_COLOR[severity]
     now_brt = datetime.utcnow().strftime("%d/%m/%Y %H:%M") + " BRT"
@@ -79,37 +69,35 @@ def send_alert(
             <h2 style="margin:0; color:{color};">{emoji} {severity.value} — {ENVIRONMENT}</h2>
             <p style="margin:4px 0 0; color:#666; font-size:13px;">{now_brt}</p>
         </div>
-
         <div style="background:#fafafa; border-radius:6px; padding:16px; margin-bottom:16px;">
             <pre style="margin:0; white-space:pre-wrap; font-family:Arial,sans-serif;
                         font-size:14px; color:#333;">{body}</pre>
         </div>
-
         {approval_section}
-
         <hr style="border:none; border-top:1px solid #eee; margin:24px 0;">
         <p style="color:#999; font-size:11px; margin:0;">
-            Enviado automaticamente pelos agentes de infraestrutura AWS.
+            Enviado automaticamente pelos agentes de infraestrutura AWS via Amazon SES.
         </p>
     </body>
     </html>
     """
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"{emoji} [{severity.value}] {subject}"
-    msg["From"]    = SMTP_FROM
-    msg["To"]      = ALERT_TO
-    msg.attach(MIMEText(html, "html", "utf-8"))
-
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(SMTP_FROM, [ALERT_TO], msg.as_string())
+        client = boto3.client("sesv2", region_name=SES_REGION)
+        client.send_email(
+            FromEmailAddress=SES_FROM,
+            Destination={"ToAddresses": [ALERT_TO]},
+            Content={
+                "Simple": {
+                    "Subject": {"Data": f"{emoji} [{severity.value}] {subject}", "Charset": "UTF-8"},
+                    "Body":    {"Html": {"Data": html, "Charset": "UTF-8"}},
+                }
+            },
+        )
         print(f"[NOTIFIER] Alerta enviado para {ALERT_TO}: {subject}")
         return True
     except Exception as exc:
-        print(f"[NOTIFIER] Falha ao enviar email: {exc}")
+        print(f"[NOTIFIER] Falha ao enviar via SES: {exc}")
         return False
 
 
