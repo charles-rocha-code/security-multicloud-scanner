@@ -50,14 +50,25 @@ def send_alert(
 
     approval_section = ""
     if action_id and proposed_action:
+        cmd_approve = f"python -m agents.orchestrator {action_id}"
         approval_section = f"""
-        <div style="margin-top:24px; padding:16px; background:#f5f5f5; border-radius:6px;">
-            <p style="margin:0 0 12px; font-weight:bold;">Ação proposta pelo agente:</p>
+        <div style="margin-top:24px; padding:16px; background:#fff8e1;
+                    border:1px solid #ffe082; border-radius:6px;">
+            <p style="margin:0 0 12px; font-weight:bold; color:#e65100;">
+                ⏳ Aguardando aprovação manual
+            </p>
+            <p style="margin:0 0 8px; font-size:13px;">Ação proposta:</p>
             <p style="margin:0 0 16px; font-family:monospace; background:#fff;
-                      padding:8px; border-radius:4px;">{proposed_action}</p>
-            <p style="margin:0; font-size:12px; color:#666;">
-                Para aprovar ou rejeitar, responda este email com:<br>
-                <strong>APROVAR {action_id}</strong> ou <strong>REJEITAR {action_id}</strong>
+                      padding:8px; border-radius:4px; font-size:13px;">{proposed_action}</p>
+            <p style="margin:0 0 8px; font-size:13px; font-weight:bold;">
+                Para executar, rode no terminal:
+            </p>
+            <p style="margin:0; font-family:monospace; background:#263238; color:#80cbc4;
+                      padding:10px; border-radius:4px; font-size:13px;">
+                {cmd_approve}
+            </p>
+            <p style="margin:12px 0 0; font-size:11px; color:#888;">
+                Não responda a este email — ele não possui caixa de entrada.
             </p>
         </div>
         """
@@ -86,6 +97,7 @@ def send_alert(
         client = boto3.client("sesv2", region_name=SES_REGION)
         client.send_email(
             FromEmailAddress=SES_FROM,
+            ReplyToAddresses=[ALERT_TO],
             Destination={"ToAddresses": [ALERT_TO]},
             Content={
                 "Simple": {
