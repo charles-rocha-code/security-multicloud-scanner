@@ -34,6 +34,133 @@ A production-grade **Cloud Security Posture Management (CSPM)** and **Cloud Work
 
 ---
 
+## Infrastructure Agents
+
+Autonomous agents that monitor and manage the AWS environment, triggered by Amazon EventBridge and notified via Amazon SES.
+
+### Architecture
+
+```
+EventBridge (rate 15 min) ──► Lambda: security-scanner-watchdog
+                                        │
+                          ┌─────────────┼─────────────┐
+                          ▼             ▼             ▼
+                    WatchdogAgent  IncidentAgent  DriftAgent
+                          │             │
+                    ┌─────┴─────┐  ┌───┴────────┐
+                    ▼           ▼  ▼            ▼
+               ScalerAgent  WAFAgent       DeployAgent
+                          │
+                          ▼
+              Amazon SES → charles.rocha@oi.net.br
+```
+
+### Agents
+
+| Agent | File | Trigger | Actions |
+|---|---|---|---|
+| **WatchdogAgent** | `agents/watchdog.py` | EventBridge every 15 min | Monitors CPU, alarms, target health, logs |
+| **IncidentAgent** | `agents/incident.py` | Called by Watchdog on anomaly | Diagnoses root cause, coordinates response |
+| **ScalerAgent** | `agents/scaler.py` | Called by Incident | Scale up +1 (auto), scale down (approval required) |
+| **DeployAgent** | `agents/deploy.py` | Manual | Blue-green promote and rollback (always requires approval) |
+| **WAFAgent** | `agents/waf_agent.py` | Called by Incident | Auto-blocks IPs on attack, unblock requires approval |
+| **DriftAgent** | `agents/drift.py` | EventBridge daily 08h BRT | Detects IAM, SG and IMDS drift from Terraform |
+
+### Notification Flow
+
+| Event | Type | Channel |
+|---|---|---|
+| Anomaly detected | Immediate alert | Email via SES |
+| Agent requires approval | Approval request | Email with `APROVAR <id>` / `REJEITAR <id>` reply |
+| Action executed | Confirmation | Email via SES |
+| Drift report | Daily summary 08h BRT | Email via SES |
+
+**Sender:** `alertas@oisolucoes.app.br` (domain verified in Amazon SES `us-east-1`)
+
+### Running Agents Manually
+
+```bash
+cd security-multicloud-scanner
+
+# Full health check + auto incident response
+python -m agents.orchestrator watchdog
+
+# Drift detection
+python -m agents.orchestrator drift
+
+# WAF status
+python -m agents.orchestrator waf
+
+# Scale ASG
+python -m agents.orchestrator scale up
+python -m agents.orchestrator scale down
+python -m agents.orchestrator scale 3
+
+# Blue-green deploy
+python -m agents.orchestrator deploy status
+python -m agents.orchestrator deploy promote
+python -m agents.orchestrator deploy rollback
+```
+
+### Approval Gates
+
+Actions with high blast radius require human approval before execution:
+
+```
+AUTOMATIC (no approval needed):
+  ✅ Scale up +1 when CPU > 80%
+  ✅ Block IP when attack confirmed in logs
+  ✅ Drift report (read-only)
+
+REQUIRES APPROVAL (reply to email):
+  🔒 Scale down
+  🔒 Scale up > +1
+  🔒 Blue-green promote (switches production traffic)
+  🔒 Blue-green rollback
+  🔒 Unblock IP from WAF
+```
+
+### AWS Resources Created
+
+| Resource | Name | Description |
+|---|---|---|
+| Lambda | `security-scanner-watchdog` | Runs all agents (Python 3.12, 256 MB, 120s timeout) |
+| EventBridge Rule | `security-scanner-watchdog-15min` | Triggers WatchdogAgent every 15 minutes |
+| EventBridge Rule | `security-scanner-drift-daily` | Triggers DriftAgent daily at 08h BRT |
+| IAM Role | `security-scanner-lambda-role` | Minimum permissions for Lambda |
+| SES Identity | `oisolucoes.app.br` | Verified domain for sending alerts |
+| SES Identity | `charles.rocha@oi.net.br` | Verified recipient |
+
+---
+
+## Claude Code Skills
+
+Slash commands for managing the AWS environment directly from Claude Code CLI:
+
+| Skill | Command | Description |
+|---|---|---|
+| WAF | `/waf status \| block <ip> \| unblock <ip>` | Manage WAFv2 rules and IP sets |
+| Health | `/health` | Full environment health check (EC2, ALB, CloudWatch alarms) |
+| Scale | `/scale up \| down \| <N>` | Manage ASG capacity (min 2, max 4) |
+| Logs | `/logs 30m \| 1h \| 2h` | Search CloudWatch error logs |
+| Drift | `/drift` | Detect drift between AWS and Terraform |
+| Security Audit | `/security-audit` | Full security audit (IMDSv2, IAM, SGs, WAF, S3, Secrets) |
+| Blue-Green | `/blue-green status \| promote \| rollback` | Blue-green deployment management |
+
+Skills are stored in `.claude/skills/` and globally available at `~/.claude/skills/`.
+
+---
+
+## Security Fixes Applied (2026-06-28)
+
+| Finding | Fix | Impact |
+|---|---|---|
+| IMDSv2 optional on green launch template | Updated to `HttpTokens=required`, `HopLimit=1` (v14) | Zero downtime — template only |
+| `dynamodb:Scan` on users table | Removed `Scan` permission from `security-scanner-dynamodb-auth` | Zero downtime |
+| IAM policies outside Terraform | Documented in `terraform-drift/iam_drift_policies.tf` with import commands | No changes applied |
+
+---
+
 ## Supported Providers & Scan Types
 
 | Provider | Storage Scan | IAM / CSPM Scan |
