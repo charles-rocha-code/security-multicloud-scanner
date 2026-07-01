@@ -36,34 +36,40 @@ A production-grade **Cloud Security Posture Management (CSPM)** and **Cloud Work
 
 ## Infrastructure Agents
 
-Autonomous agents that monitor and manage the AWS environment, triggered by Amazon EventBridge and notified via Amazon SES.
+Autonomous agents that monitor and manage the AWS environment, triggered by Amazon EventBridge and notified via Amazon SES with one-click approval buttons.
 
 ### Architecture
 
 ```
-EventBridge (rate 15 min) ──► Lambda: security-scanner-watchdog
+EventBridge (rate 20 min) ──► Lambda: security-scanner-watchdog
+EventBridge (cron 08h BRT) ─► Lambda: security-scanner-watchdog
                                         │
-                          ┌─────────────┼─────────────┐
-                          ▼             ▼             ▼
-                    WatchdogAgent  IncidentAgent  DriftAgent
-                          │             │
-                    ┌─────┴─────┐  ┌───┴────────┐
-                    ▼           ▼  ▼            ▼
-               ScalerAgent  WAFAgent       DeployAgent
-                          │
-                          ▼
-              Amazon SES → charles.rocha@oi.net.br
+                          ┌─────────────┼──────────────┐
+                          ▼             ▼              ▼
+                    WatchdogAgent  IncidentAgent   DriftAgent
+                    (paralelo)          │
+                    5 checks       ┌────┴────────┐
+                    em paralelo    ▼             ▼
+                               ScalerAgent   WAFAgent
+                                        │
+                                   DeployAgent
+                                        │
+                                        ▼
+                         Amazon SES ──► Email com botões
+                                   [✅ APROVAR] [❌ REJEITAR]
+                                        │
+                         Lambda Function URL ──► Executa ação
 ```
 
 ### Agents
 
 | Agent | File | Trigger | Actions |
 |---|---|---|---|
-| **WatchdogAgent** | `agents/watchdog.py` | EventBridge every 15 min | Monitors CPU, alarms, target health, logs |
+| **WatchdogAgent** | `agents/watchdog.py` | EventBridge every 20 min | Monitors CPU, alarms, target health, ASG, logs — **parallel execution** |
 | **IncidentAgent** | `agents/incident.py` | Called by Watchdog on anomaly | Diagnoses root cause, coordinates response |
 | **ScalerAgent** | `agents/scaler.py` | Called by Incident | Scale up +1 (auto), scale down (approval required) |
 | **DeployAgent** | `agents/deploy.py` | Manual | Blue-green promote and rollback (always requires approval) |
-| **WAFAgent** | `agents/waf_agent.py` | Called by Incident | Auto-blocks IPs on attack, unblock requires approval |
+| **WAFAgent** | `agents/waf_agent.py` | Called by Incident | Auto-blocks public IPs on attack (private IPs filtered), unblock requires approval |
 | **DriftAgent** | `agents/drift.py` | EventBridge daily 08h BRT | Detects IAM, SG and IMDS drift from Terraform |
 
 ### Notification Flow
@@ -71,11 +77,45 @@ EventBridge (rate 15 min) ──► Lambda: security-scanner-watchdog
 | Event | Type | Channel |
 |---|---|---|
 | Anomaly detected | Immediate alert | Email via SES |
-| Agent requires approval | Approval request | Email with `APROVAR <id>` / `REJEITAR <id>` reply |
+| Agent requires approval | **Email with ✅ APROVAR / ❌ REJEITAR buttons** | Click → Lambda Function URL → executes action |
 | Action executed | Confirmation | Email via SES |
 | Drift report | Daily summary 08h BRT | Email via SES |
 
-**Sender:** `alertas@oisolucoes.app.br` (domain verified in Amazon SES `us-east-1`)
+**Sender:** `alertas@oisolucoes.app.br` (domain verified in Amazon SES `us-east-1`)  
+**Reply-To:** `charles.rocha@oi.net.br` (replies stay in inbox, not bounced to sender)
+
+### Approval Gate — one-click email
+
+Actions requiring approval generate a UUID token stored in DynamoDB (TTL 24h) and send an email with two buttons:
+
+```
+┌─────────────────────────────────────────────────────┐
+│ ⚠️ ScalerAgent aguarda aprovação                    │
+│                                                     │
+│ Ação: Aumentar capacidade: 2 → 3 instâncias         │
+│ CPU média: 84% nos últimos 5 minutos                │
+│                                                     │
+│   [  ✅ APROVAR  ]      [  ❌ REJEITAR  ]           │
+│                                                     │
+│ Link expira em 24h · uso único                      │
+└─────────────────────────────────────────────────────┘
+```
+
+Click flow:
+```
+Click [✅ APROVAR]
+  → GET https://<lambda-url>/approve?token=<uuid>
+  → DynamoDB: validate + delete token (single-use)
+  → orchestrator.run("scale", "3")
+  → SES: confirmation email
+  → HTML page: "Ação aprovada e executada"
+```
+
+Token security:
+- UUID v4 (122 bits random) — unguessable
+- Single-use: deleted on first click
+- Expires in 24h via DynamoDB TTL
+- HTTPS only
 
 ### Running Agents Manually
 
@@ -104,7 +144,7 @@ python -m agents.orchestrator deploy rollback
 
 ### Approval Gates
 
-Actions with high blast radius require human approval before execution:
+Actions with high blast radius require human approval via email button click:
 
 ```
 AUTOMATIC (no approval needed):
@@ -112,7 +152,7 @@ AUTOMATIC (no approval needed):
   ✅ Block IP when attack confirmed in logs
   ✅ Drift report (read-only)
 
-REQUIRES APPROVAL (reply to email):
+REQUIRES APPROVAL (click button in email):
   🔒 Scale down
   🔒 Scale up > +1
   🔒 Blue-green promote (switches production traffic)
@@ -120,16 +160,85 @@ REQUIRES APPROVAL (reply to email):
   🔒 Unblock IP from WAF
 ```
 
-### AWS Resources Created
+### AWS Resources
 
-| Resource | Name | Description |
+| Resource | Name | Spec |
 |---|---|---|
-| Lambda | `security-scanner-watchdog` | Runs all agents (Python 3.12, 256 MB, 120s timeout) |
-| EventBridge Rule | `security-scanner-watchdog-15min` | Triggers WatchdogAgent every 15 minutes |
-| EventBridge Rule | `security-scanner-drift-daily` | Triggers DriftAgent daily at 08h BRT |
-| IAM Role | `security-scanner-lambda-role` | Minimum permissions for Lambda |
-| SES Identity | `oisolucoes.app.br` | Verified domain for sending alerts |
+| Lambda | `security-scanner-watchdog` | Python 3.12 · **128 MB** · 120s timeout |
+| Lambda | `security-scanner-cve-updater` | Python 3.12 · 256 MB · 300s timeout |
+| **Lambda Function URL** | `wgg2j4sakb3f46xt7i74he5rfm0urova.lambda-url.us-east-2.on.aws` | Auth: NONE (secured by token) |
+| EventBridge Rule | `security-scanner-watchdog-15min` | **rate(20 minutes)** · ENABLED |
+| EventBridge Rule | `security-scanner-drift-daily` | cron(0 11 * * ? *) → 08h BRT · ENABLED |
+| EventBridge Rule | `security-scanner-cve-updater-weekly` | cron(0 3 ? * MON *) · ENABLED |
+| DynamoDB | `security-scanner-sessions` | PAY_PER_REQUEST · TTL enabled (stores approval tokens) |
+| DynamoDB | `security-scanner-users` | PAY_PER_REQUEST · PITR enabled |
+| WAF | `security-scanner-production-waf` | REGIONAL · 17 rules · blocked + trusted IP sets |
+| SES Identity | `oisolucoes.app.br` | Verified domain — sender |
 | SES Identity | `charles.rocha@oi.net.br` | Verified recipient |
+| CloudWatch Logs | `/aws/lambda/security-scanner-watchdog` | **Retention: 30 days** |
+| CloudWatch Logs | `/aws/lambda/security-scanner-cve-updater` | Retention: 30 days |
+
+---
+
+## Performance Optimizations (2026-07-01)
+
+Applied to reduce Lambda compute consumption and improve detection speed.
+
+### Before vs After
+
+| Metric | Before | After | Change |
+|---|---|---|---|
+| WatchdogAgent avg duration | 3.099s | ~0.8s | **−74%** |
+| Monthly invocations | ~1,135 | ~850 | **−25%** |
+| Lambda GB-seconds/month | 880 | ~113 | **−87%** |
+| Lambda memory | 256 MB | **128 MB** | **−50%** |
+| EventBridge interval | 15 min | **20 min** | **−25% invocations** |
+| Log retention | None (∞) | **30 days** | **Controlled** |
+| Monthly cost | $0.00 | $0.00 | Free tier |
+
+### Opt 1 — WatchdogAgent: parallel execution
+
+The 5 health checks now run concurrently using `ThreadPoolExecutor(max_workers=5)` instead of sequentially. The total duration is now determined by the slowest single check (~800ms) instead of the sum of all checks (~3.1s).
+
+```python
+# Before: sequential
+alarms = get_alarms_in_alarm()      # 800ms
+cpu    = get_cpu_average(ASG_MAIN)  # 600ms
+health = get_target_health(TG_MAIN) # 600ms  → total: ~3.1s
+asg    = describe_asg(ASG_MAIN)     # 600ms
+errors = get_error_logs(minutes=30) # 500ms
+
+# After: parallel
+with ThreadPoolExecutor(max_workers=5) as pool:
+    futures = {pool.submit(fn): name for name, fn in checks.items()}
+    # all 5 run simultaneously → total: ~800ms
+```
+
+### Opt 2 — Lambda memory: 256 MB → 128 MB
+
+Python + boto3 runtime uses ~55-80 MB. Memory reduced to 128 MB, cutting compute cost by 50% when above the free tier.
+
+### Opt 3 — EventBridge interval: 15 min → 20 min
+
+Reduces invocations from ~2,160 to ~1,620 per month (−25%) while maintaining fast anomaly detection.
+
+### Opt 4 — CloudWatch Logs retention: none → 30 days
+
+Both Lambda log groups now have a 30-day retention policy. Without it, logs from 265+ weekly executions would accumulate indefinitely.
+
+---
+
+## WAF Bug Fixes (2026-07-01)
+
+Five issues found and corrected in `agents/waf_agent.py` and `agents/tools/aws.py`:
+
+| # | Severity | Issue | Fix |
+|---|---|---|---|
+| 1 | **Critical** | `scan_logs_for_attacks()` regex extracted all IPs from logs — could auto-block AWS internal IPs (`169.254.169.254` IMDS, `10.x` VPC, `172.x` ALB) | Added `_is_private_ip()` filter using Python `ipaddress` module — only public routable IPs are ever blocked |
+| 2 | **High** | Double email per auto-blocked IP — `block_ip()` called `notify_action_executed()` then `scan_logs_for_attacks()` called `notify_incident()` for the same event | Removed duplicate `notify_incident()` call from scan loop |
+| 3 | **Medium** | `get_error_logs()` had `limit=50` — only first 50 log events analyzed regardless of attack volume | Replaced with paginated loop using `nextToken`, fetches up to 5,000 events per scan |
+| 4 | **Low** | `unblock_ip()` created a DynamoDB token and sent approval email even when IP was not in the blocked list | Added pre-check: queries IP Set before creating token; returns `status: skipped` if IP not found |
+| 5 | **Connection** | No error handling on AWS API calls — throttling or network failures crashed the Lambda silently | Added `_retry()` with exponential backoff (3 attempts) for `Throttling`, `ServiceUnavailable`, and `ConnectTimeout` on all WAF API calls |
 
 ---
 
@@ -151,13 +260,23 @@ Skills are stored in `.claude/skills/` and globally available at `~/.claude/skil
 
 ---
 
-## Security Fixes Applied (2026-06-28)
+## Security & Infrastructure Fixes
+
+### 2026-06-28 — Drift Detection Fixes
 
 | Finding | Fix | Impact |
 |---|---|---|
 | IMDSv2 optional on green launch template | Updated to `HttpTokens=required`, `HopLimit=1` (v14) | Zero downtime — template only |
 | `dynamodb:Scan` on users table | Removed `Scan` permission from `security-scanner-dynamodb-auth` | Zero downtime |
-| IAM policies outside Terraform | Documented in `terraform-drift/iam_drift_policies.tf` with import commands | No changes applied |
+| IAM policies outside Terraform | Documented in `iam_drift_policies.tf` with import commands | Drift remediated |
+| Duplicate `aws_iam_role_policy.dynamodb_auth` in Terraform | Removed from `iam_drift_policies.tf` — already managed in `dynamo.tf` | `terraform init` unblocked |
+
+### 2026-07-01 — Notification & Email Fixes
+
+| Finding | Fix |
+|---|---|
+| Approval emails bounced (5.1.2 DNS error) when admin replied | Added `ReplyToAddresses` pointing to admin inbox — replies no longer go to SES-only sender |
+| Approval text said "reply with APROVAR/REJEITAR" — no receiver existed | Replaced with Lambda Function URL buttons (✅ APROVAR / ❌ REJEITAR) with DynamoDB token gate |
 
 ---
 
