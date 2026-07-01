@@ -47,6 +47,8 @@ def run(command: str = "watchdog", arg: str = "") -> dict:
         from . import waf_agent
         if arg.startswith("block "):
             return waf_agent.block_ip(arg.split(" ", 1)[1], reason="Manual via orchestrator")
+        if arg.startswith("unblock-execute "):
+            return waf_agent.execute_unblock(arg.split(" ", 1)[1])
         if arg.startswith("unblock "):
             return waf_agent.unblock_ip(arg.split(" ", 1)[1])
         if arg == "scan":

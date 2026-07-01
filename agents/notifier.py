@@ -11,10 +11,11 @@ from enum import Enum
 
 import boto3
 
-SES_REGION  = os.getenv("SES_REGION", "us-east-1")
-SES_FROM    = os.getenv("SES_FROM", "alertas@oisolucoes.app.br")
-ALERT_TO    = os.getenv("ALERT_EMAIL", "charles.rocha@oi.net.br")
-ENVIRONMENT = os.getenv("ENVIRONMENT", "security-scanner [us-east-2]")
+SES_REGION        = os.getenv("SES_REGION", "us-east-1")
+SES_FROM          = os.getenv("SES_FROM", "alertas@oisolucoes.app.br")
+ALERT_TO          = os.getenv("ALERT_EMAIL", "charles.rocha@oi.net.br")
+ENVIRONMENT       = os.getenv("ENVIRONMENT", "security-scanner [us-east-2]")
+APPROVAL_BASE_URL = os.getenv("APPROVAL_BASE_URL", "").rstrip("/")
 
 
 class Severity(str, Enum):
@@ -40,7 +41,7 @@ def send_alert(
     subject: str,
     body: str,
     severity: Severity = Severity.HIGH,
-    action_id: str | None = None,
+    token: str | None = None,
     proposed_action: str | None = None,
 ) -> bool:
     """Envia alerta de infraestrutura via AWS SES."""
@@ -49,26 +50,59 @@ def send_alert(
     now_brt = datetime.utcnow().strftime("%d/%m/%Y %H:%M") + " BRT"
 
     approval_section = ""
-    if action_id and proposed_action:
-        cmd_approve = f"python -m agents.orchestrator {action_id}"
-        approval_section = f"""
+    if token and proposed_action:
+        if APPROVAL_BASE_URL:
+            approve_url = f"{APPROVAL_BASE_URL}/approve?token={token}"
+            reject_url  = f"{APPROVAL_BASE_URL}/reject?token={token}"
+            approval_section = f"""
+        <div style="margin-top:24px; padding:20px; background:#fff8e1;
+                    border:1px solid #ffe082; border-radius:8px;">
+            <p style="margin:0 0 12px; font-weight:bold; color:#e65100; font-size:15px;">
+                ⏳ Aprovação necessária
+            </p>
+            <p style="margin:0 0 8px; font-size:13px; color:#555;">Ação proposta:</p>
+            <p style="margin:0 0 20px; font-family:monospace; background:#fff;
+                      padding:10px; border-radius:4px; font-size:13px;
+                      border-left:3px solid #f57c00;">{proposed_action}</p>
+            <table style="border-collapse:separate; border-spacing:12px 0;">
+              <tr>
+                <td>
+                  <a href="{approve_url}"
+                     style="display:inline-block; padding:12px 28px; background:#2e7d32;
+                            color:#fff; text-decoration:none; border-radius:6px;
+                            font-weight:bold; font-size:15px;">
+                    ✅ APROVAR
+                  </a>
+                </td>
+                <td>
+                  <a href="{reject_url}"
+                     style="display:inline-block; padding:12px 28px; background:#c62828;
+                            color:#fff; text-decoration:none; border-radius:6px;
+                            font-weight:bold; font-size:15px;">
+                    ❌ REJEITAR
+                  </a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:16px 0 0; font-size:11px; color:#999;">
+                Link expira em 24h · uso único · não responda este email
+            </p>
+        </div>
+        """
+        else:
+            approval_section = f"""
         <div style="margin-top:24px; padding:16px; background:#fff8e1;
                     border:1px solid #ffe082; border-radius:6px;">
-            <p style="margin:0 0 12px; font-weight:bold; color:#e65100;">
-                ⏳ Aguardando aprovação manual
-            </p>
-            <p style="margin:0 0 8px; font-size:13px;">Ação proposta:</p>
+            <p style="margin:0 0 8px; font-weight:bold; color:#e65100;">⏳ Aprovação necessária</p>
+            <p style="margin:0 0 8px; font-size:13px; color:#555;">Ação proposta:</p>
             <p style="margin:0 0 16px; font-family:monospace; background:#fff;
-                      padding:8px; border-radius:4px; font-size:13px;">{proposed_action}</p>
-            <p style="margin:0 0 8px; font-size:13px; font-weight:bold;">
-                Para executar, rode no terminal:
+                      padding:8px; border-radius:4px;">{proposed_action}</p>
+            <p style="margin:0 0 4px; font-size:12px; color:#666;">
+                APPROVAL_BASE_URL não configurada — aprovação via CLI:
             </p>
             <p style="margin:0; font-family:monospace; background:#263238; color:#80cbc4;
-                      padding:10px; border-radius:4px; font-size:13px;">
-                {cmd_approve}
-            </p>
-            <p style="margin:12px 0 0; font-size:11px; color:#888;">
-                Não responda a este email — ele não possui caixa de entrada.
+                      padding:8px; border-radius:4px; font-size:12px;">
+                Token: {token}
             </p>
         </div>
         """
@@ -123,7 +157,7 @@ def notify_incident(agent: str, description: str, severity: Severity = Severity.
 
 def notify_action_pending(
     agent: str,
-    action_id: str,
+    token: str,
     proposed_action: str,
     context: str,
 ) -> bool:
@@ -131,7 +165,7 @@ def notify_action_pending(
         subject=f"{agent} aguarda aprovação",
         body=context,
         severity=Severity.HIGH,
-        action_id=action_id,
+        token=token,
         proposed_action=proposed_action,
     )
 

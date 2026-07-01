@@ -3,8 +3,7 @@ deploy.py — Gerencia blue-green deploy. Sempre exige aprovação humana.
 """
 from __future__ import annotations
 
-import uuid
-
+from .approval import create_token
 from .notifier import notify_action_executed, notify_action_pending, notify_incident, Severity
 from .tools.aws import (
     describe_asg, get_target_health, get_tg_arn,
@@ -51,15 +50,18 @@ def promote() -> dict:
         )
         return {"status": "error", "reason": f"Green tem instâncias unhealthy: {unhealthy_ids}"}
 
-    action_id = str(uuid.uuid4())[:8]
+    token = create_token(
+        action_command="deploy promote-execute",
+        description=f"Promover slot green para produção ({len(healthy)} instâncias healthy)",
+    )
     notify_action_pending(
         agent="DeployAgent",
-        action_id=action_id,
-        proposed_action=f"Redirecionar listener HTTPS → Target Group green ({TG_GREEN})",
+        token=token,
+        proposed_action=f"Redirecionar tráfego HTTPS → slot green ({TG_GREEN})",
         context=f"Slot green: {len(healthy)}/{len(green_health)} instâncias healthy\n"
                 f"Esta ação muda o tráfego de produção do blue para o green.",
     )
-    return {"status": "pending_approval", "action_id": action_id, "green_healthy": len(healthy)}
+    return {"status": "pending_approval", "token": token, "green_healthy": len(healthy)}
 
 
 def execute_promote() -> dict:
@@ -76,14 +78,17 @@ def execute_promote() -> dict:
 
 def rollback() -> dict:
     """Solicita aprovação para rollback para o slot blue (main)."""
-    action_id = str(uuid.uuid4())[:8]
+    token = create_token(
+        action_command="deploy rollback-execute",
+        description="Rollback: restaurar tráfego para slot blue e zerar ASG green",
+    )
     notify_action_pending(
         agent="DeployAgent",
-        action_id=action_id,
-        proposed_action=f"Redirecionar listener HTTPS → Target Group principal ({TG_MAIN}) e zerar ASG green",
+        token=token,
+        proposed_action=f"Rollback: tráfego → slot blue ({TG_MAIN}) + zerar ASG green",
         context="Esta ação faz rollback do tráfego para o slot blue e desliga as instâncias green.",
     )
-    return {"status": "pending_approval", "action_id": action_id}
+    return {"status": "pending_approval", "token": token}
 
 
 def execute_rollback() -> dict:

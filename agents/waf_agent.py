@@ -3,8 +3,7 @@ waf_agent.py — Gerencia WAF: bloqueia IPs automaticamente, desbloqueia com apr
 """
 from __future__ import annotations
 
-import uuid
-
+from .approval import create_token
 from .notifier import notify_action_executed, notify_action_pending, notify_incident, Severity
 from .tools.aws import get_error_logs, get_ip_set, get_waf_rules, update_ip_set
 
@@ -45,17 +44,19 @@ def block_ip(ip: str, reason: str = "Manual") -> dict:
 
 def unblock_ip(ip: str) -> dict:
     """Desbloqueia IP. Sempre exige aprovação humana."""
-    cidr      = ip if "/" in ip else f"{ip}/32"
-    action_id = str(uuid.uuid4())[:8]
-
+    cidr  = ip if "/" in ip else f"{ip}/32"
+    token = create_token(
+        action_command=f"waf unblock-execute {cidr}",
+        description=f"Remover {cidr} do IP Set de bloqueados no WAF",
+    )
     notify_action_pending(
         agent="WAFAgent",
-        action_id=action_id,
-        proposed_action=f"Remover {cidr} do IP Set de bloqueados",
+        token=token,
+        proposed_action=f"Desbloquear IP: remover {cidr} do WAF",
         context=f"IP {cidr} está atualmente bloqueado no WAF.\n"
                 f"Confirme se o desbloqueio é intencional.",
     )
-    return {"status": "pending_approval", "action_id": action_id, "ip": cidr}
+    return {"status": "pending_approval", "token": token, "ip": cidr}
 
 
 def execute_unblock(ip: str) -> dict:

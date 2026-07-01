@@ -4,8 +4,7 @@ Scale up +1 é automático. Scale down e > +1 exigem aprovação.
 """
 from __future__ import annotations
 
-import uuid
-
+from .approval import create_token
 from .notifier import notify_action_executed, notify_action_pending, Severity
 from .tools.aws import describe_asg, set_desired_capacity
 
@@ -27,15 +26,18 @@ def scale_up(auto: bool = True) -> dict:
     new_desired = current + 1
 
     if not auto:
-        action_id = str(uuid.uuid4())[:8]
+        token = create_token(
+            action_command=f"scale {new_desired}",
+            description=f"Escalar ASG de {current} → {new_desired} instâncias",
+        )
         notify_action_pending(
             agent="ScalerAgent",
-            action_id=action_id,
-            proposed_action=f"aws autoscaling set-desired-capacity --auto-scaling-group-name {ASG_MAIN} --desired-capacity {new_desired}",
+            token=token,
+            proposed_action=f"Aumentar capacidade: {current} → {new_desired} instâncias ({ASG_MAIN})",
             context=f"Estado atual: Desired={current}, Min={MIN_CAP}, Max={MAX_CAP}\n"
                     f"Ação proposta: aumentar de {current} para {new_desired} instâncias.",
         )
-        return {"status": "pending_approval", "action_id": action_id, "proposed_desired": new_desired}
+        return {"status": "pending_approval", "token": token, "proposed_desired": new_desired}
 
     set_desired_capacity(ASG_MAIN, new_desired)
     notify_action_executed(
@@ -58,16 +60,18 @@ def scale_down() -> dict:
         return {"status": "skipped", "reason": msg}
 
     new_desired = current - 1
-    action_id   = str(uuid.uuid4())[:8]
-
+    token = create_token(
+        action_command=f"scale {new_desired}",
+        description=f"Reduzir ASG de {current} → {new_desired} instâncias",
+    )
     notify_action_pending(
         agent="ScalerAgent",
-        action_id=action_id,
-        proposed_action=f"aws autoscaling set-desired-capacity --auto-scaling-group-name {ASG_MAIN} --desired-capacity {new_desired}",
+        token=token,
+        proposed_action=f"Reduzir capacidade: {current} → {new_desired} instâncias ({ASG_MAIN})",
         context=f"Estado atual: Desired={current}, Min={MIN_CAP}, Max={MAX_CAP}\n"
                 f"Ação proposta: reduzir de {current} para {new_desired} instâncias.",
     )
-    return {"status": "pending_approval", "action_id": action_id, "proposed_desired": new_desired}
+    return {"status": "pending_approval", "token": token, "proposed_desired": new_desired}
 
 
 def set_capacity(desired: int) -> dict:
@@ -77,15 +81,17 @@ def set_capacity(desired: int) -> dict:
 
     asg     = describe_asg(ASG_MAIN)
     current = asg.get("desired", MIN_CAP)
-    action_id = str(uuid.uuid4())[:8]
-
+    token = create_token(
+        action_command=f"scale {desired}",
+        description=f"Definir capacidade do ASG para {desired} instâncias",
+    )
     notify_action_pending(
         agent="ScalerAgent",
-        action_id=action_id,
-        proposed_action=f"aws autoscaling set-desired-capacity --auto-scaling-group-name {ASG_MAIN} --desired-capacity {desired}",
+        token=token,
+        proposed_action=f"Definir capacidade: {current} → {desired} instâncias ({ASG_MAIN})",
         context=f"Estado atual: Desired={current}\nAção proposta: definir Desired={desired}",
     )
-    return {"status": "pending_approval", "action_id": action_id, "proposed_desired": desired}
+    return {"status": "pending_approval", "token": token, "proposed_desired": desired}
 
 
 def status() -> dict:
