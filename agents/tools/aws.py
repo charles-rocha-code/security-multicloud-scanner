@@ -4,7 +4,27 @@ Região padrão: us-east-2 (security-scanner)
 """
 from __future__ import annotations
 
+import time
 import boto3
+from botocore.exceptions import ClientError, EndpointResolutionError, ConnectTimeoutError
+
+
+def _retry(fn, retries: int = 3, backoff: float = 1.0):
+    """Executa fn com retry exponencial para erros transientes da AWS."""
+    for attempt in range(retries):
+        try:
+            return fn()
+        except ClientError as exc:
+            code = exc.response["Error"]["Code"]
+            if code in ("Throttling", "RequestLimitExceeded", "ServiceUnavailable") and attempt < retries - 1:
+                time.sleep(backoff * (2 ** attempt))
+                continue
+            raise
+        except (EndpointResolutionError, ConnectTimeoutError) as exc:
+            if attempt < retries - 1:
+                time.sleep(backoff * (2 ** attempt))
+                continue
+            raise RuntimeError(f"Falha de conexão com AWS após {retries} tentativas: {exc}") from exc
 
 REGION = "us-east-2"
 ASG_MAIN  = "security-scanner-asg"
@@ -118,15 +138,16 @@ def switch_listener(tg_name: str) -> None:
 
 def get_ip_set(name: str, ip_set_id: str) -> dict:
     waf = boto3.client("wafv2", region_name=REGION)
-    resp = waf.get_ip_set(Name=name, Id=ip_set_id, Scope="REGIONAL")
+    resp = _retry(lambda: waf.get_ip_set(Name=name, Id=ip_set_id, Scope="REGIONAL"))
     return {"addresses": resp["IPSet"]["Addresses"], "lock_token": resp["LockToken"]}
 
 
 def update_ip_set(name: str, ip_set_id: str, addresses: list[str], lock_token: str) -> None:
-    boto3.client("wafv2", region_name=REGION).update_ip_set(
+    waf = boto3.client("wafv2", region_name=REGION)
+    _retry(lambda: waf.update_ip_set(
         Name=name, Id=ip_set_id, Scope="REGIONAL",
         Addresses=addresses, LockToken=lock_token,
-    )
+    ))
 
 
 def get_waf_rules() -> list[dict]:
@@ -141,14 +162,25 @@ def get_waf_rules() -> list[dict]:
 
 # ── CloudWatch Logs ───────────────────────────────────────────────────────────
 
-def get_error_logs(minutes: int = 30) -> list[dict]:
+def get_error_logs(minutes: int = 30, max_events: int = 5000) -> list[dict]:
     import datetime
-    logs = boto3.client("logs", region_name=REGION)
+    client   = boto3.client("logs", region_name=REGION)
     start_ms = int((datetime.datetime.utcnow() - datetime.timedelta(minutes=minutes)).timestamp() * 1000)
-    resp = logs.filter_log_events(
+    events: list[dict] = []
+    kwargs = dict(
         logGroupName=LOG_GROUP,
         filterPattern="?ERROR ?Exception ?CRITICAL ?500 ?502 ?503",
         startTime=start_ms,
-        limit=50,
+        limit=10000,
     )
-    return [{"stream": e["logStreamName"], "message": e["message"].strip()} for e in resp.get("events", [])]
+    while len(events) < max_events:
+        resp = client.filter_log_events(**kwargs)
+        events.extend(resp.get("events", []))
+        token = resp.get("nextToken")
+        if not token:
+            break
+        kwargs["nextToken"] = token
+    return [
+        {"stream": e["logStreamName"], "message": e["message"].strip()}
+        for e in events[:max_events]
+    ]

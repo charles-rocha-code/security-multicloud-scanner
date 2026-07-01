@@ -44,7 +44,13 @@ def block_ip(ip: str, reason: str = "Manual") -> dict:
 
 def unblock_ip(ip: str) -> dict:
     """Desbloqueia IP. Sempre exige aprovação humana."""
-    cidr  = ip if "/" in ip else f"{ip}/32"
+    cidr = ip if "/" in ip else f"{ip}/32"
+
+    # Fix 4: verifica se o IP está realmente bloqueado antes de criar token
+    data = get_ip_set(BLOCKED_IP_SET_NAME, BLOCKED_IP_SET_ID)
+    if cidr not in data["addresses"]:
+        return {"status": "skipped", "reason": f"{cidr} não está na lista de bloqueados"}
+
     token = create_token(
         action_command=f"waf unblock-execute {cidr}",
         description=f"Remover {cidr} do IP Set de bloqueados no WAF",
@@ -73,10 +79,28 @@ def execute_unblock(ip: str) -> dict:
     return {"status": "executed", "ip": cidr}
 
 
+def _is_private_ip(ip: str) -> bool:
+    """Retorna True para IPs reservados/internos que nunca devem ser bloqueados no WAF."""
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(ip)
+        return (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local    # 169.254.x.x — IMDS da EC2
+            or addr.is_multicast
+            or addr.is_reserved
+            or addr.is_unspecified
+        )
+    except ValueError:
+        return True  # formato inválido → não bloquear
+
+
 def scan_logs_for_attacks(minutes: int = 30) -> dict:
     """
     Analisa logs em busca de padrões de ataque.
-    Bloqueia automaticamente IPs com volume suspeito.
+    Bloqueia automaticamente IPs públicos com volume suspeito.
+    IPs privados/internos são ignorados (Fix 1).
     """
     from collections import Counter
     import re
@@ -85,24 +109,19 @@ def scan_logs_for_attacks(minutes: int = 30) -> dict:
     if not errors:
         return {"status": "clean", "blocked": []}
 
-    # Extrai IPs dos logs (padrão: IP no início da mensagem ou após "client:")
     ip_pattern = re.compile(r'\b(\d{1,3}(?:\.\d{1,3}){3})\b')
     ip_counts  = Counter()
     for e in errors:
         for ip in ip_pattern.findall(e.get("message", "")):
-            ip_counts[ip] += 1
+            if not _is_private_ip(ip):          # Fix 1: ignora IPs internos
+                ip_counts[ip] += 1
 
     blocked = []
     for ip, count in ip_counts.items():
         if count >= RATE_THRESHOLD:
             result = block_ip(ip, reason=f"Rate automático: {count} erros em {minutes} min")
+            # Fix 2: block_ip() já envia notify_action_executed — sem segundo email aqui
             if result["status"] == "executed":
                 blocked.append(ip)
-                notify_incident(
-                    agent="WAFAgent",
-                    description=f"IP {ip} bloqueado automaticamente.\n"
-                                f"Motivo: {count} erros nos últimos {minutes} minutos.",
-                    severity=Severity.HIGH,
-                )
 
     return {"status": "scanned", "errors_found": len(errors), "ips_blocked": blocked}
