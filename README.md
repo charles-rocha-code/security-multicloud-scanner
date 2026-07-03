@@ -61,7 +61,7 @@ https://github.com/charles-rocha-code/Terraform-Multicloud_scanner
 
 | Provider | Storage Scan | IAM / CSPM Scan |
 |---|---|---|
-| **AWS** | S3 — public + authenticated (up to 5 000 objects) | IAM — CIS AWS Foundations Benchmark v1.4 |
+| **AWS** | S3 — public + authenticated (up to 10 000 objects) | IAM — CIS AWS Foundations Benchmark v1.4 |
 | **Google Cloud** | GCS — public + authenticated | GCP IAM — CIS GCP Foundations Benchmark v2.0 |
 | **Azure** | Blob Storage — public + authenticated | Azure IAM / Entra ID — CIS Azure Foundations Benchmark v2.0 |
 | **Kubernetes** | — | RBAC, pod security, network policies, secrets hygiene |
@@ -432,7 +432,7 @@ FastAPI (api_with_mfa.py)
 │
 ├── Storage Auditors
 │   ├── auditor.py                           — AWS S3 (public)
-│   ├── auditor_s3_authenticated.py          — AWS S3 (authenticated, up to 5 000 objects)
+│   ├── auditor_s3_authenticated.py          — AWS S3 (authenticated, up to 10 000 objects)
 │   ├── auditor_gcs.py                       — Google Cloud Storage (public)
 │   ├── auditor_gcs_authenticated.py         — GCS (authenticated)
 │   ├── auditor_azure.py                     — Azure Blob Storage (public)
