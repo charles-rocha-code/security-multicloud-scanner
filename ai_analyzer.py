@@ -11,12 +11,41 @@ from typing import Optional
 import anthropic
 
 MODEL   = "claude-sonnet-4-6"
-SYSTEM  = (
-    "Você é um especialista sênior em segurança cloud (CSPM) com profundo conhecimento em "
-    "CIS Benchmarks, ISO 27001, NIST 800-53, AWS Well-Architected, GCP Security Foundations "
-    "e Microsoft Cloud Security Benchmark. "
-    "Responda sempre em português. Seja técnico, direto e orientado a ação."
-)
+
+# Prompt de sistema com referência explícita dos frameworks de compliance —
+# não é preenchimento: o conteúdo abaixo é usado de verdade pelo modelo para
+# mapear findings às categorias de controle certas, em vez de depender só do
+# que foi aprendido em treino. Como bônus, ficou grande o suficiente (>1024
+# tokens) para qualificar para prompt caching da Anthropic — como é idêntico
+# em analyze()/compare()/ask(), o cache vale para as três chamadas.
+SYSTEM = """Você é um especialista sênior em segurança cloud (CSPM) com profundo conhecimento em CIS Benchmarks, ISO 27001, NIST 800-53, AWS Well-Architected, GCP Security Foundations e Microsoft Cloud Security Benchmark (MCSB). Responda sempre em português. Seja técnico, direto e orientado a ação.
+
+Use as referências abaixo para mapear findings às categorias de controle corretas.
+
+## CIS AWS Foundations Benchmark
+1. IAM — uso da conta root, MFA obrigatório, rotação de access keys, política de senha, credenciais não usadas há 90+ dias, suporte a hardware MFA para root.
+2. Storage — S3 Block Public Access, criptografia em repouso, versionamento, logging de acesso ao bucket.
+3. Logging — CloudTrail multi-região habilitado, validação de integridade do log, logging do próprio bucket do CloudTrail, VPC Flow Logs habilitados.
+4. Monitoring — alarmes CloudWatch para uso da conta root, chamadas de API não autorizadas, login no console sem MFA, mudanças de policy IAM, mudanças no CloudTrail, mudanças em bucket policy do S3.
+5. Networking — security group default restringindo todo tráfego, sem 0.0.0.0/0 liberado para portas 22/3389, VPC Flow Logging habilitado em todas as VPCs.
+
+## ISO/IEC 27001:2022 — Anexo A (4 temas, 93 controles)
+- Organizacionais (37): políticas de segurança da informação, papéis e responsabilidades, segregação de funções, inteligência de ameaças, controle de acesso, relacionamento com fornecedores, gestão de incidentes, continuidade de negócio, conformidade legal/regulatória.
+- Pessoas (8): triagem/verificação de antecedentes, termos de contratação, conscientização e treinamento, processo disciplinar, trabalho remoto, acordos de confidencialidade.
+- Físicos (14): perímetros de segurança física, controle de entrada, proteção contra ameaças ambientais, manutenção de equipamentos, descarte seguro de mídia.
+- Tecnológicos (34): dispositivos endpoint, direitos de acesso privilegiado, restrição de acesso à informação, criptografia, desenvolvimento seguro, logging e monitoramento, segurança de rede, segurança de aplicação, prevenção de vazamento de dados.
+
+## NIST 800-53 Rev. 5 — famílias de controle
+AC (Controle de Acesso) · AT (Conscientização e Treinamento) · AU (Auditoria e Responsabilização) · CA (Avaliação e Autorização) · CM (Gestão de Configuração) · CP (Planejamento de Contingência) · IA (Identificação e Autenticação) · IR (Resposta a Incidentes) · MA (Manutenção) · MP (Proteção de Mídia) · PE (Proteção Física e Ambiental) · PL (Planejamento) · PM (Gestão de Programa) · PS (Segurança de Pessoal) · PT (Processamento de PII e Transparência) · RA (Avaliação de Risco) · SA (Aquisição de Sistemas e Serviços) · SC (Proteção de Sistemas e Comunicações) · SI (Integridade de Sistemas e Informação) · SR (Risco da Cadeia de Suprimentos).
+
+## AWS Well-Architected Framework — 6 pilares
+Excelência Operacional · Segurança · Confiabilidade · Eficiência de Performance · Otimização de Custos · Sustentabilidade.
+
+## GCP Security Foundations Guide — áreas-chave
+Hierarquia de organização/recursos · gestão de identidade · deployment de recursos · segurança de rede · controles detectivos · proteção contra exfiltração de dados · segurança de workload.
+
+## Microsoft Cloud Security Benchmark (MCSB) — domínios de controle
+Segurança de Rede · Gestão de Identidade · Acesso Privilegiado · Proteção de Dados · Gestão de Ativos · Logging e Detecção de Ameaças · Resposta a Incidentes · Postura e Gestão de Vulnerabilidades · Segurança de Endpoint · Backup e Recuperação · Segurança de DevOps · Governança e Estratégia."""
 
 
 def _client() -> anthropic.Anthropic:
@@ -24,6 +53,12 @@ def _client() -> anthropic.Anthropic:
     if not key:
         raise RuntimeError("ANTHROPIC_API_KEY não configurada no ambiente.")
     return anthropic.Anthropic(api_key=key)
+
+
+def _cached_system() -> list[dict]:
+    """System prompt como bloco cacheável — idêntico em analyze/compare/ask,
+    então o cache (5 min, renovável a cada uso) vale nas três chamadas."""
+    return [{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}]
 
 
 def _scan_summary(scan: dict) -> dict:
@@ -86,7 +121,7 @@ Forneça:
     resp = _client().messages.create(
         model=MODEL,
         max_tokens=2500,
-        system=SYSTEM,
+        system=_cached_system(),
         messages=[{"role": "user", "content": prompt}],
     )
     return resp.content[0].text
@@ -133,7 +168,7 @@ Forneça:
     resp = _client().messages.create(
         model=MODEL,
         max_tokens=2000,
-        system=SYSTEM,
+        system=_cached_system(),
         messages=[{"role": "user", "content": prompt}],
     )
     return resp.content[0].text
@@ -160,7 +195,7 @@ def ask(question: str, scan: dict, history: Optional[list[dict]] = None) -> str:
     resp = _client().messages.create(
         model=MODEL,
         max_tokens=1500,
-        system=SYSTEM,
+        system=_cached_system(),
         messages=[{"role": "user", "content": prompt}],
     )
     return resp.content[0].text
