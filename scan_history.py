@@ -25,6 +25,28 @@ def _email_safe(email: str) -> str:
     return email.replace("@", "_at_").replace(".", "_").lower()
 
 
+def _index_scan_for_rag(email: str, provider: str, ts: str, result: dict) -> None:
+    """
+    Indexa um resumo do scan na base de conhecimento (RAG) para retrieval
+    semântico em ai_analyzer.ask() — além do histórico fixo de "últimos N"
+    já usado ali. Nunca derruba o save_scan: falha aqui só é logada.
+    """
+    try:
+        import rag
+        sd = result.get("severity_distribution", {})
+        summary_text = (
+            f"Scan {provider} de {email} em {ts}\n"
+            f"Alvo: {result.get('bucket') or result.get('target') or result.get('account_id', '?')}\n"
+            f"Severidade: CRÍTICO={sd.get('critical', 0)} ALTO={sd.get('high', 0)} "
+            f"MÉDIO={sd.get('medium', 0)} BAIXO={sd.get('low', 0)}\n"
+            f"Risk score: {result.get('risk_score', 0)}/100\n"
+            f"Total de findings: {len(result.get('files', []))}"
+        )
+        rag.index_chunk(text=summary_text, source=f"{email}:{provider}:{ts}", category="scan")
+    except Exception as e:
+        print(f"⚠️  scan_history._index_scan_for_rag error: {e}")
+
+
 def save_scan(email: str, provider: str, result: dict) -> str:
     """Salva resultado de scan no S3. Retorna a chave S3 gerada."""
     if not S3_BUCKET or not email:
@@ -48,6 +70,7 @@ def save_scan(email: str, provider: str, result: dict) -> str:
             ContentType="application/json",
         )
         print(f"📦 Scan salvo: {key}")
+        _index_scan_for_rag(email, provider, ts, result)
         return key
     except Exception as e:
         print(f"⚠️  scan_history.save_scan error: {e}")

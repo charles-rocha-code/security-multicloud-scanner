@@ -187,6 +187,18 @@ def ask(question: str, scan: dict, history: Optional[list[dict]] = None) -> str:
         hist_summaries = [_scan_summary(h) for h in history[:3]]
         context += f"\n\n**Histórico ({len(hist_summaries)} scan(s)):**\n{json.dumps(hist_summaries, indent=2, default=str, ensure_ascii=False)}"
 
+    # RAG: busca scans historicamente relevantes PRA ESSA pergunta específica —
+    # diferente do histórico acima, que só traz os N mais recentes, não os mais
+    # relevantes. Nunca quebra a resposta: falha aqui só omite a seção.
+    try:
+        import rag
+        hits = rag.retrieve(question, k=3, category="scan")
+        if hits:
+            rag_text = "\n".join(f"- {h['text']}" for h in hits)
+            context += f"\n\n**Scans relacionados encontrados por busca semântica:**\n{rag_text}"
+    except Exception as e:
+        print(f"⚠️ ai_analyzer.ask RAG error: {e}")
+
     prompt = f"""{context}
 
 ---
