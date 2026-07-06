@@ -60,7 +60,9 @@ from auth_mfa import (  # type: ignore
     login_user,
     logout_all_sessions,
     register_user,
+    request_password_reset,
     require_mfa,
+    reset_password,
     setup_mfa,
     sync_from_s3,
     validate_new_password,
@@ -388,6 +390,23 @@ class UserRegisterIn(BaseModel):
 class ChangePasswordIn(BaseModel):
     current_password: str
     mfa_code: str = Field(min_length=6, max_length=64)
+    new_password: str = Field(min_length=12, max_length=256)
+
+    @field_validator("new_password")
+    @classmethod
+    def _validate_new_password_strength(cls, v: str) -> str:
+        try:
+            return validate_new_password(v)
+        except ValueError as e:
+            raise ValueError(str(e))
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    token: str = Field(min_length=1, max_length=512)
     new_password: str = Field(min_length=12, max_length=256)
 
     @field_validator("new_password")
@@ -775,6 +794,16 @@ def change_password_page(request: Request):
     return templates.TemplateResponse("change_password.html", {"request": request})
 
 
+@app.get("/forgot-password", response_class=HTMLResponse, include_in_schema=False)
+def forgot_password_page(request: Request):
+    return templates.TemplateResponse("forgot_password.html", {"request": request})
+
+
+@app.get("/reset-password", response_class=HTMLResponse, include_in_schema=False)
+def reset_password_page(request: Request):
+    return templates.TemplateResponse("reset_password.html", {"request": request})
+
+
 @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
 def dashboard_page(request: Request):
     # Proteção real é via /api/dashboard (com Authorization)
@@ -822,6 +851,19 @@ def auth_change_password(data: ChangePasswordIn, user=Depends(require_mfa)):
         code=data.mfa_code,
         new_password=data.new_password,
     )
+
+
+@app.post("/auth/forgot-password")
+def auth_forgot_password(data: ForgotPasswordIn):
+    # Resposta sempre idêntica, exista ou não a conta — evita que a rota vire
+    # uma ferramenta de descobrir quais emails têm cadastro
+    request_password_reset(email=str(data.email))
+    return {"message": "Se este email estiver cadastrado, enviamos um link de redefinição de senha."}
+
+
+@app.post("/auth/reset-password")
+def auth_reset_password(data: ResetPasswordIn):
+    return reset_password(token=data.token, new_password=data.new_password)
 
 
 @app.get("/auth/mfa/status")

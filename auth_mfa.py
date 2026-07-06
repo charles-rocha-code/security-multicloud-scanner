@@ -30,12 +30,22 @@ S3_BUCKET = os.environ.get("DB_S3_BUCKET", "security-scanner-db-442042548551")
 DYNAMO_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-2")
 SESSIONS_TABLE = os.environ.get("SESSIONS_DYNAMO_TABLE", "security-scanner-sessions")
 USERS_TABLE = os.environ.get("USERS_DYNAMO_TABLE", "security-scanner-users")
+PASSWORD_RESETS_TABLE = os.environ.get("PASSWORD_RESETS_DYNAMO_TABLE", "security-scanner-password-resets")
+
+# Identidade SES já verificada (mesma do Watchdog Lambda) — conta ainda em
+# sandbox, então só entrega para destinatários individualmente verificados
+SES_REGION = "us-east-1"
+SES_SENDER = os.environ.get("SES_SENDER_EMAIL", "no-reply@oisolucoes.app.br")
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://scanner.oisolucoes.app.br")
 
 SESSION_TTL_SECONDS = 86400  # 24 h
+PASSWORD_RESET_TTL_SECONDS = 1800  # 30 min
 
 _dynamo = boto3.resource("dynamodb", region_name=DYNAMO_REGION)
 _tbl_sessions = _dynamo.Table(SESSIONS_TABLE)
 _tbl_users = _dynamo.Table(USERS_TABLE)
+_tbl_password_resets = _dynamo.Table(PASSWORD_RESETS_TABLE)
+_ses = boto3.client("ses", region_name=SES_REGION)
 
 # ==================== DYNAMO — SESSÕES ====================
 
@@ -84,6 +94,64 @@ def _sessions_for_email(email: str):
     except Exception as e:
         print(f"⚠️ DynamoDB query sessions by email error: {e}")
         return []
+
+# ==================== DYNAMO — TOKENS DE RESET DE SENHA ====================
+
+def _reset_token_put(token: str, email: str) -> None:
+    _tbl_password_resets.put_item(Item={
+        "token": token,
+        "email": email,
+        "created_at": datetime.now().isoformat(),
+        "used": False,
+        "expires_at_unix": int(time.time()) + PASSWORD_RESET_TTL_SECONDS,
+    })
+
+
+def _reset_token_get(token: str) -> Optional[Dict[str, Any]]:
+    try:
+        resp = _tbl_password_resets.get_item(Key={"token": token})
+        item = resp.get("Item")
+        if not item:
+            return None
+        if int(item.get("expires_at_unix", 0)) < int(time.time()):
+            _tbl_password_resets.delete_item(Key={"token": token})
+            return None
+        return dict(item)
+    except Exception as e:
+        print(f"⚠️ DynamoDB get_reset_token error: {e}")
+        return None
+
+
+def _reset_token_delete(token: str) -> None:
+    try:
+        _tbl_password_resets.delete_item(Key={"token": token})
+    except Exception as e:
+        print(f"⚠️ DynamoDB delete_reset_token error: {e}")
+
+
+def _send_password_reset_email(to_email: str, reset_link: str) -> bool:
+    try:
+        _ses.send_email(
+            Source=SES_SENDER,
+            Destination={"ToAddresses": [to_email]},
+            Message={
+                "Subject": {"Data": "Redefinição de senha — Security Scanner", "Charset": "UTF-8"},
+                "Body": {
+                    "Text": {
+                        "Charset": "UTF-8",
+                        "Data": (
+                            "Recebemos uma solicitação para redefinir a senha da sua conta.\n\n"
+                            f"Clique no link abaixo para criar uma nova senha (válido por 30 minutos):\n{reset_link}\n\n"
+                            "Se você não solicitou isso, ignore este email — nenhuma alteração será feita."
+                        ),
+                    }
+                },
+            },
+        )
+        return True
+    except Exception as e:
+        print(f"⚠️ SES send_password_reset_email error: {e}")
+        return False
 
 # ==================== DYNAMO — USUÁRIOS ====================
 
@@ -503,6 +571,45 @@ def change_password(email: str, current_password: str, code: str, new_password: 
     revoked = logout_all_sessions(email)
     print(f"✅ Senha alterada para {email} ({revoked} sessão(ões) invalidada(s))")
     return {"message": "Senha alterada com sucesso. Faça login novamente.", "sessions_revoked": revoked}
+
+
+def request_password_reset(email: str) -> None:
+    """Nunca revela se o email existe -- só envia o link se a conta existir
+    de fato. O endpoint sempre responde a mesma mensagem genérica."""
+    user = _user_get(email)
+    if not user:
+        print(f"ℹ️ Reset de senha solicitado para email não cadastrado: {email}")
+        return
+    token = secrets.token_urlsafe(32)
+    _reset_token_put(token, email)
+    reset_link = f"{APP_BASE_URL}/reset-password?token={token}"
+    if _send_password_reset_email(email, reset_link):
+        print(f"✅ Email de reset de senha enviado para {email}")
+    else:
+        print(f"⚠️ Falha ao enviar email de reset de senha para {email}")
+
+
+def reset_password(token: str, new_password: str) -> Dict[str, Any]:
+    reset_item = _reset_token_get(token)
+    if not reset_item:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Link de redefinição inválido ou expirado.")
+
+    email = reset_item["email"]
+    user = _user_get(email)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Link de redefinição inválido ou expirado.")
+
+    try:
+        validate_new_password(new_password, email)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    user["password"] = hash_password(new_password)
+    _user_put(email, user)
+    _reset_token_delete(token)
+    revoked = logout_all_sessions(email)
+    print(f"✅ Senha redefinida via token para {email} ({revoked} sessão(ões) invalidada(s))")
+    return {"message": "Senha redefinida com sucesso. Faça login normalmente.", "sessions_revoked": revoked}
 
 
 def logout_user(token: str, response: Optional[Response] = None) -> Dict[str, Any]:
