@@ -339,7 +339,7 @@ def login_user(email: str, password: str, mfa_code: Optional[str] = None, respon
             token = create_session_token(email)
             if response:
                 response.set_cookie(key=COOKIE_NAME, value=token, max_age=COOKIE_MAX_AGE,
-                                    httponly=True, samesite="lax", secure=False)
+                                    httponly=True, samesite="lax", secure=True)
                 print(f"✅ Cookie criado para {email}: {token[:20]}...")
             return {"message": "Login bem-sucedido", "authenticated": True, "email": email,
                     "full_name": user.get("full_name"), "token": token, "mfa_enabled": True}
@@ -351,7 +351,7 @@ def login_user(email: str, password: str, mfa_code: Optional[str] = None, respon
             token = create_session_token(email)
             if response:
                 response.set_cookie(key=COOKIE_NAME, value=token, max_age=COOKIE_MAX_AGE,
-                                    httponly=True, samesite="lax", secure=False)
+                                    httponly=True, samesite="lax", secure=True)
                 print(f"✅ Cookie criado para {email}: {token[:20]}...")
             return {"message": "Login bem-sucedido (backup code usado)", "authenticated": True, "email": email,
                     "full_name": user.get("full_name"), "token": token, "mfa_enabled": True,
@@ -362,7 +362,7 @@ def login_user(email: str, password: str, mfa_code: Optional[str] = None, respon
     token = create_session_token(email)
     if response:
         response.set_cookie(key=COOKIE_NAME, value=token, max_age=COOKIE_MAX_AGE,
-                            httponly=True, samesite="lax", secure=False)
+                            httponly=True, samesite="lax", secure=True)
         print(f"✅ Cookie criado para {email}: {token[:20]}...")
     return {"message": "Login bem-sucedido", "authenticated": True, "email": email,
             "full_name": user.get("full_name"), "token": token, "mfa_enabled": False}
