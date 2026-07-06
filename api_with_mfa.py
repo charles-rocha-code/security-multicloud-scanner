@@ -336,6 +336,15 @@ CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()] or [
     "http://localhost:8000",
 ]
 
+# Lista de emails autorizados a criar conta — sem isso, /auth/register aceitava
+# qualquer email, permitindo que qualquer pessoa se cadastrasse e acessasse o
+# ambiente. Fail-closed de propósito: se a variável não estiver configurada,
+# nenhum registro é permitido (em vez de abrir para todo mundo por omissão).
+_allowed_emails_raw = os.environ.get("ALLOWED_REGISTRATION_EMAILS", "")
+ALLOWED_REGISTRATION_EMAILS = {
+    e.strip().lower() for e in _allowed_emails_raw.split(",") if e.strip()
+}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -756,6 +765,8 @@ def health():
 # -----------------------------------------------------------------------------
 @app.post("/auth/register")
 def auth_register(data: UserRegisterIn):
+    if str(data.email).lower() not in ALLOWED_REGISTRATION_EMAILS:
+        raise HTTPException(status_code=403, detail="Este email não está autorizado a criar uma conta.")
     register_user(email=data.email, password=data.password, full_name=data.full_name)
     # ✅ CORRIGIDO: setup_mfa agora só precisa do email
     mfa = setup_mfa(email=data.email)
