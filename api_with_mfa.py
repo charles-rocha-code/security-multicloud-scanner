@@ -48,7 +48,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 # === Auth/MFA do projeto ===
 from auth_mfa import (  # type: ignore
@@ -369,10 +369,45 @@ REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 # -----------------------------------------------------------------------------
 # Schemas
 # -----------------------------------------------------------------------------
+# NIST 800-63B: comprimento importa mais que complexidade forçada (maiúscula+
+# número+símbolo obrigatórios só incentiva padrões previsíveis tipo "Senha123!").
+# Por isso o mínimo é 12 caracteres e bloqueamos apenas senhas comuns/óbvias,
+# sem exigir mistura de tipos de caractere.
+_WEAK_PASSWORDS = {
+    "password1234", "password123456", "12345678901234", "123456789012",
+    "1234567890123", "qwertyuiop1234", "qwertyuiop12345", "administrador123",
+    "senha12345678", "senha123456789", "changeme123456", "letmein123456",
+    "iloveyou123456", "welcome1234567", "trustno1234567", "abc123456789012",
+}
+
+
+def _is_weak_password(password: str) -> bool:
+    lowered = password.lower()
+    if lowered in _WEAK_PASSWORDS:
+        return True
+    if len(set(lowered)) <= 3:
+        return True
+    if lowered.isdigit():
+        ascending = "".join(str(i % 10) for i in range(len(lowered)))
+        if lowered == ascending or lowered == ascending[::-1]:
+            return True
+    return False
+
+
 class UserRegisterIn(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=1, max_length=120)
-    password: str = Field(min_length=4, max_length=256)
+    password: str = Field(min_length=12, max_length=256)
+
+    @field_validator("password")
+    @classmethod
+    def _validate_password_strength(cls, v: str, info) -> str:
+        if _is_weak_password(v):
+            raise ValueError("Senha muito fraca ou comum. Escolha uma senha menos previsível.")
+        email = info.data.get("email")
+        if email and str(email).split("@")[0].lower() in v.lower():
+            raise ValueError("A senha não pode conter parte do seu email.")
+        return v
 
 
 class UserLoginIn(BaseModel):
