@@ -2254,6 +2254,30 @@
     }
     .btn-logout:active { opacity: 0.8; }
 
+    /* Botão Trocar Senha — mesmo estilo ghost, hover neutro */
+    .btn-change-password {
+      padding: 5px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-subtle);
+      background: transparent;
+      color: var(--text-secondary);
+      font-weight: 500;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: inherit;
+      text-decoration: none;
+    }
+    .btn-change-password:hover {
+      background: rgba(167,139,250,0.12);
+      border-color: rgba(167,139,250,0.3);
+      color: #a78bfa;
+    }
+    .btn-change-password:active { opacity: 0.8; }
+
   </style>
 
 <script>
@@ -2316,6 +2340,12 @@
         <span class="user-avatar" id="user-avatar">?</span>
         <span id="user-name" style="color:var(--text-primary); font-weight:500;">-</span>
       </span>
+
+      <!-- Botão Trocar Senha -->
+      <a id="change-password-btn" class="btn-change-password" style="display:none;" href="/change-password">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Trocar senha
+      </a>
 
       <!-- Botão Sair -->
       <button id="logout-btn" class="btn-logout" style="display:none;" onclick="logout()">
@@ -3193,6 +3223,7 @@
       const userPill = document.getElementById("user-pill");
       const userNameEl = document.getElementById("user-name");
       const logoutBtn = document.getElementById("logout-btn");
+      const changePasswordBtn = document.getElementById("change-password-btn");
 
       const name =
         (user && (user.full_name || user.name || user.email)) ||
@@ -3211,6 +3242,7 @@
       }
       if (userPill) userPill.style.display = "inline-flex";
       if (logoutBtn) logoutBtn.style.display = "inline-flex";
+      if (changePasswordBtn) changePasswordBtn.style.display = "inline-flex";
     }
 
 function logout() {

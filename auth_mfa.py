@@ -213,6 +213,39 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return hashlib.sha256(plain_password.encode()).hexdigest() == hashed_password
     return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
 
+# NIST 800-63B: comprimento importa mais que complexidade forçada (maiúscula+
+# número+símbolo obrigatórios só incentiva padrões previsíveis tipo "Senha123!").
+# Usado tanto no cadastro quanto na troca de senha — fonte única da política.
+WEAK_PASSWORDS = {
+    "password1234", "password123456", "12345678901234", "123456789012",
+    "1234567890123", "qwertyuiop1234", "qwertyuiop12345", "administrador123",
+    "senha12345678", "senha123456789", "changeme123456", "letmein123456",
+    "iloveyou123456", "welcome1234567", "trustno1234567", "abc123456789012",
+}
+
+
+def is_weak_password(password: str) -> bool:
+    lowered = password.lower()
+    if lowered in WEAK_PASSWORDS:
+        return True
+    if len(set(lowered)) <= 3:
+        return True
+    if lowered.isdigit():
+        ascending = "".join(str(i % 10) for i in range(len(lowered)))
+        if lowered == ascending or lowered == ascending[::-1]:
+            return True
+    return False
+
+
+def validate_new_password(password: str, email: Optional[str] = None) -> str:
+    """Levanta ValueError se a senha não atende a política. Não valida
+    comprimento mínimo — isso fica a cargo do schema Pydantic de cada rota."""
+    if is_weak_password(password):
+        raise ValueError("Senha muito fraca ou comum. Escolha uma senha menos previsível.")
+    if email and str(email).split("@")[0].lower() in password.lower():
+        raise ValueError("A senha não pode conter parte do seu email.")
+    return password
+
 def generate_mfa_secret() -> str:
     return pyotp.random_base32()
 
@@ -444,6 +477,32 @@ def regenerate_backup_codes(email: str, password: str, code: str) -> Dict[str, A
     user["backup_codes"] = new_codes
     _user_put(email, user)
     return {"message": "Backup codes regenerados", "backup_codes": new_codes}
+
+
+def change_password(email: str, current_password: str, code: str, new_password: str) -> Dict[str, Any]:
+    user = _user_get(email)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
+    if not verify_password(current_password, user["password"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Senha atual incorreta")
+
+    if user.get("mfa_enabled"):
+        if not verify_totp_code(user["mfa_secret"], code):
+            is_valid, updated_codes = verify_backup_code(user.get("backup_codes", []), code)
+            if not is_valid:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código MFA inválido")
+            user["backup_codes"] = updated_codes
+
+    try:
+        validate_new_password(new_password, email)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    user["password"] = hash_password(new_password)
+    _user_put(email, user)
+    revoked = logout_all_sessions(email)
+    print(f"✅ Senha alterada para {email} ({revoked} sessão(ões) invalidada(s))")
+    return {"message": "Senha alterada com sucesso. Faça login novamente.", "sessions_revoked": revoked}
 
 
 def logout_user(token: str, response: Optional[Response] = None) -> Dict[str, Any]:

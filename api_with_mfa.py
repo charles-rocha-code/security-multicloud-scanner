@@ -55,6 +55,7 @@ from auth_mfa import (  # type: ignore
     ACTIVE_SESSIONS,
     S3_BUCKET,
     USERS_DB,
+    change_password,
     get_current_user,
     login_user,
     logout_all_sessions,
@@ -62,6 +63,7 @@ from auth_mfa import (  # type: ignore
     require_mfa,
     setup_mfa,
     sync_from_s3,
+    validate_new_password,
     verify_and_activate_mfa,
 )
 
@@ -369,31 +371,6 @@ REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 # -----------------------------------------------------------------------------
 # Schemas
 # -----------------------------------------------------------------------------
-# NIST 800-63B: comprimento importa mais que complexidade forçada (maiúscula+
-# número+símbolo obrigatórios só incentiva padrões previsíveis tipo "Senha123!").
-# Por isso o mínimo é 12 caracteres e bloqueamos apenas senhas comuns/óbvias,
-# sem exigir mistura de tipos de caractere.
-_WEAK_PASSWORDS = {
-    "password1234", "password123456", "12345678901234", "123456789012",
-    "1234567890123", "qwertyuiop1234", "qwertyuiop12345", "administrador123",
-    "senha12345678", "senha123456789", "changeme123456", "letmein123456",
-    "iloveyou123456", "welcome1234567", "trustno1234567", "abc123456789012",
-}
-
-
-def _is_weak_password(password: str) -> bool:
-    lowered = password.lower()
-    if lowered in _WEAK_PASSWORDS:
-        return True
-    if len(set(lowered)) <= 3:
-        return True
-    if lowered.isdigit():
-        ascending = "".join(str(i % 10) for i in range(len(lowered)))
-        if lowered == ascending or lowered == ascending[::-1]:
-            return True
-    return False
-
-
 class UserRegisterIn(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=1, max_length=120)
@@ -402,12 +379,24 @@ class UserRegisterIn(BaseModel):
     @field_validator("password")
     @classmethod
     def _validate_password_strength(cls, v: str, info) -> str:
-        if _is_weak_password(v):
-            raise ValueError("Senha muito fraca ou comum. Escolha uma senha menos previsível.")
-        email = info.data.get("email")
-        if email and str(email).split("@")[0].lower() in v.lower():
-            raise ValueError("A senha não pode conter parte do seu email.")
-        return v
+        try:
+            return validate_new_password(v, info.data.get("email"))
+        except ValueError as e:
+            raise ValueError(str(e))
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    mfa_code: str = Field(min_length=6, max_length=64)
+    new_password: str = Field(min_length=12, max_length=256)
+
+    @field_validator("new_password")
+    @classmethod
+    def _validate_new_password_strength(cls, v: str) -> str:
+        try:
+            return validate_new_password(v)
+        except ValueError as e:
+            raise ValueError(str(e))
 
 
 class UserLoginIn(BaseModel):
@@ -781,6 +770,11 @@ def mfa_setup_page(request: Request):
     return templates.TemplateResponse("mfa_setup.html", {"request": request})
 
 
+@app.get("/change-password", response_class=HTMLResponse, include_in_schema=False)
+def change_password_page(request: Request):
+    return templates.TemplateResponse("change_password.html", {"request": request})
+
+
 @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
 def dashboard_page(request: Request):
     # Proteção real é via /api/dashboard (com Authorization)
@@ -818,6 +812,16 @@ def auth_register(data: UserRegisterIn):
 def auth_login(request: Request, data: UserLoginIn, response: Response):
     _check_login_rate(get_client_ip(request))
     return login_user(email=data.email, password=data.password, mfa_code=data.mfa_code, response=response)
+
+
+@app.post("/auth/change-password")
+def auth_change_password(data: ChangePasswordIn, user=Depends(require_mfa)):
+    return change_password(
+        email=user["email"],
+        current_password=data.current_password,
+        code=data.mfa_code,
+        new_password=data.new_password,
+    )
 
 
 @app.get("/auth/mfa/status")
