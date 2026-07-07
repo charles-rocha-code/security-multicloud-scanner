@@ -340,14 +340,23 @@ CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()] or [
     "http://localhost:8000",
 ]
 
-# Lista de emails autorizados a criar conta — sem isso, /auth/register aceitava
+# Domínios autorizados a criar conta — sem isso, /auth/register aceitava
 # qualquer email, permitindo que qualquer pessoa se cadastrasse e acessasse o
 # ambiente. Fail-closed de propósito: se a variável não estiver configurada,
 # nenhum registro é permitido (em vez de abrir para todo mundo por omissão).
-_allowed_emails_raw = os.environ.get("ALLOWED_REGISTRATION_EMAILS", "")
-ALLOWED_REGISTRATION_EMAILS = {
-    e.strip().lower() for e in _allowed_emails_raw.split(",") if e.strip()
+# Restringe por DOMÍNIO (ex.: "oi.net.br") em vez de lista de emails exatos —
+# qualquer email corporativo do domínio pode se cadastrar, sem precisar
+# adicionar cada endereço manualmente. Não afeta contas já existentes fora
+# do domínio (o cadastro é o único ponto de checagem).
+_allowed_domains_raw = os.environ.get("ALLOWED_REGISTRATION_DOMAINS", "")
+ALLOWED_REGISTRATION_DOMAINS = {
+    d.strip().lower().lstrip("@") for d in _allowed_domains_raw.split(",") if d.strip()
 }
+
+
+def _is_email_domain_allowed(email: str) -> bool:
+    domain = email.rsplit("@", 1)[-1].lower()
+    return domain in ALLOWED_REGISTRATION_DOMAINS
 
 app.add_middleware(
     CORSMiddleware,
@@ -823,7 +832,7 @@ def health():
 # -----------------------------------------------------------------------------
 @app.post("/auth/register")
 def auth_register(data: UserRegisterIn):
-    if str(data.email).lower() not in ALLOWED_REGISTRATION_EMAILS:
+    if not _is_email_domain_allowed(str(data.email)):
         raise HTTPException(status_code=403, detail="Este email não está autorizado a criar uma conta.")
     register_user(email=data.email, password=data.password, full_name=data.full_name)
     # ✅ CORRIGIDO: setup_mfa agora só precisa do email
