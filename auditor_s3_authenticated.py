@@ -6,7 +6,15 @@ import json
 from typing import Any, Dict, List, Optional
 from botocore.exceptions import ClientError, NoCredentialsError
 
-from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk, build_recommendations
+from engine_risk import (
+    classify_severity,
+    build_severity_distribution,
+    calculate_advanced_risk,
+    build_recommendations,
+    should_scan_content,
+    scan_content_for_secrets,
+    CONTENT_SCAN_MAX_FILES,
+)
 from cve_mapping import enrich_finding
 
 
@@ -144,21 +152,37 @@ class S3AuthenticatedAuditor:
     def _list_objects(self, bucket_name: str) -> List[Dict[str, Any]]:
         """Lista objetos do bucket"""
         files = []
-        
+        content_scans_done = 0
+
         try:
             paginator = self.s3_client.get_paginator('list_objects_v2')
             page_iterator = paginator.paginate(
                 Bucket=bucket_name,
                 PaginationConfig={'MaxItems': self.max_objects}
             )
-            
+
             for page in page_iterator:
                 for obj in page.get('Contents', []):
                     key = obj.get('Key', '')
                     size = obj.get('Size', 0)
-                    
-                    # Classifica severidade
+
+                    # Classifica severidade por nome/extensão
                     severity, reason = classify_severity(key)
+
+                    # Inspeciona o CONTEÚDO de candidatos pequenos e sem
+                    # extensão sensível óbvia -- pega segredo embutido num
+                    # arquivo "sem cara de sensível" (.txt, .log, sem
+                    # extensão), que a checagem por nome nunca via
+                    if content_scans_done < CONTENT_SCAN_MAX_FILES and should_scan_content(key, size, severity):
+                        try:
+                            body = self.s3_client.get_object(Bucket=bucket_name, Key=key)['Body'].read()
+                            content_scans_done += 1
+                            text = body.decode('utf-8', errors='ignore')
+                            content_hit = scan_content_for_secrets(text)
+                            if content_hit:
+                                severity, reason = content_hit
+                        except Exception:
+                            pass  # objeto ilegível/binário/sem permissão -- segue com a classificação por nome
 
                     files.append(enrich_finding({
                         'key': key,
@@ -167,14 +191,14 @@ class S3AuthenticatedAuditor:
                         'reason': reason,
                         'last_modified': obj.get('LastModified').isoformat() if obj.get('LastModified') else None
                     }, "AWS_S3"))
-                    
+
                     # Limita quantidade
                     if len(files) >= self.max_objects:
                         break
-                
+
                 if len(files) >= self.max_objects:
                     break
-        
+
         except ClientError as e:
             raise Exception(f"Erro ao listar objetos: {e}")
         

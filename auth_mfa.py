@@ -320,6 +320,14 @@ def generate_mfa_secret() -> str:
 def generate_backup_codes(count: int = 10) -> list[str]:
     return [secrets.token_hex(4).upper() for _ in range(count)]
 
+
+def hash_backup_codes(codes: list[str]) -> list[str]:
+    """Backup codes são exibidos em texto puro uma única vez (na geração),
+    mas persistidos como hash bcrypt -- igual senha. Sem isso, um vazamento
+    do banco de usuários exporia os backup codes em texto puro, anulando o
+    MFA (eles funcionam como uma segunda senha)."""
+    return [hash_password(c) for c in codes]
+
 def generate_qr_code(email: str, secret: str, issuer: str = "Security Scanner") -> str:
     totp = pyotp.TOTP(secret)
     provisioning_uri = totp.provisioning_uri(name=email, issuer_name=issuer)
@@ -334,11 +342,18 @@ def generate_qr_code(email: str, secret: str, issuer: str = "Security Scanner") 
 def verify_totp_code(secret: str, code: str, window: int = 1) -> bool:
     return pyotp.TOTP(secret).verify(code, valid_window=window)
 
-def verify_backup_code(user_backup_codes: list[str], code: str):
+def verify_backup_code(user_backup_codes_hashed: list[str], code: str):
     code_upper = code.upper().replace("-", "").replace(" ", "")
-    if code_upper in user_backup_codes:
-        return True, [c for c in user_backup_codes if c != code_upper]
-    return False, user_backup_codes
+    for stored in user_backup_codes_hashed:
+        # Compatibilidade com códigos gerados antes desta migração (texto
+        # puro, sem prefixo bcrypt "$2"). Continuam válidos até serem usados
+        # ou regenerados -- não há como hashear retroativamente sem invalidar
+        # códigos que o usuário já anotou/guardou.
+        matched = verify_password(code_upper, stored) if stored.startswith("$2") else stored == code_upper
+        if matched:
+            remaining = [h for h in user_backup_codes_hashed if h != stored]
+            return True, remaining
+    return False, user_backup_codes_hashed
 
 def create_session_token(email: str) -> str:
     token = f"scanner_session_{secrets.token_hex(32)}"
@@ -479,7 +494,7 @@ def setup_mfa(email: str) -> Dict[str, Any]:
     totp = pyotp.TOTP(secret)
     provisioning_uri = totp.provisioning_uri(name=email, issuer_name="Security Scanner")
     user["mfa_secret"] = secret
-    user["backup_codes"] = backup_codes
+    user["backup_codes"] = hash_backup_codes(backup_codes)
     _user_put(email, user)
     print(f"✅ MFA configurado para {email}")
     print(f"   Secret: {secret}")
@@ -542,7 +557,7 @@ def regenerate_backup_codes(email: str, password: str, code: str) -> Dict[str, A
     if not verify_totp_code(user["mfa_secret"], code):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código MFA inválido")
     new_codes = generate_backup_codes()
-    user["backup_codes"] = new_codes
+    user["backup_codes"] = hash_backup_codes(new_codes)
     _user_put(email, user)
     return {"message": "Backup codes regenerados", "backup_codes": new_codes}
 

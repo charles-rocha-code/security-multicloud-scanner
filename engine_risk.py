@@ -5,9 +5,10 @@
 # Recomendações dinâmicas baseadas em melhores práticas
 # ============================================================
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from collections import Counter
 import math
+import re
 
 # ------------------------------------------------------------
 # Regras de severidade por extensão / padrão
@@ -66,6 +67,62 @@ SENSITIVE_PATTERNS = [
 
 # Ranking de severidade para comparação (usado em classify_severity)
 _SEV_RANK = {"CRITICAL": 3, "HIGH": 2, "MEDIUM": 1, "LOW": 0}
+
+# ------------------------------------------------------------
+# 0️⃣ Inspeção de CONTEÚDO (complementa a classificação por nome/extensão,
+#    que nunca olha o que está dentro do arquivo -- um AKIA... dentro de um
+#    "notas.txt" passava invisível antes disto)
+# ------------------------------------------------------------
+
+# Só vale a pena baixar e inspecionar arquivos pequenos e prováveis de texto;
+# baixar cada objeto de um bucket com milhares de arquivos não escala.
+CONTENT_SCAN_MAX_BYTES = 51_200   # 50 KB
+CONTENT_SCAN_MAX_FILES = 300      # limite por scan -- controla custo/tempo
+
+SECRET_CONTENT_PATTERNS = [
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "CRITICAL", "Chave de acesso AWS encontrada no conteúdo do arquivo"),
+    (re.compile(r"-----BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----"), "CRITICAL", "Chave privada encontrada no conteúdo do arquivo"),
+    (re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "HIGH", "Token JWT encontrado no conteúdo do arquivo"),
+    (re.compile(r"(?i)(api[_-]?key|secret[_-]?key|access[_-]?token)[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9_\-/+=]{16,}"), "HIGH", "Possível chave de API encontrada no conteúdo do arquivo"),
+]
+
+_ENTROPY_TOKEN_RE = re.compile(r"[A-Za-z0-9+/_=\-]{20,}")
+_ENTROPY_THRESHOLD = 4.0  # bits/caractere -- limiar comum pra tokens base64/hex reais
+
+
+def _shannon_entropy(s: str) -> float:
+    if not s:
+        return 0.0
+    length = len(s)
+    freq = Counter(s)
+    return -sum((c / length) * math.log2(c / length) for c in freq.values())
+
+
+def should_scan_content(key: str, size: int, severity: str) -> bool:
+    """Decide se vale a pena baixar o conteúdo deste arquivo. Extensões já
+    CRITICAL (.env, .pem, etc.) não precisam -- já foram flagradas. O ponto
+    cego real é arquivo "sem cara de sensível" (.txt, .log, .csv, sem
+    extensão) que pode ter um segredo embutido."""
+    if severity == "CRITICAL":
+        return False
+    if size <= 0 or size > CONTENT_SCAN_MAX_BYTES:
+        return False
+    return True
+
+
+def scan_content_for_secrets(content: str) -> Optional[Tuple[str, str]]:
+    """Retorna (severidade, motivo) se achar padrão de credencial conhecido
+    ou um token de alta entropia (indício de chave/segredo real) no
+    conteúdo. None se nada suspeito for encontrado."""
+    for pattern, sev, reason in SECRET_CONTENT_PATTERNS:
+        if pattern.search(content):
+            return sev, reason
+
+    for token in _ENTROPY_TOKEN_RE.findall(content):
+        if _shannon_entropy(token) >= _ENTROPY_THRESHOLD:
+            return "HIGH", "Possível segredo de alta entropia encontrado no conteúdo do arquivo"
+
+    return None
 
 # ------------------------------------------------------------
 # 1️⃣ Classificação de severidade (CONTRATO DO AUDITOR)

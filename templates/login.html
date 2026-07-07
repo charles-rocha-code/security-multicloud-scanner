@@ -428,8 +428,8 @@
 
             <div class="form-group">
                 <label for="register-password">Senha</label>
-                <input type="password" id="register-password" placeholder="Mínimo 6 caracteres" required autocomplete="new-password">
-                <div class="password-hint">Mínimo 6 caracteres.</div>
+                <input type="password" id="register-password" placeholder="Mínimo 12 caracteres" required autocomplete="new-password" minlength="12">
+                <div class="password-hint">Mínimo 12 caracteres. Evite senhas óbvias ou que contenham seu email.</div>
             </div>
 
             <button type="submit" class="btn" id="register-btn">Criar Conta</button>
@@ -640,8 +640,8 @@
         const password = document.getElementById('register-password').value;
         const registerBtn = document.getElementById('register-btn');
 
-        if (password.length < 6) {
-            showAlert('A senha deve ter no mínimo 6 caracteres.', 'warning');
+        if (password.length < 12) {
+            showAlert('A senha deve ter no mínimo 12 caracteres.', 'warning');
             return;
         }
 
@@ -672,8 +672,12 @@
                 showAlert('Conta criada! Configure o MFA agora.', 'success');
                 setTimeout(() => { window.location.href = '/mfa/setup'; }, 1000);
             } else {
-                showAlert(data.detail || 'Erro ao criar conta.', 'error');
-                addDebug(`Erro: ${data.detail}`);
+                let detail = data.detail || 'Erro ao criar conta.';
+                if (Array.isArray(detail)) {
+                    detail = detail.map(d => d.msg || JSON.stringify(d)).join(' ');
+                }
+                showAlert(detail, 'error');
+                addDebug(`Erro: ${detail}`);
             }
 
         } catch (error) {

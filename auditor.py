@@ -6,7 +6,15 @@ import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, quote
 
-from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk, build_recommendations
+from engine_risk import (
+    classify_severity,
+    build_severity_distribution,
+    calculate_advanced_risk,
+    build_recommendations,
+    should_scan_content,
+    scan_content_for_secrets,
+    CONTENT_SCAN_MAX_FILES,
+)
 from cve_mapping import enrich_finding
 
 
@@ -104,6 +112,7 @@ class S3Auditor:
         Tenta múltiplos formatos de endpoint S3
         """
         files: List[Dict[str, Any]] = []
+        content_scans_done = 0
 
         # Monta lista de endpoints a tentar
         endpoints = []
@@ -176,6 +185,22 @@ class S3Auditor:
                             size = int(size_el.text) if (size_el is not None and (size_el.text or "").isdigit()) else 0
                             sev, reason = classify_severity(key)
                             object_url = f"{base}/{key}"
+
+                            # Inspeciona o CONTEÚDO de candidatos pequenos e sem
+                            # extensão sensível óbvia -- pega segredo embutido
+                            # num arquivo "sem cara de sensível", que a
+                            # checagem por nome/extensão nunca via
+                            if content_scans_done < CONTENT_SCAN_MAX_FILES and should_scan_content(key, size, sev):
+                                try:
+                                    resp = self.session.get(object_url, timeout=self.timeout, verify=True)
+                                    content_scans_done += 1
+                                    if resp.status_code == 200:
+                                        content_hit = scan_content_for_secrets(resp.text)
+                                        if content_hit:
+                                            sev, reason = content_hit
+                                except Exception:
+                                    pass  # objeto ilegível/binário/inacessível -- segue com a classificação por nome
+
                             files.append(enrich_finding({"key": key, "size": size, "severity": sev, "reason": reason, "url": object_url}, "AWS_S3"))
 
                         # Verifica paginação
