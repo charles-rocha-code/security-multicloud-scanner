@@ -76,31 +76,49 @@ from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
 from fastapi.responses import JSONResponse
 
+from logging_setup import setup_logging, get_logger, set_request_id, new_request_id
+from starlette.middleware.base import BaseHTTPMiddleware
+
+setup_logging()
+logger = get_logger("api")
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Gera (ou reaproveita) um request_id por requisição e o disponibiliza
+    para todos os logs estruturados emitidos durante o processamento dela."""
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = request.headers.get("x-request-id") or new_request_id()
+        set_request_id(request_id)
+        response = await call_next(request)
+        response.headers["x-request-id"] = request_id
+        return response
+
 # === Histórico de scans ===
 try:
     from scan_history import save_scan, list_scans, load_recent  # type: ignore
     HISTORY_AVAILABLE = True
 except Exception as _hist_e:
     HISTORY_AVAILABLE = False
-    print(f"⚠️ scan_history indisponível: {_hist_e}")
+    logger.warning(f"⚠️ scan_history indisponível: {_hist_e}")
 
 # === IA — Claude (Anthropic) ===
 try:
     import ai_analyzer  # type: ignore
     AI_AVAILABLE = True
-    print("✅ ai_analyzer carregado")
+    logger.info("✅ ai_analyzer carregado")
 except Exception as _ai_e:
     AI_AVAILABLE = False
-    print(f"⚠️ ai_analyzer indisponível: {_ai_e}")
+    logger.warning(f"⚠️ ai_analyzer indisponível: {_ai_e}")
 
 # === PDF/DOCX Profissional ===
 try:
     from generate_report import generate_executive_report as _gen_executive_report
     PROFESSIONAL_REPORT = True
-    print("✅ Gerador de relatórios profissional carregado")
+    logger.info("✅ Gerador de relatórios profissional carregado")
 except ImportError as e:
     PROFESSIONAL_REPORT = False
-    print(f"⚠️  generate_report.py não encontrado, usando fallback: {e}")
+    logger.warning(f"⚠️  generate_report.py não encontrado, usando fallback: {e}")
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas as rl_canvas
     from docx import Document
@@ -124,7 +142,7 @@ def _upload_report_s3(local_path: Path) -> None:
         s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
         s3.upload_file(str(local_path), S3_BUCKET, _S3_REPORTS_PREFIX + local_path.name)
     except Exception as e:
-        print(f"⚠️ S3 report upload error: {e}")
+        logger.warning(f"⚠️ S3 report upload error: {e}")
 
 def _download_report_s3(filename: str) -> Path | None:
     if not S3_BUCKET or not filename:
@@ -155,7 +173,7 @@ def _save_last_scan(email: str, result: Dict[str, Any]) -> None:
             ContentType="application/json",
         )
     except Exception as e:
-        print(f"⚠️ _save_last_scan error: {e}")
+        logger.warning(f"⚠️ _save_last_scan error: {e}")
 
 
 def _load_last_scan(email: str) -> Optional[Dict[str, Any]]:
@@ -207,7 +225,7 @@ def _job_write(job_id: str, data: Dict[str, Any]) -> None:
             ContentType="application/json",
         )
     except Exception as _e:
-        print(f"⚠️ _job_write S3 error: {_e}")
+        logger.warning(f"⚠️ _job_write S3 error: {_e}")
 
 
 def _job_read(job_id: str) -> Optional[Dict[str, Any]]:
@@ -246,7 +264,7 @@ def _run_in_background(
                 try:
                     save_scan(email, scan_type, result)
                 except Exception as _e:
-                    print(f"⚠️ save_scan error: {_e}")
+                    logger.warning(f"⚠️ save_scan error: {_e}")
         _job_write(job_id, {
             "job_id": job_id, "type": scan_type, "status": "done",
             "started_at": started_at, "finished_at": datetime.now().isoformat(),
@@ -269,6 +287,7 @@ def get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 app = FastAPI(title="Security Multicloud Storage Scanner (MFA)")
+app.add_middleware(RequestIdMiddleware)
 
 _redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
 try:
@@ -277,12 +296,12 @@ try:
     _redis_client.ping()
     _storage_uri = _redis_url
     _redis_available = True
-    print("✅ Rate limiter: Redis backend ativo")
+    logger.info("✅ Rate limiter: Redis backend ativo")
 except Exception as _e:
     _redis_client = None
     _storage_uri = "memory://"
     _redis_available = False
-    print(f"⚠️ Rate limiter: Redis indisponível ({_e}), usando memória por worker")
+    logger.warning(f"⚠️ Rate limiter: Redis indisponível ({_e}), usando memória por worker")
 
 limiter = Limiter(key_func=get_client_ip, storage_uri=_storage_uri)
 app.state.limiter = limiter
@@ -292,7 +311,7 @@ app.add_middleware(SlowAPIMiddleware)
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     errors = exc.errors()
-    print(f"❌ 422 em {request.method} {request.url.path}: {errors}")
+    logger.error(f"❌ 422 em {request.method} {request.url.path}: {errors}")
     return JSONResponse(status_code=422, content={"detail": errors})
 # Cache do último scan por usuário — persiste no S3 para suportar múltiplas instâncias
 LAST_SCAN_BY_EMAIL: _ScanCache = _ScanCache()
@@ -994,7 +1013,7 @@ def scan_public(payload: PublicScanIn, user=Depends(require_mfa), async_mode: bo
             try:
                 save_scan(email, result.get("provider", "unknown").lower(), result)
             except Exception as _e:
-                print(f"⚠️ save_scan error: {_e}")
+                logger.warning(f"⚠️ save_scan error: {_e}")
     return result
 
 
@@ -1086,7 +1105,7 @@ def scan_authenticated(payload: AuthenticatedScanIn, user=Depends(require_mfa), 
             try:
                 save_scan(email, result.get("provider", "unknown").lower(), result)
             except Exception as _e:
-                print(f"⚠️ save_scan error: {_e}")
+                logger.warning(f"⚠️ save_scan error: {_e}")
 
     return result
 
@@ -1151,7 +1170,7 @@ def scan_iam(payload: IamScanIn, user=Depends(require_mfa), async_mode: bool = Q
                 try:
                     save_scan(email, "aws_iam", result)
                 except Exception as _e:
-                    print(f"⚠️ save_scan error: {_e}")
+                    logger.warning(f"⚠️ save_scan error: {_e}")
         return result
     except NoCredentialsError:
         raise HTTPException(status_code=400, detail="Credenciais AWS inválidas ou sem permissão IAM.")
@@ -1197,7 +1216,7 @@ def scan_iam_gcp(payload: GcpIamScanIn, user=Depends(require_mfa), async_mode: b
                 try:
                     save_scan(email, "gcp_iam", result)
                 except Exception as _e:
-                    print(f"⚠️ save_scan error: {_e}")
+                    logger.warning(f"⚠️ save_scan error: {_e}")
         return result
     except Exception as e:
         import traceback
@@ -1254,7 +1273,7 @@ def scan_iam_azure(payload: AzureIamScanIn, user=Depends(require_mfa), async_mod
                 try:
                     save_scan(email, "azure_iam", result)
                 except Exception as _e:
-                    print(f"⚠️ save_scan error: {_e}")
+                    logger.warning(f"⚠️ save_scan error: {_e}")
         return result
     except Exception as e:
         import traceback
@@ -1302,7 +1321,7 @@ def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa), async_mode: bool = Q
                 try:
                     save_scan(email, "k8s", result)
                 except Exception as _e:
-                    print(f"⚠️ save_scan error: {_e}")
+                    logger.warning(f"⚠️ save_scan error: {_e}")
         return result
     except Exception as e:
         import traceback
@@ -1374,7 +1393,7 @@ def ai_compare(user=Depends(require_mfa), provider: Optional[str] = None):
         try:
             history = load_recent(email, provider=provider, n=3)
         except Exception as _e:
-            print(f"⚠️ load_recent error: {_e}")
+            logger.warning(f"⚠️ load_recent error: {_e}")
     try:
         comparison = ai_analyzer.compare(scan, history)
         return {"comparison": comparison, "history_scans_used": len(history)}
@@ -1400,7 +1419,7 @@ def ai_ask(body: AiAskIn, user=Depends(require_mfa)):
         try:
             history = load_recent(email, provider=body.provider, n=3)
         except Exception as _e:
-            print(f"⚠️ load_recent error: {_e}")
+            logger.warning(f"⚠️ load_recent error: {_e}")
     try:
         answer = ai_analyzer.ask(body.question, scan, history)
         return {"answer": answer, "history_scans_used": len(history)}
@@ -1428,36 +1447,31 @@ def generate_report(data: GenerateReportIn, user=Depends(require_mfa)):
     incoming_has_files = isinstance(incoming_files, list) and len(incoming_files) > 0
 
     if cached_scan and (not scan or not incoming_has_files):
-        print("DEBUG /generate-report -> usando scan completo do cache")
+        logger.info("DEBUG /generate-report -> usando scan completo do cache")
         scan = cached_scan
 
     if not scan:
         raise HTTPException(status_code=400, detail="Nenhum scan disponível para gerar relatório. Execute um scan antes.")
 
-    print("DEBUG /generate-report")
-    print("scan keys:", list(scan.keys()) if isinstance(scan, dict) else type(scan))
-    print(
-        "files count before normalize:",
-        len(scan.get("files", []))
-        if isinstance(scan, dict) and isinstance(scan.get("files"), list)
-        else 0,
+    files_before = len(scan.get("files", [])) if isinstance(scan, dict) and isinstance(scan.get("files"), list) else 0
+    logger.info(
+        f"DEBUG /generate-report scan_keys={list(scan.keys()) if isinstance(scan, dict) else type(scan)} "
+        f"files_before={files_before} "
+        f"provider_before={scan.get('provider') if isinstance(scan, dict) else 'N/A'} "
+        f"bucket_before={scan.get('bucket') if isinstance(scan, dict) else 'N/A'}"
     )
-    print("provider before normalize:", scan.get("provider") if isinstance(scan, dict) else "N/A")
-    print("bucket before normalize:", scan.get("bucket") if isinstance(scan, dict) else "N/A")
 
     # Normaliza pra evitar relatório vazio
     provider = scan.get("provider") or _detect_provider(str(scan.get("bucket", "")))
     target = str(scan.get("bucket") or scan.get("target") or "-")
     scan = _normalize_scan_result(scan, provider=provider, target=target)
 
-    print(
-        "files count after normalize:",
-        len(scan.get("files", []))
-        if isinstance(scan, dict) and isinstance(scan.get("files"), list)
-        else 0,
+    files_after = len(scan.get("files", [])) if isinstance(scan, dict) and isinstance(scan.get("files"), list) else 0
+    logger.info(
+        f"DEBUG /generate-report normalized files_after={files_after} "
+        f"provider_after={scan.get('provider') if isinstance(scan, dict) else 'N/A'} "
+        f"bucket_after={scan.get('bucket') if isinstance(scan, dict) else 'N/A'}"
     )
-    print("provider after normalize:", scan.get("provider") if isinstance(scan, dict) else "N/A")
-    print("bucket after normalize:", scan.get("bucket") if isinstance(scan, dict) else "N/A")
 
     # ── Usar gerador profissional com gráficos ────────────────────────
     if PROFESSIONAL_REPORT:

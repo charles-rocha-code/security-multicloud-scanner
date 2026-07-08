@@ -24,6 +24,10 @@ import time
 import boto3
 from botocore.exceptions import ClientError
 
+from logging_setup import get_logger
+
+logger = get_logger("auth_mfa")
+
 # ==================== CONFIGURAÇÃO ====================
 
 S3_BUCKET = os.environ.get("DB_S3_BUCKET", "security-scanner-db-442042548551")
@@ -72,7 +76,7 @@ def _session_get(token: str) -> Optional[Dict[str, Any]]:
             return None
         return dict(item)
     except Exception as e:
-        print(f"⚠️ DynamoDB get_session error: {e}")
+        logger.warning(f"⚠️ DynamoDB get_session error: {e}")
         return None
 
 
@@ -80,7 +84,7 @@ def _session_delete(token: str) -> None:
     try:
         _tbl_sessions.delete_item(Key={"token": token})
     except Exception as e:
-        print(f"⚠️ DynamoDB delete_session error: {e}")
+        logger.warning(f"⚠️ DynamoDB delete_session error: {e}")
 
 
 def _sessions_for_email(email: str):
@@ -92,7 +96,7 @@ def _sessions_for_email(email: str):
         )
         return [item["token"] for item in resp.get("Items", [])]
     except Exception as e:
-        print(f"⚠️ DynamoDB query sessions by email error: {e}")
+        logger.warning(f"⚠️ DynamoDB query sessions by email error: {e}")
         return []
 
 # ==================== DYNAMO — TOKENS DE RESET DE SENHA ====================
@@ -118,7 +122,7 @@ def _reset_token_get(token: str) -> Optional[Dict[str, Any]]:
             return None
         return dict(item)
     except Exception as e:
-        print(f"⚠️ DynamoDB get_reset_token error: {e}")
+        logger.warning(f"⚠️ DynamoDB get_reset_token error: {e}")
         return None
 
 
@@ -126,7 +130,7 @@ def _reset_token_delete(token: str) -> None:
     try:
         _tbl_password_resets.delete_item(Key={"token": token})
     except Exception as e:
-        print(f"⚠️ DynamoDB delete_reset_token error: {e}")
+        logger.warning(f"⚠️ DynamoDB delete_reset_token error: {e}")
 
 
 def _send_password_reset_email(to_email: str, reset_link: str) -> bool:
@@ -150,7 +154,7 @@ def _send_password_reset_email(to_email: str, reset_link: str) -> bool:
         )
         return True
     except Exception as e:
-        print(f"⚠️ SES send_password_reset_email error: {e}")
+        logger.warning(f"⚠️ SES send_password_reset_email error: {e}")
         return False
 
 # ==================== DYNAMO — USUÁRIOS ====================
@@ -165,7 +169,7 @@ def _user_put(email: str, data: Dict[str, Any]) -> None:
         _tbl_users.put_item(Item={"email": email, **data})
         USERS_DB[email] = data
     except Exception as e:
-        print(f"⚠️ DynamoDB put_user error: {e}")
+        logger.warning(f"⚠️ DynamoDB put_user error: {e}")
         raise HTTPException(status_code=500, detail="Erro ao salvar usuário")
 
 
@@ -180,7 +184,7 @@ def _user_get(email: str) -> Optional[Dict[str, Any]]:
             return dict(item)
         return None
     except Exception as e:
-        print(f"⚠️ DynamoDB get_user error: {e}")
+        logger.warning(f"⚠️ DynamoDB get_user error: {e}")
         return None
 
 
@@ -189,7 +193,7 @@ def _users_load_all() -> Dict[str, Dict[str, Any]]:
         resp = _tbl_users.scan()
         return {item["email"]: dict(item) for item in resp.get("Items", [])}
     except Exception as e:
-        print(f"⚠️ DynamoDB scan_users error: {e}")
+        logger.warning(f"⚠️ DynamoDB scan_users error: {e}")
         return {}
 
 
@@ -203,16 +207,16 @@ def _migrate_from_s3() -> None:
         users = json.loads(resp["Body"].read().decode("utf-8"))
         if not users:
             return
-        print(f"🔄 Migrando {len(users)} usuário(s) do S3 para DynamoDB...")
+        logger.info(f"🔄 Migrando {len(users)} usuário(s) do S3 para DynamoDB...")
         for email, data in users.items():
             _tbl_users.put_item(Item={"email": email, **data})
-        print(f"✅ Migração completa: {len(users)} usuário(s)")
+        logger.info(f"✅ Migração completa: {len(users)} usuário(s)")
     except ClientError as e:
         if e.response["Error"]["Code"] == "NoSuchKey":
             return
-        print(f"⚠️ S3 migration error: {e}")
+        logger.warning(f"⚠️ S3 migration error: {e}")
     except Exception as e:
-        print(f"⚠️ Migration error: {e}")
+        logger.warning(f"⚠️ Migration error: {e}")
 
 
 # Carrega usuários na inicialização; migra do S3 se DynamoDB estiver vazio
@@ -221,7 +225,7 @@ if not USERS_DB:
     _migrate_from_s3()
     USERS_DB = _users_load_all()
 
-print(f"✅ Banco de dados carregado: {len(USERS_DB)} usuário(s)")
+logger.info(f"✅ Banco de dados carregado: {len(USERS_DB)} usuário(s)")
 
 # ==================== COMPATIBILIDADE DE API ====================
 
@@ -386,23 +390,23 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 def get_current_user_from_cookie(request: Request) -> Dict[str, Any]:
     token = request.cookies.get(COOKIE_NAME)
     if not token:
-        print(f"❌ Cookie '{COOKIE_NAME}' não encontrado")
+        logger.error(f"❌ Cookie '{COOKIE_NAME}' não encontrado")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    print(f"✅ Cookie encontrado: {token[:20]}...")
+    logger.info(f"✅ Cookie encontrado: {token[:20]}...")
     session = _session_get(token)
     if not session:
-        print(f"❌ Token não encontrado no DynamoDB")
+        logger.error(f"❌ Token não encontrado no DynamoDB")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     email = session["email"]
-    print(f"✅ Sessão válida para: {email}")
+    logger.info(f"✅ Sessão válida para: {email}")
     user = _user_get(email)
     if not user:
-        print(f"❌ Usuário {email} não encontrado")
+        logger.error(f"❌ Usuário {email} não encontrado")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     if user.get("mfa_enabled") and not session.get("mfa_verified"):
-        print(f"❌ MFA não verificado para {email}")
+        logger.error(f"❌ MFA não verificado para {email}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MFA não verificado")
-    print(f"✅ Autenticação completa para: {email}")
+    logger.info(f"✅ Autenticação completa para: {email}")
     return {
         "email": email,
         "full_name": user.get("full_name"),
@@ -431,7 +435,7 @@ def register_user(email: str, password: str, full_name: Optional[str] = None) ->
         "created_at": datetime.now().isoformat(),
     }
     _user_put(email, user_data)
-    print(f"✅ Usuário registrado: {email}")
+    logger.info(f"✅ Usuário registrado: {email}")
     return {"message": "Usuário criado com sucesso", "email": email}
 
 
@@ -456,7 +460,7 @@ def login_user(email: str, password: str, mfa_code: Optional[str] = None, respon
             if response:
                 response.set_cookie(key=COOKIE_NAME, value=token, max_age=COOKIE_MAX_AGE,
                                     httponly=True, samesite="lax", secure=True)
-                print(f"✅ Cookie criado para {email}: {token[:20]}...")
+                logger.info(f"✅ Cookie criado para {email}: {token[:20]}...")
             return {"message": "Login bem-sucedido", "authenticated": True, "email": email,
                     "full_name": user.get("full_name"), "token": token, "mfa_enabled": True}
 
@@ -468,7 +472,7 @@ def login_user(email: str, password: str, mfa_code: Optional[str] = None, respon
             if response:
                 response.set_cookie(key=COOKIE_NAME, value=token, max_age=COOKIE_MAX_AGE,
                                     httponly=True, samesite="lax", secure=True)
-                print(f"✅ Cookie criado para {email}: {token[:20]}...")
+                logger.info(f"✅ Cookie criado para {email}: {token[:20]}...")
             return {"message": "Login bem-sucedido (backup code usado)", "authenticated": True, "email": email,
                     "full_name": user.get("full_name"), "token": token, "mfa_enabled": True,
                     "warning": f"Você tem {len(updated_codes)} backup codes restantes"}
@@ -479,7 +483,7 @@ def login_user(email: str, password: str, mfa_code: Optional[str] = None, respon
     if response:
         response.set_cookie(key=COOKIE_NAME, value=token, max_age=COOKIE_MAX_AGE,
                             httponly=True, samesite="lax", secure=True)
-        print(f"✅ Cookie criado para {email}: {token[:20]}...")
+        logger.info(f"✅ Cookie criado para {email}: {token[:20]}...")
     return {"message": "Login bem-sucedido", "authenticated": True, "email": email,
             "full_name": user.get("full_name"), "token": token, "mfa_enabled": False}
 
@@ -496,9 +500,7 @@ def setup_mfa(email: str) -> Dict[str, Any]:
     user["mfa_secret"] = secret
     user["backup_codes"] = hash_backup_codes(backup_codes)
     _user_put(email, user)
-    print(f"✅ MFA configurado para {email}")
-    print(f"   Secret: {secret}")
-    print(f"   Código atual: {pyotp.TOTP(secret).now()}")
+    logger.info(f"✅ MFA configurado para {email}")
     return {"secret": secret, "qr_code": qr_code, "backup_codes": backup_codes, "provisioning_uri": provisioning_uri}
 
 
@@ -508,16 +510,13 @@ def verify_and_activate_mfa(email: str, code: str) -> Dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
     if not user.get("mfa_secret"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="MFA não configurado. Execute setup primeiro")
-    print(f"🔍 Verificando MFA para {email}")
-    print(f"   Secret: {user['mfa_secret']}")
-    print(f"   Código recebido: {code}")
-    print(f"   Código esperado: {pyotp.TOTP(user['mfa_secret']).now()}")
+    logger.info(f"🔍 Verificando MFA para {email}")
     if verify_totp_code(user["mfa_secret"], code):
         user["mfa_enabled"] = True
         _user_put(email, user)
-        print(f"✅ MFA ativado para {email}")
+        logger.info(f"✅ MFA ativado para {email}")
         return {"message": "MFA ativado com sucesso!", "mfa_enabled": True}
-    print(f"❌ Código inválido para {email}")
+    logger.error(f"❌ Código inválido para {email}")
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código inválido")
 
 
@@ -533,7 +532,7 @@ def disable_mfa(email: str, password: str, code: str) -> Dict[str, Any]:
     user["mfa_secret"] = None
     user["backup_codes"] = []
     _user_put(email, user)
-    print(f"✅ MFA desativado para {email}")
+    logger.info(f"✅ MFA desativado para {email}")
     return {"message": "MFA desativado com sucesso"}
 
 
@@ -584,7 +583,7 @@ def change_password(email: str, current_password: str, code: str, new_password: 
     user["password"] = hash_password(new_password)
     _user_put(email, user)
     revoked = logout_all_sessions(email)
-    print(f"✅ Senha alterada para {email} ({revoked} sessão(ões) invalidada(s))")
+    logger.info(f"✅ Senha alterada para {email} ({revoked} sessão(ões) invalidada(s))")
     return {"message": "Senha alterada com sucesso. Faça login novamente.", "sessions_revoked": revoked}
 
 
@@ -593,15 +592,15 @@ def request_password_reset(email: str) -> None:
     de fato. O endpoint sempre responde a mesma mensagem genérica."""
     user = _user_get(email)
     if not user:
-        print(f"ℹ️ Reset de senha solicitado para email não cadastrado: {email}")
+        logger.info(f"ℹ️ Reset de senha solicitado para email não cadastrado: {email}")
         return
     token = secrets.token_urlsafe(32)
     _reset_token_put(token, email)
     reset_link = f"{APP_BASE_URL}/reset-password?token={token}"
     if _send_password_reset_email(email, reset_link):
-        print(f"✅ Email de reset de senha enviado para {email}")
+        logger.info(f"✅ Email de reset de senha enviado para {email}")
     else:
-        print(f"⚠️ Falha ao enviar email de reset de senha para {email}")
+        logger.warning(f"⚠️ Falha ao enviar email de reset de senha para {email}")
 
 
 def reset_password(token: str, new_password: str) -> Dict[str, Any]:
@@ -623,7 +622,7 @@ def reset_password(token: str, new_password: str) -> Dict[str, Any]:
     _user_put(email, user)
     _reset_token_delete(token)
     revoked = logout_all_sessions(email)
-    print(f"✅ Senha redefinida via token para {email} ({revoked} sessão(ões) invalidada(s))")
+    logger.info(f"✅ Senha redefinida via token para {email} ({revoked} sessão(ões) invalidada(s))")
     return {"message": "Senha redefinida com sucesso. Faça login normalmente.", "sessions_revoked": revoked}
 
 
@@ -631,7 +630,7 @@ def logout_user(token: str, response: Optional[Response] = None) -> Dict[str, An
     _session_delete(token)
     if response:
         response.delete_cookie(key=COOKIE_NAME)
-        print(f"✅ Cookie removido")
+        logger.info(f"✅ Cookie removido")
     return {"message": "Logout realizado com sucesso"}
 
 
