@@ -76,7 +76,8 @@ from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
 from fastapi.responses import JSONResponse
 
-from logging_setup import setup_logging, get_logger, set_request_id, new_request_id
+from logging_setup import setup_logging, get_logger, set_request_id, get_request_id, new_request_id
+from metrics import put_metric, timed_metric
 from starlette.middleware.base import BaseHTTPMiddleware
 
 setup_logging()
@@ -250,12 +251,19 @@ def _run_in_background(
     email: Optional[str],
     fn,
     *args,
+    _request_id: Optional[str] = None,
     **kwargs,
 ) -> None:
+    # ThreadPoolExecutor não propaga contextvars automaticamente -- sem isso,
+    # os logs deste job apareceriam com request_id "-" em vez do id da
+    # requisição HTTP que disparou a varredura assíncrona
+    if _request_id:
+        set_request_id(_request_id)
     _job_write(job_id, {
         "job_id": job_id, "type": scan_type, "status": "running",
         "started_at": started_at, "finished_at": None, "result": None, "error": None,
     })
+    _scan_start = time.monotonic()
     try:
         result = fn(*args, **kwargs)
         if email:
@@ -270,14 +278,17 @@ def _run_in_background(
             "started_at": started_at, "finished_at": datetime.now().isoformat(),
             "result": result, "error": None,
         })
+        put_metric("ScanDuration", (time.monotonic() - _scan_start) * 1000, unit="Milliseconds", dimensions={"Provider": scan_type})
+        put_metric("ScanResult", 1, dimensions={"Provider": scan_type, "Result": "success"})
     except Exception as _e:
-        import traceback
-        traceback.print_exc()
+        logger.error(f"❌ Scan job {job_id} ({scan_type}) failed: {_e}")
         _job_write(job_id, {
             "job_id": job_id, "type": scan_type, "status": "error",
             "started_at": started_at, "finished_at": datetime.now().isoformat(),
             "result": None, "error": str(_e),
         })
+        put_metric("ScanDuration", (time.monotonic() - _scan_start) * 1000, unit="Milliseconds", dimensions={"Provider": scan_type})
+        put_metric("ScanResult", 1, dimensions={"Provider": scan_type, "Result": "failure"})
 
 
 def get_client_ip(request: Request) -> str:
@@ -868,7 +879,14 @@ def auth_register(data: UserRegisterIn):
 @app.post("/auth/login")
 def auth_login(request: Request, data: UserLoginIn, response: Response):
     _check_login_rate(get_client_ip(request))
-    return login_user(email=data.email, password=data.password, mfa_code=data.mfa_code, response=response)
+    try:
+        result = login_user(email=data.email, password=data.password, mfa_code=data.mfa_code, response=response)
+    except HTTPException as e:
+        put_metric("AuthFailure", 1, dimensions={"Reason": str(e.status_code)})
+        raise
+    if result.get("authenticated"):
+        put_metric("AuthSuccess", 1)
+    return result
 
 
 @app.post("/auth/change-password")
@@ -1003,7 +1021,7 @@ def scan_public(payload: PublicScanIn, user=Depends(require_mfa), async_mode: bo
                             "started_at": started_at, "finished_at": None, "result": None, "error": None})
         def _do_public():
             return _exec_public_scan(payload, user)
-        _EXECUTOR.submit(_run_in_background, job_id, "public", started_at, email, _do_public)
+        _EXECUTOR.submit(_run_in_background, job_id, "public", started_at, email, _do_public, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
     result = _exec_public_scan(payload, user)
@@ -1049,7 +1067,7 @@ def scan_authenticated(payload: AuthenticatedScanIn, user=Depends(require_mfa), 
                 max_objects=payload.max_objects,
             ).run()
             return _normalize_scan_result(result, provider="AWS_S3", target=payload.bucket)
-        _EXECUTOR.submit(_run_in_background, job_id, provider.lower(), started_at, email, _do_authenticated)
+        _EXECUTOR.submit(_run_in_background, job_id, provider.lower(), started_at, email, _do_authenticated, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
     try:
@@ -1152,7 +1170,7 @@ def scan_iam(payload: IamScanIn, user=Depends(require_mfa), async_mode: bool = Q
                 aws_session_token=payload.aws_session_token,
                 region_name=payload.region_name or "us-east-1",
             ).run()
-        _EXECUTOR.submit(_run_in_background, job_id, "aws_iam", started_at, email, _do_iam)
+        _EXECUTOR.submit(_run_in_background, job_id, "aws_iam", started_at, email, _do_iam, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
     try:
@@ -1203,7 +1221,7 @@ def scan_iam_gcp(payload: GcpIamScanIn, user=Depends(require_mfa), async_mode: b
         def _do_gcp_iam():
             from auditor_iam_gcp import GCPIAMAuditor
             return GCPIAMAuditor(service_account_key=payload.service_account_key).run()
-        _EXECUTOR.submit(_run_in_background, job_id, "gcp_iam", started_at, email, _do_gcp_iam)
+        _EXECUTOR.submit(_run_in_background, job_id, "gcp_iam", started_at, email, _do_gcp_iam, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
     try:
@@ -1255,7 +1273,7 @@ def scan_iam_azure(payload: AzureIamScanIn, user=Depends(require_mfa), async_mod
                 client_secret=payload.client_secret,
                 subscription_id=payload.subscription_id,
             ).run()
-        _EXECUTOR.submit(_run_in_background, job_id, "azure_iam", started_at, email, _do_azure_iam)
+        _EXECUTOR.submit(_run_in_background, job_id, "azure_iam", started_at, email, _do_azure_iam, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
     try:
@@ -1305,7 +1323,7 @@ def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa), async_mode: bool = Q
         def _do_k8s():
             from auditor_k8s import K8sStorageAuditor
             return K8sStorageAuditor(kubeconfig_yaml=payload.kubeconfig, max_objects=payload.max_objects).run()
-        _EXECUTOR.submit(_run_in_background, job_id, "k8s", started_at, email, _do_k8s)
+        _EXECUTOR.submit(_run_in_background, job_id, "k8s", started_at, email, _do_k8s, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
     try:
@@ -1369,13 +1387,13 @@ def ai_analyze(user=Depends(require_mfa)):
     if not scan:
         raise HTTPException(status_code=404, detail="Nenhum scan encontrado. Realize um scan primeiro.")
     try:
-        analysis = ai_analyzer.analyze(scan)
+        with timed_metric("AiAnalysisDuration", dimensions={"Operation": "analyze"}):
+            analysis = ai_analyzer.analyze(scan)
         return {"analysis": analysis}
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
-        import logging
-        logging.exception("Erro ai_analyze: %s", e)
+        logger.error(f"❌ Erro ai_analyze: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erro na análise: {e}")
 
 
@@ -1395,13 +1413,13 @@ def ai_compare(user=Depends(require_mfa), provider: Optional[str] = None):
         except Exception as _e:
             logger.warning(f"⚠️ load_recent error: {_e}")
     try:
-        comparison = ai_analyzer.compare(scan, history)
+        with timed_metric("AiAnalysisDuration", dimensions={"Operation": "compare"}):
+            comparison = ai_analyzer.compare(scan, history)
         return {"comparison": comparison, "history_scans_used": len(history)}
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
-        import logging
-        logging.exception("Erro ai_compare: %s", e)
+        logger.error(f"❌ Erro ai_compare: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erro na comparação: {e}")
 
 
@@ -1421,13 +1439,13 @@ def ai_ask(body: AiAskIn, user=Depends(require_mfa)):
         except Exception as _e:
             logger.warning(f"⚠️ load_recent error: {_e}")
     try:
-        answer = ai_analyzer.ask(body.question, scan, history)
+        with timed_metric("AiAnalysisDuration", dimensions={"Operation": "ask"}):
+            answer = ai_analyzer.ask(body.question, scan, history)
         return {"answer": answer, "history_scans_used": len(history)}
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
-        import logging
-        logging.exception("Erro ai_ask: %s", e)
+        logger.error(f"❌ Erro ai_ask: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erro ao responder: {e}")
 
 
