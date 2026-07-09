@@ -273,10 +273,22 @@ def _run_in_background(
                     save_scan(email, scan_type, result)
                 except Exception as _e:
                     logger.warning(f"⚠️ save_scan error: {_e}")
+
+        # Disparo automático da análise por IA -- antes só rodava sob clique do
+        # usuário no painel. Best-effort: nunca derruba o job de scan se a IA
+        # falhar ou estiver indisponível, só fica sem a análise.
+        analysis = None
+        if AI_AVAILABLE:
+            try:
+                with timed_metric("AiAnalysisDuration", dimensions={"Operation": "auto_analyze"}):
+                    analysis = ai_analyzer.analyze(result)
+            except Exception as _e:
+                logger.warning(f"⚠️ auto-analyze error: {_e}")
+
         _job_write(job_id, {
             "job_id": job_id, "type": scan_type, "status": "done",
             "started_at": started_at, "finished_at": datetime.now().isoformat(),
-            "result": result, "error": None,
+            "result": result, "error": None, "analysis": analysis,
         })
         put_metric("ScanDuration", (time.monotonic() - _scan_start) * 1000, unit="Milliseconds", dimensions={"Provider": scan_type})
         put_metric("ScanResult", 1, dimensions={"Provider": scan_type, "Result": "success"})
