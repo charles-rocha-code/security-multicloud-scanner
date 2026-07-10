@@ -3561,8 +3561,9 @@ function logout() {
       const provider = document.getElementById("provider-select") ?
         document.getElementById("provider-select").value : "s3";
 
-      // Providers IAM não precisam de bucket — vão direto para scan privado
-      if (["iam", "gcp-iam", "azure-iam"].includes(provider)) {
+      // Providers IAM e Kubernetes não usam o campo "bucket" (K8s usa o
+      // textarea de kubeconfig) — vão direto para scan privado.
+      if (["iam", "gcp-iam", "azure-iam", "k8s"].includes(provider)) {
         startPrivateScan("");
         return;
       }
