@@ -283,6 +283,7 @@ class K8sStorageAuditor:
         findings = findings[: self.max_objects]
 
         for f in findings:
+            f.setdefault("category", "Storage")
             enrich_finding(f, "KUBERNETES")
 
         dist = {"critical": 0, "high": 0, "medium": 0, "low": 0}

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 import uuid
 from collections import defaultdict
@@ -43,6 +44,7 @@ import boto3
 from botocore.exceptions import NoCredentialsError
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -333,7 +335,10 @@ app.add_middleware(SlowAPIMiddleware)
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    errors = exc.errors()
+    # exc.errors() pode conter um ValueError cru em errors[i]['ctx']['error'] quando o
+    # erro vem de um @field_validator que faz "raise ValueError(...)" (ex.: política de
+    # senha) — json.dumps quebra nisso. jsonable_encoder sabe serializar esse caso.
+    errors = jsonable_encoder(exc.errors())
     logger.error(f"❌ 422 em {request.method} {request.url.path}: {errors}")
     return JSONResponse(status_code=422, content={"detail": errors})
 # Cache do último scan por usuário — persiste no S3 para suportar múltiplas instâncias
@@ -1319,11 +1324,74 @@ class K8sScanIn(BaseModel):
     max_objects: int = 10000
 
 
+def _run_full_k8s_scan(kubeconfig_yaml: str, max_objects: int) -> dict:
+    """
+    Roda o scan de storage (K8sStorageAuditor: PVs, PVCs, Secrets, ConfigMaps,
+    StorageClasses, hostPath) e o scan de RBAC/rede/workload (K8sAuthenticatedAuditor:
+    ClusterRoles, ClusterRoleBindings, Services expostos, NetworkPolicy ausente,
+    containers privilegiados) contra o mesmo kubeconfig e mescla tudo num único
+    relatório. Se o auditor de RBAC falhar (ex.: ServiceAccount sem permissão), o
+    scan de storage continua valendo — o erro só é anexado a 'errors'.
+    """
+    from auditor_k8s import K8sStorageAuditor
+    from auditor_k8s_authenticated import K8sAuthenticatedAuditor
+
+    result = K8sStorageAuditor(kubeconfig_yaml=kubeconfig_yaml, max_objects=max_objects).run()
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp:
+            tmp.write(kubeconfig_yaml)
+            tmp_path = tmp.name
+        os.chmod(tmp_path, 0o600)
+
+        rbac_result = K8sAuthenticatedAuditor(
+            kubeconfig_path=tmp_path, max_resources=max_objects,
+        ).run()
+
+        result["files"] = list(result.get("files", [])) + list(rbac_result.get("files", []))
+        result["cluster_version"] = rbac_result.get("cluster", "-")
+        result["platform"] = rbac_result.get("platform", "-")
+        result["namespace_filter"] = rbac_result.get("namespace_filter", "-")
+        result["recommendations"] = sorted(
+            set(result.get("recommendations", [])) | set(rbac_result.get("recommendations", []))
+        )
+        result["errors"] = list(result.get("errors", [])) + list(rbac_result.get("errors", []))
+    except Exception as e:
+        result.setdefault("errors", []).append(
+            f"Scan de RBAC/rede/workload não pôde ser executado: {e}. Verifique se o "
+            "kubeconfig tem permissão de leitura em ClusterRoles, ClusterRoleBindings, "
+            "Services e NetworkPolicies — veja o manifesto de exemplo no formulário de scan."
+        )
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+    # severity_distribution/risk_score recalculados sobre a lista mesclada — não dá para
+    # só somar os dois dicts porque K8sAuthenticatedAuditor usa chaves maiúsculas
+    # (CRITICAL/HIGH/...) e o dashboard espera chaves minúsculas.
+    files = result.get("files", [])
+    dist = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for f in files:
+        sev = str(f.get("severity", "LOW")).lower()
+        dist[sev if sev in dist else "low"] += 1
+    result["severity_distribution"] = dist
+
+    total = len(files)
+    weights = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+    max_score = total * 4 if total else 1
+    raw = sum(dist[k] * weights[k] for k in dist)
+    result["risk_score"] = min(100, int((raw / max_score) * 100)) if total else 0
+
+    return result
+
+
 @app.post("/scan/k8s")
 def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa), async_mode: bool = Query(False, alias="async")):
     """
-    Audita storage de um cluster Kubernetes via kubeconfig YAML.
-    Analisa PVs, PVCs, Secrets, ConfigMaps e StorageClasses.
+    Audita um cluster Kubernetes via kubeconfig YAML: storage (PVs, PVCs, Secrets,
+    ConfigMaps, StorageClasses, hostPath) + RBAC, exposição de rede e segurança de
+    workload (ver _run_full_k8s_scan).
     """
     email = user.get("email") if isinstance(user, dict) else None
 
@@ -1333,18 +1401,12 @@ def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa), async_mode: bool = Q
         _job_write(job_id, {"job_id": job_id, "type": "k8s", "status": "queued",
                             "started_at": started_at, "finished_at": None, "result": None, "error": None})
         def _do_k8s():
-            from auditor_k8s import K8sStorageAuditor
-            return K8sStorageAuditor(kubeconfig_yaml=payload.kubeconfig, max_objects=payload.max_objects).run()
+            return _run_full_k8s_scan(payload.kubeconfig, payload.max_objects)
         _EXECUTOR.submit(_run_in_background, job_id, "k8s", started_at, email, _do_k8s, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
     try:
-        from auditor_k8s import K8sStorageAuditor
-        auditor = K8sStorageAuditor(
-            kubeconfig_yaml=payload.kubeconfig,
-            max_objects=payload.max_objects,
-        )
-        result = auditor.run()
+        result = _run_full_k8s_scan(payload.kubeconfig, payload.max_objects)
         if email:
             LAST_SCAN_BY_EMAIL[email] = result
             if HISTORY_AVAILABLE:

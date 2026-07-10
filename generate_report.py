@@ -48,6 +48,28 @@ except ImportError:
     DOCX_AVAILABLE = False
 
 
+def _smart_short_label(name: str, maxlen: int = 22) -> str:
+    """Encurta um identificador para caber num rótulo de gráfico, preferindo
+    cortar em separadores ('/' ou ':') em vez de por posição fixa de caractere.
+    name[-22:] corta no meio de uma palavra em chaves hierárquicas do
+    Kubernetes ('namespace/tipo/recurso'); para um path de bucket S3 os
+    últimos caracteres já são o nome do arquivo, então o resultado não muda."""
+    if len(name) <= maxlen:
+        return name
+    parts = [p for p in name.replace(':', '/').split('/') if p]
+    if not parts:
+        return name[-maxlen:]
+    short = parts[-1]
+    for part in reversed(parts[:-1]):
+        candidate = f"{part}/{short}"
+        if len(candidate) > maxlen - 1:
+            break
+        short = candidate
+    if len(short) > maxlen:
+        short = short[-(maxlen - 1):]
+    return short if short == name else f"…{short}"
+
+
 # ══════════════════════════════════════════════════════════════════════
 # CHART ENGINE — gera PNGs em memória (BytesIO) ou arquivo temporário
 # ══════════════════════════════════════════════════════════════════════
@@ -396,7 +418,7 @@ class ChartEngine:
             ax.text(ang, 1.12, lbl, ha='center', va='center',
                     fontsize=7, color=c, fontweight='bold')
 
-        short = (name[-22:] if len(name) > 22 else name)
+        short = _smart_short_label(name, 22)
         ax.set_title(short, fontsize=9, fontweight='bold',
                      color='#374151', pad=2, y=0.08)
         fig.tight_layout(pad=0.4)
@@ -647,6 +669,78 @@ class ChartEngine:
         fig.tight_layout()
         return self._save(fig, 'iam_check_bars')
 
+    # ── Kubernetes: barras por categoria (Storage/RBAC/Network/...) ──
+    def k8s_category_bars(self, findings: list) -> str:
+        """Mesma barra empilhada de category_bars(), mas agrupando pelo campo
+        'category' que os auditores de Kubernetes já preenchem (Storage,
+        Workload Security, RBAC, Secrets, Network, API Server) em vez de
+        adivinhar por extensão de arquivo — achados de RBAC/rede não têm
+        extensão, então a heurística de storage sempre jogava tudo em 'Outros'."""
+        if not findings:
+            return None
+        P = self.PALETTE
+
+        cats = ['Storage', 'Workload Security', 'RBAC', 'Secrets', 'Network', 'API Server']
+        counts = {c: {s: 0 for s in ['CRITICAL','HIGH','MEDIUM','LOW']} for c in cats}
+        other = {'CRITICAL':0,'HIGH':0,'MEDIUM':0,'LOW':0}
+        for f in findings:
+            sev = f.get('severity','LOW').upper()
+            cat = f.get('category')
+            if cat in counts:
+                counts[cat][sev] += 1
+            else:
+                other[sev] += 1
+        if sum(other.values()) > 0:
+            counts['Outros'] = other
+            cats.append('Outros')
+
+        cats_with_data = [c for c in cats if sum(counts.get(c, {}).values()) > 0]
+        if not cats_with_data:
+            return None
+
+        totals = [sum(counts[c].values()) for c in cats_with_data]
+        max_total = max(totals) or 1
+        idx = np.arange(len(cats_with_data))
+
+        fig, ax = plt.subplots(figsize=(9, max(2.0, len(cats_with_data) * 0.75 + 0.6)), facecolor='white')
+        ax.set_facecolor('white')
+
+        sev_present = [s for s in ['CRITICAL','HIGH','MEDIUM','LOW']
+                       if any(counts[c].get(s,0) > 0 for c in cats_with_data)]
+        left = np.zeros(len(cats_with_data))
+        legend_handles = []
+        for sev, col in [('CRITICAL',P['critical']),('HIGH',P['high']),('MEDIUM',P['medium']),('LOW',P['low'])]:
+            vals = np.array([counts[c].get(sev,0) for c in cats_with_data], dtype=float)
+            bars = ax.barh(idx, vals, left=left, color=col, height=0.55, edgecolor='white', linewidth=0.8)
+            if sev in sev_present:
+                legend_handles.append(mpatches.Patch(color=col, label=sev))
+            for bar, v in zip(bars, vals):
+                if v > 0 and v >= max_total * 0.07:
+                    ax.text(bar.get_x() + bar.get_width()/2, bar.get_y() + bar.get_height()/2,
+                            f'{int(v)}', ha='center', va='center', fontsize=8, fontweight='bold', color='white')
+            left += vals
+
+        for i, tot in enumerate(totals):
+            pct = tot / len(findings) * 100 if findings else 0
+            ax.text(tot + max_total * 0.015, i, f'{tot}  ({pct:.0f}%)',
+                    va='center', ha='left', fontsize=9, color='#374151', fontweight='bold')
+
+        ax.set_xlim(0, max_total * 1.30)
+        ax.set_yticks(idx)
+        ax.set_yticklabels(cats_with_data, fontsize=10, color='#374151')
+        ax.set_xlabel('Número de Achados', fontsize=9, color=P['gray'])
+        ax.set_title('Distribuição por Categoria (Kubernetes)', fontsize=12, fontweight='bold', color=P['primary'], pad=12)
+        ax.legend(handles=legend_handles, loc='center left', bbox_to_anchor=(1.01, 0.5), fontsize=9, frameon=False)
+        ax.grid(axis='x', color='#f3f4f6', linewidth=1.0)
+        ax.set_axisbelow(True)
+        for sp in ['top','right','left']:
+            ax.spines[sp].set_visible(False)
+        ax.spines['bottom'].set_color('#e5e7eb')
+        ax.tick_params(left=False)
+        ax.invert_yaxis()
+        fig.tight_layout()
+        return self._save(fig, 'k8s_category_bars')
+
     # ── Gerar todos os gauges ─────────────────────────────────────────
     def all_gauges(self, files: list) -> list:
         if not files:
@@ -862,7 +956,12 @@ class ProfessionalReportGenerator:
         out.append({'name':'ISO 27001',
                     'status': '❌ NÃO CONFORME' if crit > 0 else '⚠️ PARCIAL',
                     'issues': 'Controles de acesso inadequados' if crit > 0 else 'Revisar políticas'})
-        if any('card' in f.get('key','').lower() or 'payment' in f.get('key','').lower()
+        # 'card' sozinho é substring de termos sem relação com pagamento (ex.:
+        # "dangerous-wildcard-role" — falso positivo real visto em achado de RBAC
+        # do Kubernetes). Usa termos compostos específicos de dado de cartão.
+        _pci_terms = ('creditcard', 'credit_card', 'debitcard', 'debit_card',
+                      'cardnumber', 'card_number', 'cardholder', 'cvv', 'payment')
+        if any(any(t in f.get('key','').lower() for t in _pci_terms)
                for f in self.scan_data.get('files',[])):
             out.append({'name':'PCI DSS','status':'❌ CRÍTICO','issues':'Dados de pagamento expostos'})
         return out
@@ -967,6 +1066,35 @@ class ProfessionalReportGenerator:
                     az_cats['classic']['items'].append(item)
             return [{'name':v['name'],'icon':v['icon'],'count':len(v['items']),'items':v['items'][:20]}
                     for v in az_cats.values() if v['items']]
+
+        if provider == 'KUBERNETES':
+            # A categorização por padrão de filename abaixo não pega nada de RBAC/
+            # rede/workload (chaves tipo 'namespace/ClusterRole/nome' não têm
+            # extensão nem palavra-chave de arquivo) e não tem categoria "Outros" —
+            # achados sem match eram descartados em silêncio dessa seção inteira.
+            k8s_cats = {
+                'storage':   {'name':'Storage (K8s)',     'icon':'[VOL]','items':[]},
+                'workload':  {'name':'Workload Security', 'icon':'[POD]','items':[]},
+                'rbac':      {'name':'RBAC',              'icon':'[IAM]','items':[]},
+                'secrets':   {'name':'Secrets',           'icon':'[KEY]','items':[]},
+                'network':   {'name':'Network',           'icon':'[NET]','items':[]},
+                'apiserver': {'name':'API Server',        'icon':'[API]','items':[]},
+            }
+            cat_key_map = {
+                'Storage': 'storage', 'Workload Security': 'workload', 'RBAC': 'rbac',
+                'Secrets': 'secrets', 'Network': 'network', 'API Server': 'apiserver',
+            }
+            for f in self.scan_data.get('files', []):
+                sev = f.get('severity', 'LOW')
+                if sev not in ('CRITICAL', 'HIGH'): continue
+                item = {'file': f.get('key', f.get('name','unknown')),
+                        'size': f.get('size', 0), 'severity': sev,
+                        'reason': f.get('reason',''), 'last_modified': f.get('last_modified','N/A')}
+                bucket = cat_key_map.get(f.get('category'))
+                if bucket:
+                    k8s_cats[bucket]['items'].append(item)
+            return [{'name':v['name'],'icon':v['icon'],'count':len(v['items']),'items':v['items'][:20]}
+                    for v in k8s_cats.values() if v['items']]
 
         categories = {
             'credentials': {'name':'Credenciais Expostas',    'icon':'[KEY]','items':[]},
@@ -1475,6 +1603,15 @@ class ProfessionalReportGenerator:
             self.ch['size']      = None   # sem volume de dados em IAM
             self.ch['heatmap']   = None   # heatmap de arquivo não se aplica
             self.ch['type_pie']  = None   # sem extensões de arquivo
+        elif 'KUBERNETES' in provider:
+            # Achados de RBAC/rede/workload não têm extensão de arquivo nem
+            # tamanho em bytes — usa a categoria que os auditores já calculam
+            # (Storage/Workload Security/RBAC/Secrets/Network/API Server) em
+            # vez da heurística por extensão, que jogava quase tudo em "Outros".
+            self.ch['cat_bars']  = self._safe(lambda: self.charts.k8s_category_bars(files), None)
+            self.ch['size']      = None   # achados de K8s não têm volume de dados
+            self.ch['heatmap']   = None   # dimensões do heatmap (volume/tipo de arquivo) não se aplicam
+            self.ch['type_pie']  = None   # sem extensões de arquivo
         else:
             self.ch['cat_bars']  = self._safe(lambda: self.charts.category_bars(files), None)
             self.ch['size']      = self._safe(lambda: self.charts.size_per_file(files[:20]), None)
@@ -1886,20 +2023,25 @@ class ProfessionalReportGenerator:
         # ── Top 10 arquivos mais críticos ─────────────────────────────
         if self.top_critical_files:
             story.append(Paragraph("Arquivos de Maior Risco", H2))
+            # Paragraph em vez de string crua: ReportLab só quebra linha dentro da
+            # largura da coluna em flowables — string crua transborda e é cortada
+            # sem aviso (bug visto com achados de Kubernetes, cujo 'motivo' é mais
+            # longo que os de bucket S3).
+            CELL = ParagraphStyle('TopFileCell', fontSize=8, leading=10, textColor=colors.HexColor('#1e293b'))
             top_data = [['#', 'Arquivo', 'Severidade', 'Tamanho', 'Motivo']]
             for i, f in enumerate(self.top_critical_files[:10], 1):
                 fname = f['file']
                 fname_display = ('...' + fname[-42:]) if len(fname) > 45 else fname
                 top_data.append([
                     str(i),
-                    fname_display,
+                    Paragraph(fname_display, CELL),
                     f['severity'],
                     self._format_size(f['size']),
-                    (f.get('reason','') or '')[:28],
+                    Paragraph((f.get('reason','') or '') or '-', CELL),
                 ])
             sev_col_map = {'CRITICAL': self.COLOR_CRITICAL, 'HIGH': self.COLOR_HIGH,
                            'MEDIUM': self.COLOR_MEDIUM, 'LOW': self.COLOR_LOW}
-            top_t = Table(top_data, colWidths=[0.28*inch, 2.9*inch, 0.75*inch, 0.72*inch, 1.6*inch])
+            top_t = Table(top_data, colWidths=[0.28*inch, 2.2*inch, 0.75*inch, 0.72*inch, 2.3*inch])
             style_cmds = [
                 ('BACKGROUND', (0,0), (-1,0), self.COLOR_PRIMARY),
                 ('TEXTCOLOR',  (0,0), (-1,0), colors.white),
@@ -1931,20 +2073,33 @@ class ProfessionalReportGenerator:
 
         # ── Funil + Top Achados por Categoria (side by side) ─────────
         if self.ch.get('funnel'):
-            _CAT_PDF = [
-                ('Credenciais',   lambda k: any(x in k for x in ['password','credential','secret','token','api_key'])),
-                ('Chaves Crypto', lambda k: any(x in k for x in ['.pem','.key','.crt','.p12','.pfx','rsa'])),
-                ('DB / Backups',  lambda k: any(x in k for x in ['.sql','.db','.sqlite','backup','.bak','.dump','.gz','.zip','.tar'])),
-                ('Código-fonte',  lambda k: any(x in k for x in ['.py','.js','.java','.php','.rb','.go'])),
-                ('Configs',       lambda k: any(x in k for x in ['.env','.yaml','.yml','.conf','.ini','config'])),
-                ('Outros',        lambda k: True),
-            ]
+            _is_k8s_prov = 'KUBERNETES' in self.scan_data.get('provider','').upper()
+            if _is_k8s_prov:
+                # Achados de RBAC/rede/workload não têm nome de arquivo pra casar por
+                # regex — usa a 'category' que os auditores de Kubernetes já calculam.
+                _CAT_PDF = [
+                    ('Storage',           lambda f: f.get('category') == 'Storage'),
+                    ('Workload Security', lambda f: f.get('category') == 'Workload Security'),
+                    ('RBAC',              lambda f: f.get('category') == 'RBAC'),
+                    ('Secrets',           lambda f: f.get('category') == 'Secrets'),
+                    ('Network',           lambda f: f.get('category') == 'Network'),
+                    ('API Server',        lambda f: f.get('category') == 'API Server'),
+                    ('Outros',            lambda f: True),
+                ]
+            else:
+                _CAT_PDF = [
+                    ('Credenciais',   lambda f: any(x in f.get('key', f.get('name','')).lower() for x in ['password','credential','secret','token','api_key'])),
+                    ('Chaves Crypto', lambda f: any(x in f.get('key', f.get('name','')).lower() for x in ['.pem','.key','.crt','.p12','.pfx','rsa'])),
+                    ('DB / Backups',  lambda f: any(x in f.get('key', f.get('name','')).lower() for x in ['.sql','.db','.sqlite','backup','.bak','.dump','.gz','.zip','.tar'])),
+                    ('Código-fonte',  lambda f: any(x in f.get('key', f.get('name','')).lower() for x in ['.py','.js','.java','.php','.rb','.go'])),
+                    ('Configs',       lambda f: any(x in f.get('key', f.get('name','')).lower() for x in ['.env','.yaml','.yml','.conf','.ini','config'])),
+                    ('Outros',        lambda f: True),
+                ]
             _grps = {}
             for _f in self.scan_data.get('files', []):
-                _n  = _f.get('key', _f.get('name', '')).lower()
                 _sv = _f.get('severity', 'LOW').lower()
                 for _cn, _rule in _CAT_PDF:
-                    if _rule(_n):
+                    if _rule(_f):
                         if _cn not in _grps:
                             _grps[_cn] = {'critical':0,'high':0,'medium':0,'low':0,'total':0}
                         if _sv in _grps[_cn]: _grps[_cn][_sv] += 1
@@ -2063,13 +2218,20 @@ class ProfessionalReportGenerator:
                 ParagraphStyle('OK_MSG', fontSize=11, textColor=self.COLOR_LOW,
                                alignment=TA_CENTER, fontName='Helvetica-Bold')))
             story.append(Spacer(1, 0.5*inch))
-        if not is_iam:
+        # Volume de dados em bytes não se aplica a achados de Kubernetes
+        # (RBAC/rede/workload não têm tamanho de arquivo) — mesmo tratamento
+        # que IAM já recebe, senão fica um título solto sem gráfico embaixo.
+        if not is_iam and self.ch.get('size'):
             story.append(Paragraph("Volume de dados expostos por arquivo:", H2))
             add_chart(self.ch.get('size'), width=5.8*inch,
                       caption="Figura 6 — Volume de Dados Expostos por Arquivo")
         story.append(PageBreak())
 
-        # ── 4. MAPA DE CALOR / IAM CHECK BARS ────────────────────────
+        # ── 4. MAPA DE CALOR / IAM CHECK BARS / (K8s: nada extra aqui) ─
+        # Só quebra página se a seção realmente tiver conteúdo — do contrário
+        # (achados de Kubernetes, sem heatmap nem cat_bars aqui) sobra uma
+        # página inteiramente em branco entre a seção 3 e os gauges.
+        _sec4_rendered = False
         if is_iam:
             if self.ch.get('cat_bars'):
                 story.append(Paragraph("4. DISTRIBUIÇÃO DE FINDINGS POR CATEGORIA IAM", H1))
@@ -2079,7 +2241,11 @@ class ProfessionalReportGenerator:
                     styles['Normal']))
                 add_chart(self.ch.get('cat_bars'), width=5.8*inch,
                           caption="Figura 6 — Findings IAM por Categoria e Severidade")
-        else:
+                _sec4_rendered = True
+        elif self.ch.get('heatmap'):
+            # As 5 dimensões do heatmap (volume de dados, tipo de arquivo, etc.)
+            # assumem objetos de storage — não se aplicam a achados de Kubernetes,
+            # que já tiveram sua distribuição por categoria mostrada na seção 2.
             story.append(Paragraph("4. MAPA DE CALOR DE RISCO MULTIDIMENSIONAL", H1))
             story.append(Paragraph(
                 "Cada arquivo é avaliado em 5 dimensões: Exposição Pública, Volume de Dados, "
@@ -2087,7 +2253,8 @@ class ProfessionalReportGenerator:
                 styles['Normal']))
             add_chart(self.ch.get('heatmap'), width=6.0*inch,
                       caption="Figura 6 — Mapa de Calor Multidimensional de Risco")
-        if not is_iam or self.ch.get('cat_bars'):
+            _sec4_rendered = True
+        if _sec4_rendered:
             story.append(PageBreak())
 
         # ── 5. GAUGES INDIVIDUAIS ──────────────────────────────────────
@@ -2127,13 +2294,14 @@ class ProfessionalReportGenerator:
             for vuln in self.vulnerabilities:
                 story.append(Paragraph(
                     f"{vuln['icon']} {vuln['name']} ({vuln['count']} arquivos)", H2))
+                CELL2 = ParagraphStyle('VulnCell', fontSize=8, leading=10, textColor=colors.HexColor('#1e293b'))
                 vt = Table(
                     [['Arquivo','Sev.','Tamanho','Motivo']] +
-                    [[item['file'][:45]+'...' if len(item['file'])>45 else item['file'],
+                    [[Paragraph(item['file'][:45]+'...' if len(item['file'])>45 else item['file'], CELL2),
                       item['severity'],
                       self._format_size(item['size']),
-                      item.get('reason','')[:30]] for item in vuln['items'][:10]],
-                    colWidths=[2.8*inch, 0.7*inch, 0.8*inch, 1.8*inch])
+                      Paragraph(item.get('reason','') or '-', CELL2)] for item in vuln['items'][:10]],
+                    colWidths=[2.3*inch, 0.7*inch, 0.8*inch, 2.3*inch])
                 vt.setStyle(TableStyle([
                     ('BACKGROUND',(0,0),(-1,0),self.COLOR_SECONDARY),
                     ('TEXTCOLOR',(0,0),(-1,0),colors.white),
@@ -2486,8 +2654,11 @@ class ProfessionalReportGenerator:
                                   caption='Figura 4 — Volume de Dados Expostos por Arquivo')
         doc.add_page_break()
 
-        # ── 4. Mapa de calor ─────────────────────────────────────────
-        if not is_iam:
+        # ── 4. Mapa de calor (não se aplica a achados de Kubernetes — as
+        #      dimensões partem de conceitos de storage: volume, tipo de
+        #      arquivo etc; a distribuição por categoria já apareceu na
+        #      seção 2) ──────────────────────────────────────────────
+        if not is_iam and self.ch.get('heatmap'):
             self._docx_heading(doc, '4. MAPA DE CALOR DE RISCO MULTIDIMENSIONAL')
             self._docx_body(doc,
                 'Avalia cada arquivo em 5 dimensões: Exposição Pública, Volume, Tipo, '
@@ -2562,8 +2733,8 @@ class ProfessionalReportGenerator:
                     r.bold=True; r.font.size=Pt(9); r.font.name='Arial'
                     r.font.color.rgb=RGBColor(255,255,255)
                 for ri, item in enumerate(vuln['items'][:10], 1):
-                    vals = [item['file'][-50:], item['severity'],
-                            self._format_size(item['size']), item.get('reason','')[:35]]
+                    vals = [_smart_short_label(item['file'], 50), item['severity'],
+                            self._format_size(item['size']), item.get('reason','') or '-']
                     for ci, v in enumerate(vals):
                         c = vt.rows[ri].cells[ci]
                         r = c.paragraphs[0].add_run(v)

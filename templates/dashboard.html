@@ -2673,7 +2673,56 @@
                   style="font-family: monospace; font-size: 12px;"
                   placeholder="Cole aqui o conteúdo do seu ~/.kube/config:&#10;&#10;apiVersion: v1&#10;kind: Config&#10;clusters:&#10;- cluster:&#10;    server: https://..."
                 ></textarea>
-                <span class="help-text">Conteúdo do arquivo ~/.kube/config do cluster alvo</span>
+                <span class="help-text">Conteúdo do arquivo ~/.kube/config do cluster alvo. O scan cobre
+                  storage <strong style="color:#facc15;">e</strong> RBAC/rede/workload — o ServiceAccount do
+                  kubeconfig precisa de <strong style="color:#facc15;">get/list</strong> em: namespaces, pods,
+                  services, secrets, configmaps, persistentvolumes(claims), storageclasses, networkpolicies,
+                  clusterroles e clusterrolebindings.</span>
+                <details style="margin-top:8px;">
+                  <summary style="cursor:pointer; font-size:12px; color:#9ca3af;">Ver manifesto de permissões (ClusterRole read-only)</summary>
+                  <div style="position:relative; margin-top:6px;">
+                    <pre id="k8s-manifest" style="font-size:11px; line-height:1.5; background:#111827; padding:12px 40px 12px 12px; border-radius:6px; overflow-x:auto; white-space:pre; color:#d1d5db;">apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: security-scanner-readonly
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "services", "configmaps", "secrets",
+                "persistentvolumes", "persistentvolumeclaims"]
+    verbs: ["get", "list"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list"]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: security-scanner-readonly
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: security-scanner-readonly
+subjects:
+  - kind: ServiceAccount
+    name: security-scanner-readonly
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: security-scanner-readonly
+  apiGroup: rbac.authorization.k8s.io</pre>
+                    <button type="button" class="btn-copy-key" title="Copiar manifesto" onclick="copyK8sManifest(this)" style="position:absolute; top:8px; right:8px;">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                  </div>
+                </details>
               </div>
               <div style="margin-top: 12px;">
                 <button class="btn-scan-pro" onclick="startScan()" id="scan-btn-k8s">
@@ -3357,7 +3406,19 @@ function logout() {
       { id: 'other',  test: () => true },
     ];
 
+    // Achados do scan Kubernetes já vêm com 'category' do backend (mais preciso do
+    // que tentar casar padrão de filename, que não faz sentido pra RBAC/rede/workload).
+    const K8S_CATEGORY_MAP = {
+      'Storage':           'storage',
+      'Workload Security': 'workload',
+      'RBAC':              'rbac',
+      'Secrets':           'secrets-k8s',
+      'Network':           'network-k8s',
+      'API Server':        'apiserver',
+    };
+
     function getFileCategory(f) {
+      if (f && f.category && K8S_CATEGORY_MAP[f.category]) return K8S_CATEGORY_MAP[f.category];
       for (let i = 0; i < CATEGORY_DEFS.length - 1; i++) {
         if (CATEGORY_DEFS[i].test(f)) return CATEGORY_DEFS[i].id;
       }
@@ -4120,7 +4181,19 @@ function logout() {
       const panel = document.getElementById('vuln-map-panel');
       if (!panel || !files || files.length === 0) { panel && (panel.style.display = 'none'); return; }
 
-      const CATEGORIES = [
+      // Achados Kubernetes já vêm com 'category' do backend (Storage/Workload/RBAC/
+      // Secrets/Network/API Server) — não faz sentido classificar por regex de filename
+      // como os outros providers, então o heatmap usa colunas próprias nesse caso.
+      const isK8s = data && data.provider === 'KUBERNETES';
+      const CATEGORIES = isK8s ? [
+        { id: 'storage',     label: 'Storage (K8s)', test: f => f.category === 'Storage' },
+        { id: 'workload',    label: 'Workload',   test: f => f.category === 'Workload Security' },
+        { id: 'rbac',        label: 'RBAC',       test: f => f.category === 'RBAC' },
+        { id: 'secrets-k8s', label: 'Secrets',    test: f => f.category === 'Secrets' },
+        { id: 'network-k8s', label: 'Rede',       test: f => f.category === 'Network' },
+        { id: 'apiserver',   label: 'API Server', test: f => f.category === 'API Server' },
+        { id: 'other',       label: 'Outros',     test: () => true },
+      ] : [
         { id: 'cred',   label: 'Credenciais',  test: f => /\.(env|credentials?|secret)$/i.test(f.key) || /(password|passwd|secret|credential)/i.test(f.key) },
         { id: 'keys',   label: 'Chaves Crypto', test: f => /\.(pem|key|p12|pfx|ppk|crt|cer)$/i.test(f.key) },
         { id: 'db',     label: 'Backups/DB',    test: f => /\.(sql|dump|bak|backup|db|sqlite|mdb)$/i.test(f.key) },
@@ -4228,6 +4301,13 @@ function logout() {
         code:    { label: 'Código-fonte',             icon: _svg('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>', '#38bdf8') },
         archive: { label: 'Compactados',              icon: _svg('<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/>', '#6b7280') },
         other:   { label: 'Outros',                   icon: _svg('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>', '#9ca3af') },
+        // Kubernetes (categoria vem do backend, ver K8S_CATEGORY_MAP)
+        'storage':     { label: 'Storage (K8s)',    icon: _svg('<line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/>', '#22d3ee') },
+        'workload':    { label: 'Workload Security', icon: _svg('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', '#f472b6') },
+        'rbac':        { label: 'RBAC',              icon: _svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', '#ef4444') },
+        'secrets-k8s': { label: 'Secrets (K8s)',     icon: _svg('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>', '#fb7185') },
+        'network-k8s': { label: 'Rede (K8s)',        icon: _svg('<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v4M12 11 5 17M12 11l7 6"/>', '#0ea5e9') },
+        'apiserver':   { label: 'API Server',        icon: _svg('<rect x="2" y="3" width="20" height="7" rx="1"/><rect x="2" y="14" width="20" height="7" rx="1"/><line x1="6" y1="6.5" x2="6.01" y2="6.5"/><line x1="6" y1="17.5" x2="6.01" y2="17.5"/>', '#a3e635') },
       };
       const groups = {};
       files.forEach(f => {
@@ -4309,7 +4389,12 @@ function logout() {
       });
 
       // Chips: categorias presentes
-      const CAT_LABEL = { cred: 'Credenciais', keys: 'Chaves Crypto', db: 'DB / Backups', code: 'Código', config: 'Configs', archive: 'Compactados', other: 'Outros' };
+      const CAT_LABEL = {
+        cred: 'Credenciais', keys: 'Chaves Crypto', db: 'DB / Backups', code: 'Código',
+        config: 'Configs', archive: 'Compactados', other: 'Outros',
+        'storage': 'Storage (K8s)', 'workload': 'Workload', 'rbac': 'RBAC',
+        'secrets-k8s': 'Secrets (K8s)', 'network-k8s': 'Rede (K8s)', 'apiserver': 'API Server',
+      };
       const cats = {};
       files.forEach(f => {
         const cat = getFileCategory(f);
@@ -5741,6 +5826,20 @@ Tem certeza que deseja continuar?`;
         btn.classList.add('copied');
         btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
         showToast('Caminho copiado!', 'success', 2000);
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+        }, 2000);
+      }).catch(() => showToast('Falha ao copiar.', 'error'));
+    }
+
+    function copyK8sManifest(btn) {
+      const pre = document.getElementById('k8s-manifest');
+      if (!pre) return;
+      navigator.clipboard.writeText(pre.innerText).then(() => {
+        btn.classList.add('copied');
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+        showToast('Manifesto copiado!', 'success', 2000);
         setTimeout(() => {
           btn.classList.remove('copied');
           btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
