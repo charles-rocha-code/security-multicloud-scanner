@@ -1130,10 +1130,16 @@ class ProfessionalReportGenerator:
                 for v in categories.values() if v['items']]
 
     def _generate_recommendations(self):
-        sd   = self.scan_data.get('severity_distribution', {})
-        prov = self.scan_data.get('provider','UNIVERSAL').upper()
-        crit = sd.get('critical', 0)
-        high = sd.get('high', 0)
+        sd    = self.scan_data.get('severity_distribution', {})
+        prov  = self.scan_data.get('provider','UNIVERSAL').upper()
+        crit  = sd.get('critical', 0)
+        high  = sd.get('high', 0)
+        # Usado pelos blocos "if total > 0" abaixo (AWS_IAM/GCP_IAM/AZURE_IAM) —
+        # antes não existia: NameError não tratado dentro de self._safe() fazia
+        # a seção inteira de recomendações sumir (não só o bloco de prioridade
+        # média) em TODO relatório desses 3 providers, sempre, independente dos
+        # dados do scan.
+        total = sum(sd.values())
         recs = []
 
         if prov == 'AWS_IAM':
