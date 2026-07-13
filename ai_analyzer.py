@@ -48,11 +48,23 @@ Hierarquia de organização/recursos · gestão de identidade · deployment de r
 Segurança de Rede · Gestão de Identidade · Acesso Privilegiado · Proteção de Dados · Gestão de Ativos · Logging e Detecção de Ameaças · Resposta a Incidentes · Postura e Gestão de Vulnerabilidades · Segurança de Endpoint · Backup e Recuperação · Segurança de DevOps · Governança e Estratégia."""
 
 
+class AiRefusalError(Exception):
+    """Levantado quando o Claude recusa a resposta (stop_reason == 'refusal')."""
+
+
 def _client() -> anthropic.Anthropic:
     key = os.getenv("ANTHROPIC_API_KEY")
     if not key:
         raise RuntimeError("ANTHROPIC_API_KEY não configurada no ambiente.")
     return anthropic.Anthropic(api_key=key)
+
+
+def _extract_text(resp) -> str:
+    """Extrai o texto da resposta, tratando recusa do modelo com segurança —
+    evita IndexError em resp.content[0] quando o Claude recusa com content vazio."""
+    if resp.stop_reason == "refusal":
+        raise AiRefusalError("O Claude recusou responder a esta solicitação.")
+    return resp.content[0].text
 
 
 def _cached_system() -> list[dict]:
@@ -124,7 +136,7 @@ Forneça:
         system=_cached_system(),
         messages=[{"role": "user", "content": prompt}],
     )
-    return resp.content[0].text
+    return _extract_text(resp)
 
 
 def compare(current: dict, history: list[dict]) -> str:
@@ -171,13 +183,17 @@ Forneça:
         system=_cached_system(),
         messages=[{"role": "user", "content": prompt}],
     )
-    return resp.content[0].text
+    return _extract_text(resp)
 
 
-def ask(question: str, scan: dict, history: Optional[list[dict]] = None) -> str:
+def ask(question: str, scan: dict, history: Optional[list[dict]] = None, user_email: Optional[str] = None) -> str:
     """
     Responde uma pergunta livre sobre o scan e/ou histórico.
     Ex: 'Qual finding é mais urgente?' ou 'Quais usuários estão sem MFA?'
+
+    `user_email` restringe a busca RAG (abaixo) ao histórico do próprio
+    usuário — sem isso, a busca semântica pode retornar scans de outros
+    clientes.
     """
     current_summary = _scan_summary(scan)
 
@@ -192,7 +208,7 @@ def ask(question: str, scan: dict, history: Optional[list[dict]] = None) -> str:
     # relevantes. Nunca quebra a resposta: falha aqui só omite a seção.
     try:
         import rag
-        hits = rag.retrieve(question, k=3, category="scan")
+        hits = rag.retrieve(question, k=3, category="scan", owner=user_email)
         if hits:
             rag_text = "\n".join(f"- {h['text']}" for h in hits)
             context += f"\n\n**Scans relacionados encontrados por busca semântica:**\n{rag_text}"
@@ -210,4 +226,4 @@ def ask(question: str, scan: dict, history: Optional[list[dict]] = None) -> str:
         system=_cached_system(),
         messages=[{"role": "user", "content": prompt}],
     )
-    return resp.content[0].text
+    return _extract_text(resp)

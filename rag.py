@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 import uuid
 
@@ -19,7 +20,10 @@ import boto3
 
 BEDROCK_REGION = "us-east-1"
 EMBED_MODEL    = "amazon.titan-embed-text-v2:0"
-TABLE          = "security-scanner-knowledge"
+# RAG_KNOWLEDGE_TABLE permite apontar para a tabela -dev isolada em testes
+# locais (mesmo padrão de USERS_DYNAMO_TABLE/SESSIONS_DYNAMO_TABLE) — sem
+# isso, qualquer teste local escreve na base de conhecimento de produção.
+TABLE          = os.getenv("RAG_KNOWLEDGE_TABLE", "security-scanner-knowledge")
 DYNAMO_REGION  = "us-east-2"
 
 
@@ -36,8 +40,12 @@ def embed_text(text: str) -> list[float]:
     return body["embedding"]
 
 
-def index_chunk(text: str, source: str, category: str = "") -> str:
-    """Gera embedding e grava um chunk na base de conhecimento. Retorna o chunk_id."""
+def index_chunk(text: str, source: str, category: str = "", owner: str = "") -> str:
+    """Gera embedding e grava um chunk na base de conhecimento. Retorna o chunk_id.
+
+    `owner` (normalmente o e-mail do usuário dono do dado) permite que
+    `retrieve()` restrinja a busca semântica ao próprio tenant — sem isso,
+    qualquer chunk indexado é visível para qualquer busca."""
     embedding = embed_text(text)
     chunk_id  = str(uuid.uuid4())
     table = boto3.resource("dynamodb", region_name=DYNAMO_REGION).Table(TABLE)
@@ -47,6 +55,7 @@ def index_chunk(text: str, source: str, category: str = "") -> str:
         "embedding":  json.dumps(embedding),
         "source":     source,
         "category":   category,
+        "owner":      owner,
         "created_at": int(time.time()),
     })
     return chunk_id
@@ -61,11 +70,15 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def retrieve(query: str, k: int = 3, category: str | None = None) -> list[dict]:
+def retrieve(query: str, k: int = 3, category: str | None = None, owner: str | None = None) -> list[dict]:
     """
     Retorna os k chunks mais similares à query, por similaridade de cosseno.
     `category` filtra por tipo de chunk (ex: "changelog", "scan") quando a
     tabela mistura conteúdo de fontes diferentes.
+    `owner`, quando informado, restringe a busca aos chunks daquele dono —
+    sem isso, a busca semântica cruza dados de todos os tenants da tabela.
+    Chunks indexados antes desse campo existir (sem `owner`) ficam de fora
+    de buscas filtradas: comportamento seguro por padrão.
     """
     query_embedding = embed_text(query)
     table = boto3.resource("dynamodb", region_name=DYNAMO_REGION).Table(TABLE)
@@ -79,6 +92,8 @@ def retrieve(query: str, k: int = 3, category: str | None = None) -> list[dict]:
 
     if category is not None:
         items = [item for item in items if item.get("category") == category]
+    if owner is not None:
+        items = [item for item in items if item.get("owner") == owner]
 
     scored = []
     for item in items:

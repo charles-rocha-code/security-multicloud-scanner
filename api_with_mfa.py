@@ -43,14 +43,14 @@ from typing import Any, Dict, List, Optional, Tuple
 import boto3
 from botocore.exceptions import NoCredentialsError
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validator
 
 # === Auth/MFA do projeto ===
 from auth_mfa import (  # type: ignore
@@ -1446,13 +1446,14 @@ def scan_history_endpoint(
 # -----------------------------------------------------------------------------
 
 class AiAskIn(BaseModel):
-    question: str
+    question: str = Field(..., max_length=2000)
     use_history: bool = True
     provider: Optional[str] = None
 
 
 @app.post("/ai/analyze")
-def ai_analyze(user=Depends(require_mfa)):
+@limiter.limit("20/minute")
+def ai_analyze(request: Request, user=Depends(require_mfa)):
     """Análise executiva do último scan com Claude."""
     if not AI_AVAILABLE:
         raise HTTPException(status_code=503, detail="ai_analyzer indisponível.")
@@ -1464,6 +1465,9 @@ def ai_analyze(user=Depends(require_mfa)):
         with timed_metric("AiAnalysisDuration", dimensions={"Operation": "analyze"}):
             analysis = ai_analyzer.analyze(scan)
         return {"analysis": analysis}
+    except ai_analyzer.AiRefusalError:
+        put_metric("AiRefusal", 1, dimensions={"Operation": "analyze"})
+        return {"analysis": "O Claude recusou processar esta solicitação por motivos de segurança. Tente novamente mais tarde."}
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -1472,7 +1476,8 @@ def ai_analyze(user=Depends(require_mfa)):
 
 
 @app.post("/ai/compare")
-def ai_compare(user=Depends(require_mfa), provider: Optional[str] = None):
+@limiter.limit("20/minute")
+def ai_compare(request: Request, user=Depends(require_mfa), provider: Optional[str] = None):
     """Compara o scan atual com o histórico e retorna análise de evolução."""
     if not AI_AVAILABLE:
         raise HTTPException(status_code=503, detail="ai_analyzer indisponível.")
@@ -1490,6 +1495,9 @@ def ai_compare(user=Depends(require_mfa), provider: Optional[str] = None):
         with timed_metric("AiAnalysisDuration", dimensions={"Operation": "compare"}):
             comparison = ai_analyzer.compare(scan, history)
         return {"comparison": comparison, "history_scans_used": len(history)}
+    except ai_analyzer.AiRefusalError:
+        put_metric("AiRefusal", 1, dimensions={"Operation": "compare"})
+        return {"comparison": "O Claude recusou processar esta solicitação por motivos de segurança. Tente novamente mais tarde.", "history_scans_used": len(history)}
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -1498,8 +1506,20 @@ def ai_compare(user=Depends(require_mfa), provider: Optional[str] = None):
 
 
 @app.post("/ai/ask")
-def ai_ask(body: AiAskIn, user=Depends(require_mfa)):
-    """Responde uma pergunta livre sobre o scan atual e/ou histórico."""
+@limiter.limit("10/minute")
+def ai_ask(request: Request, body: dict = Body(...), user=Depends(require_mfa)):
+    """Responde uma pergunta livre sobre o scan atual e/ou histórico.
+
+    O body chega como `dict` cru (em vez de `body: AiAskIn` direto na
+    assinatura) porque, sob `@limiter.limit`, o FastAPI resolve anotações de
+    tipo usando os `__globals__` do wrapper do slowapi — que não conhece
+    `AiAskIn`, definida só neste módulo — e o parâmetro acaba sendo tratado
+    como query param em vez de body. `dict` é builtin e sempre resolve;
+    validamos contra `AiAskIn` manualmente logo abaixo."""
+    try:
+        parsed = AiAskIn.model_validate(body)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
     if not AI_AVAILABLE:
         raise HTTPException(status_code=503, detail="ai_analyzer indisponível.")
     email = user.get("email") if isinstance(user, dict) else None
@@ -1507,15 +1527,18 @@ def ai_ask(body: AiAskIn, user=Depends(require_mfa)):
     if not scan:
         raise HTTPException(status_code=404, detail="Nenhum scan encontrado. Realize um scan primeiro.")
     history = []
-    if body.use_history and HISTORY_AVAILABLE and email:
+    if parsed.use_history and HISTORY_AVAILABLE and email:
         try:
-            history = load_recent(email, provider=body.provider, n=3)
+            history = load_recent(email, provider=parsed.provider, n=3)
         except Exception as _e:
             logger.warning(f"⚠️ load_recent error: {_e}")
     try:
         with timed_metric("AiAnalysisDuration", dimensions={"Operation": "ask"}):
-            answer = ai_analyzer.ask(body.question, scan, history)
+            answer = ai_analyzer.ask(parsed.question, scan, history, user_email=email)
         return {"answer": answer, "history_scans_used": len(history)}
+    except ai_analyzer.AiRefusalError:
+        put_metric("AiRefusal", 1, dimensions={"Operation": "ask"})
+        return {"answer": "O Claude recusou processar esta solicitação por motivos de segurança. Tente reformular a pergunta.", "history_scans_used": len(history)}
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:

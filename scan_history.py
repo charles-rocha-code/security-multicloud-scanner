@@ -42,7 +42,7 @@ def _index_scan_for_rag(email: str, provider: str, ts: str, result: dict) -> Non
             f"Risk score: {result.get('risk_score', 0)}/100\n"
             f"Total de findings: {len(result.get('files', []))}"
         )
-        rag.index_chunk(text=summary_text, source=f"{email}:{provider}:{ts}", category="scan")
+        rag.index_chunk(text=summary_text, source=f"{email}:{provider}:{ts}", category="scan", owner=email)
     except Exception as e:
         print(f"⚠️  scan_history._index_scan_for_rag error: {e}")
 
