@@ -48,6 +48,20 @@ except ImportError:
     DOCX_AVAILABLE = False
 
 
+def _safe_filename_part(name: str) -> str:
+    """Mesma regra de api_with_mfa.py::_safe_filename() (mantém alfanumérico,
+    '-', '_', '.', '@'; troca o resto por '_'). O nome do arquivo salvo em
+    disco precisa bater EXATAMENTE com o que a rota de download aceita,
+    senão o download dá 404 mesmo com o arquivo existindo — foi o que
+    aconteceu com o 'bucket' do Kubernetes (URL do servidor, ex.:
+    'https://127.0.0.1:65365'): o ':' virava '_' na rota de download mas
+    não na geração do relatório, os dois nomes nunca batiam."""
+    keep = []
+    for ch in str(name):
+        keep.append(ch if (ch.isalnum() or ch in ("-", "_", ".", "@")) else "_")
+    return "".join(keep)
+
+
 def _smart_short_label(name: str, maxlen: int = 22) -> str:
     """Encurta um identificador para caber num rótulo de gráfico, preferindo
     cortar em separadores ('/' ou ':') em vez de por posição fixa de caractere.
@@ -1393,7 +1407,7 @@ class ProfessionalReportGenerator:
                  'size': int(f.get('size',0))} for f in files[:n]]
 
     def _load_previous_scan(self):
-        snap = self.output_dir / f"snapshot_{self.scan_data.get('bucket','').replace('.','_')}.json"
+        snap = self.output_dir / f"snapshot_{_safe_filename_part(self.scan_data.get('bucket',''))}.json"
         if snap.exists():
             with open(snap) as fh: return json.load(fh)
         return None
@@ -1403,7 +1417,7 @@ class ProfessionalReportGenerator:
                 'severity_distribution': self.scan_data.get('severity_distribution',{}),
                 'total_files': len(self.scan_data.get('files',[])),
                 'risk_score':  self.scan_data.get('risk_score',0)}
-        path = self.output_dir / f"snapshot_{self.scan_data.get('bucket','').replace('.','_')}.json"
+        path = self.output_dir / f"snapshot_{_safe_filename_part(self.scan_data.get('bucket',''))}.json"
         with open(path,'w') as fh: json.dump(snap, fh, indent=2)
 
     def _build_comparison(self):
@@ -1768,7 +1782,7 @@ class ProfessionalReportGenerator:
 
     def generate_pdf(self) -> str:
         print("📄 Gerando PDF...")
-        bucket   = self.scan_data.get('bucket','scan').replace('.','_').replace('/','_')
+        bucket   = _safe_filename_part(self.scan_data.get('bucket','scan'))
         filename = f"relatorio_{bucket}_{self.timestamp}.pdf"
         filepath = self.output_dir / filename
 
@@ -2538,7 +2552,7 @@ class ProfessionalReportGenerator:
         if not DOCX_AVAILABLE:
             print("⚠️  python-docx indisponível"); return None
         print("📝 Gerando DOCX...")
-        bucket   = self.scan_data.get('bucket','scan').replace('.','_').replace('/','_')
+        bucket   = _safe_filename_part(self.scan_data.get('bucket','scan'))
         filename = f"relatorio_{bucket}_{self.timestamp}.docx"
         filepath = self.output_dir / filename
 
