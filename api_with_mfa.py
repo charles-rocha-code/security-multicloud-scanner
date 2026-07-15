@@ -330,7 +330,17 @@ except Exception as _e:
 
 limiter = Limiter(key_func=get_client_ip, storage_uri=_storage_uri)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+def _rate_limit_exceeded_handler_with_metric(request: Request, exc: RateLimitExceeded):
+    """Métrica de abuso -- monitor de abuso de IA (Terraform: alarme em
+    RateLimitExceeded). Wrap fino do handler padrão do slowapi, só pra
+    registrar a métrica antes de devolver o 429 de sempre."""
+    put_metric("RateLimitExceeded", 1, dimensions={"Path": request.url.path})
+    return _rate_limit_exceeded_handler(request, exc)
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler_with_metric)
 app.add_middleware(SlowAPIMiddleware)
 
 @app.exception_handler(RequestValidationError)
