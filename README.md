@@ -13,6 +13,7 @@ A production-grade **Cloud Security Posture Management (CSPM)** and **Cloud Work
 - **Compliance mapping** — CIS Benchmarks, NIST SP 800-53, ISO 27001, PCI-DSS, HIPAA, AWS Well-Architected, Google Security Foundations, Microsoft Cloud Security Benchmark
 - **Executive reports** — PDF and DOCX with narrative, gauges, charts, top-10 findings, and provider-specific recommendations
 - **Interactive dashboard** — vulnerability heatmap, risk funnel, top findings, prioritized recommendations, sortable scan history
+- **Attack Path Graph Map** — models scan findings as a graph (resources, permissions, trust relationships) and traces complete paths from an unauthenticated entry point to an administrative-access target, on every provider (see [Attack Path Graph Map](#attack-path-graph-map) below)
 - **MFA authentication** — TOTP via Google Authenticator with QR code setup
 - **Password recovery** — email reset flow with 30-minute signed token via SMTP / SES
 - **Rate limiting** — per-IP brute-force protection on login and password reset endpoints
@@ -130,10 +131,79 @@ https://github.com/charles-rocha-code/Terraform-Multicloud_scanner
 - **Top findings by category** — animated horizontal bar chart
 - **Security recommendations** — priority-labeled cards (Urgent / Critical / High / Info) derived from scan data
 - **Scan history** — paginated table with sortable columns, severity pills, copy-path button, toast notifications, per-entry severity bar
+- **Attack Path Graph Map** — interactive graph (Cytoscape.js) of every scan with mapped resources; always visible when the scan produced graph data, even when no complete attack path was found (shows what was analyzed, not just a pass/fail message); fullscreen modal with zoom/pan controls for large accounts
 
 ### Export
 - CSV export of all findings
 - Executive report trigger (PDF + DOCX) with dynamic severity pill counts
+
+---
+
+## Attack Path Graph Map
+
+Closes the "attack path graph" gap this product had against CSPM competitors like Wiz and Prisma
+Cloud. Flat findings tell you *that* a role has `AdministratorAccess` or a bucket is public — they
+don't tell you whether an attacker with zero credentials can actually reach it. This feature builds
+a graph of every scan's resources and relationships, then searches it for complete paths from an
+**exposed entry point** (no credential required) to a **high-value target** (administrative access).
+
+### How it works
+
+| Component | What |
+|---|---|
+| `graph_model.py` | `GraphNode` / `GraphEdge` dataclasses + `GraphCollector` mixin (`add_node` is idempotent, `add_edge`, `graph_output()`) — every auditor that supports the graph inherits or composes this |
+| `graph_engine.py` | `build_graph()` materializes the node/edge dicts into a `networkx.DiGraph`; `find_attack_paths()` runs `nx.all_simple_paths()` from every `exposed` node to every `high_value` node (max 20 paths, max length 6 hops) — any complete path found is forced `CRITICAL` regardless of the severity of each individual hop; `graph_summary()` returns node/edge/exposed/high-value counts even when no path exists |
+| `api_with_mfa.py` | `_attach_attack_paths()` runs after every scan and adds `graph`, `attack_paths`, `graph_summary` to the JSON response — additive only: if the auditor didn't emit a `graph` key, or path-finding throws, the scan result is returned unchanged, it never fails a scan |
+
+**Design choice — in-memory networkx, not a graph database.** Same reasoning already used
+elsewhere in this codebase for `rag.py` skipping OpenSearch Serverless: at the node/edge volume of
+a single account's scan, a dedicated graph database (Neo4j, Neptune) adds operational cost and
+complexity the data size doesn't justify. Revisit only if this becomes a real performance
+bottleneck.
+
+### Coverage by provider
+
+| Provider | Auditor(s) | What becomes a graph edge |
+|---|---|---|
+| AWS IAM | `auditor_iam.py` | `AdministratorAccess` on a user/role, cross-account trust policy principals (`Principal: "*"` becomes an `exposed` node) |
+| GCP IAM | `auditor_iam_gcp.py` | Project IAM bindings; `allUsers` / `allAuthenticatedUsers` members become `exposed` nodes |
+| Azure IAM / Entra ID | `auditor_iam_azure.py` | Role assignments; Guest principals become `exposed` nodes, `Owner` role marks the scope as `high_value` |
+| Kubernetes | `auditor_k8s_authenticated.py` | `ClusterRoleBinding` subjects bound to a dangerous (wildcard verbs+resources) `ClusterRole`; `system:unauthenticated` / `system:authenticated` subjects become `exposed` |
+| AWS S3 (authenticated) | `auditor_s3_authenticated.py` | Bucket ACL grantees and bucket policy principals; `AllUsers` / `Principal: "*"` become `exposed` |
+| Google Cloud Storage (authenticated) | `auditor_gcs_authenticated.py` | Bucket IAM policy bindings; `allUsers` / `allAuthenticatedUsers` become `exposed` |
+| AWS S3 / GCS / Azure Blob (public, no credentials) | `auditor.py`, `auditor_gcs.py`, `auditor_azure.py` | The simplest complete path there is: if the bucket/container lists objects publicly, the internet itself is the `exposed` entry point directly connected to the bucket (`high_value`) — no IAM data is available without credentials, so this is a 2-node graph by design |
+
+### Dashboard
+
+The "Mapa de Grafo de Ataque" panel renders below the vulnerability map on every scan that returns
+graph data:
+
+- **Legend + explanatory text** with three states — a complete attack path found (red, "Atenção"),
+  exposed entry points mapped with no path to a target (amber, "Atenção parcial"), or no exposed
+  entry points at all (green, confirms privileged access is correctly isolated)
+- **Cytoscape.js canvas** using a force-directed (`cose`) layout — large accounts (dozens of
+  isolated roles with no relationship found) spread across 2D space instead of piling into one
+  unreadable row; node labels are truncated at path boundaries (`/`, `:`) to stay legible
+- **Fullscreen modal** with independent zoom in / zoom out / fit-to-screen controls, reusing the
+  same graph data (no extra API call)
+- **Resource list** below the canvas is scoped to nodes tagged `[ALVO]` (high-value) or
+  `[EXPOSTO]` (exposed) plus a count of the rest — the canvas already shows every mapped resource,
+  so the list only calls out what carries risk signal
+
+### Executive report
+
+`generate_report.py` adds a "Mapa de Grafo de Ataque" section (PDF and DOCX) right after
+"Vulnerabilidades Identificadas" whenever the scan has graph data: the same three-state message as
+the dashboard, a static render of the graph (`networkx` + `matplotlib`, attack-path edges
+highlighted in red), and a table of every complete path found (severity + full entry→target
+trail).
+
+### AI narration
+
+`ai_analyzer.py` includes up to 10 attack paths (severity + trail, sanitized the same way as every
+other field reaching the prompt — see [LLM Firewall](#llm-firewall)) in the `<scan_data>` block for
+`/ai/analyze`, `/ai/compare`, and `/ai/ask`, with a dedicated "Caminhos de Ataque Críticos" section
+in the generated narrative when paths exist.
 
 ---
 
@@ -144,6 +214,7 @@ Reports are generated by `generate_report.py` (ReportLab + python-docx + Matplot
 - **Cover page** — provider name, scan target, date, global risk gauge
 - **Section 1 — Executive Summary** — provider-specific narrative, risk level, KPI metrics table
 - **Section 2 — Risk Overview** — severity distribution chart, findings funnel, top-findings-by-category bar chart, full findings table with remediation
+- **Attack Path Graph Map** — rendered right after the findings table when the scan has graph data; see [Attack Path Graph Map](#attack-path-graph-map)
 - **Section 3 — Compliance** — per-provider control mapping:
   - AWS IAM → CIS AWS v1.4, ISO 27001, NIST SP 800-53, AWS Well-Architected
   - GCP IAM → CIS GCP v2.0, ISO 27001, NIST, Google Security Foundations
@@ -521,6 +592,10 @@ FastAPI (api_with_mfa.py)
 ├── Risk Engine
 │   └── engine_risk.py                       — Composite scoring + compliance mapping
 │
+├── Attack Path Graph Map
+│   ├── graph_model.py                       — GraphNode/GraphEdge + GraphCollector mixin
+│   └── graph_engine.py                      — networkx path-finding (exposed → high-value)
+│
 ├── Report Generator
 │   └── generate_report.py                   — PDF (ReportLab) + DOCX (python-docx) + charts (Matplotlib)
 │
@@ -550,6 +625,11 @@ s3_auditor_enteprise/
 │
 ├── auditor_k8s_authenticated.py        # Kubernetes security auditor
 ├── engine_risk.py                      # Risk scoring and compliance mapping
+│
+├── graph_model.py                      # GraphNode/GraphEdge + GraphCollector mixin
+├── graph_engine.py                     # Attack path search (networkx)
+├── test_graph_local.py                 # End-to-end validation script (-dev tables only)
+│
 ├── generate_report.py                  # PDF + DOCX executive report generator
 │
 ├── requirements.txt                    # Python dependencies
@@ -620,6 +700,7 @@ reportlab, python-docx                  — PDF and DOCX generation
 matplotlib, numpy                       — Charts and gauges in reports
 slowapi                                 — Rate limiting
 anthropic                               — Scan analysis with Claude (/ai/* endpoints)
+networkx                                — Attack Path Graph Map — in-memory graph + path-finding
 ```
 
 ---
