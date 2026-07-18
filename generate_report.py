@@ -755,6 +755,89 @@ class ChartEngine:
         fig.tight_layout()
         return self._save(fig, 'k8s_category_bars')
 
+    # ── Grafo de ataque — recursos + relações de permissão/trust ──────
+    def attack_graph(self, graph_data: dict, attack_paths: list = None) -> str:
+        """Desenha o Mapa de Grafo de Ataque como PNG estático, mesma paleta
+        de cores do painel do dashboard: vermelho = alvo de alto valor,
+        laranja = ponto de entrada exposto, cinza = recurso mapeado. Arestas
+        que fazem parte de um caminho de ataque completo (attack_paths)
+        ganham destaque em vermelho pra guiar o olho direto pra trilha
+        crítica."""
+        import networkx as nx
+
+        nodes = (graph_data or {}).get('nodes', [])
+        edges = (graph_data or {}).get('edges', [])
+        if not nodes:
+            return None
+        P = self.PALETTE
+
+        g = nx.DiGraph()
+        for n in nodes:
+            g.add_node(n['id'], **n)
+        for e in edges:
+            g.add_edge(e['source'], e['target'])
+
+        path_edges = set()
+        for p in (attack_paths or []):
+            for e in p.get('edges', []):
+                path_edges.add((e['source'], e['target']))
+
+        n_nodes = g.number_of_nodes()
+        fig_h = max(5.0, min(14.0, 3.0 + n_nodes * 0.22))
+        fig, ax = plt.subplots(figsize=(10.5, fig_h), facecolor='white')
+        ax.set_facecolor('white')
+
+        pos = nx.spring_layout(g, seed=7, k=1.6 / max(1, n_nodes ** 0.5))
+
+        def node_color(d):
+            if d.get('high_value'):
+                return P['critical']
+            if d.get('exposed'):
+                return P['high']
+            return '#94a3b8'
+
+        def node_size(d):
+            return 900 if (d.get('high_value') or d.get('exposed')) else 480
+
+        colors_list = [node_color(g.nodes[n]) for n in g.nodes]
+        sizes_list  = [node_size(g.nodes[n]) for n in g.nodes]
+
+        normal_edges   = [(u, v) for u, v in g.edges if (u, v) not in path_edges]
+        critical_edges = [(u, v) for u, v in g.edges if (u, v) in path_edges]
+
+        nx.draw_networkx_edges(g, pos, edgelist=normal_edges, ax=ax,
+                                edge_color='#cbd5e1', width=1.1, arrows=True,
+                                arrowsize=10, alpha=0.85, connectionstyle='arc3,rad=0.05')
+        if critical_edges:
+            nx.draw_networkx_edges(g, pos, edgelist=critical_edges, ax=ax,
+                                    edge_color=P['critical'], width=2.4, arrows=True,
+                                    arrowsize=14, alpha=0.95, connectionstyle='arc3,rad=0.05')
+
+        nx.draw_networkx_nodes(g, pos, node_color=colors_list, node_size=sizes_list,
+                                ax=ax, linewidths=1.4, edgecolors='white', alpha=0.95)
+
+        labels = {n: _smart_short_label(str(g.nodes[n].get('label', n)), 16) for n in g.nodes}
+        nx.draw_networkx_labels(g, pos, labels=labels, ax=ax, font_size=7.5,
+                                 font_color='#1e293b', font_weight='bold',
+                                 verticalalignment='bottom',
+                                 bbox=dict(boxstyle='round,pad=0.15', fc='white', ec='none', alpha=0.72))
+
+        legend_handles = [
+            mpatches.Patch(color=P['critical'], label='Alvo de alto valor'),
+            mpatches.Patch(color=P['high'], label='Ponto de entrada exposto'),
+            mpatches.Patch(color='#94a3b8', label='Recurso mapeado'),
+        ]
+        if critical_edges:
+            legend_handles.append(mpatches.Patch(color=P['critical'], label='Caminho de ataque completo'))
+        ax.legend(handles=legend_handles, loc='upper center', bbox_to_anchor=(0.5, -0.02),
+                  ncol=2, fontsize=8.5, frameon=False)
+
+        ax.set_title('Mapa de Grafo de Ataque', fontsize=13, fontweight='bold',
+                      color=P['primary'], pad=14)
+        ax.axis('off')
+        fig.tight_layout(pad=1.2)
+        return self._save(fig, 'attack_graph')
+
     # ── Gerar todos os gauges ─────────────────────────────────────────
     def all_gauges(self, files: list) -> list:
         if not files:
@@ -1645,6 +1728,15 @@ class ProfessionalReportGenerator:
             if g_scores and (max(g_scores) - min(g_scores)) < 6:
                 gauge_limit = gauge_files[:9]
         self.ch['gauges'] = self._safe(lambda gl=gauge_limit: self.charts.all_gauges(gl), [])
+
+        # Mapa de Grafo de Ataque — presente em qualquer provider a partir
+        # da Fase 4 (S3, IAM, Azure, GCP, Kubernetes, GCS); aditivo, some
+        # sozinho do relatório se o scan não tiver a chave 'graph'.
+        graph_data = self.scan_data.get('graph')
+        self.ch['attack_graph'] = self._safe(
+            lambda: self.charts.attack_graph(graph_data, self.scan_data.get('attack_paths')), None
+        ) if graph_data and graph_data.get('nodes') else None
+
         print(f"✅ {sum(1 for v in self.ch.values() if v)} gráficos gerados "
               f"({len(self.ch['gauges'])} gauges individuais)")
 
@@ -2336,6 +2428,86 @@ class ProfessionalReportGenerator:
             story.append(PageBreak())
             next_sec += 1
 
+        # ── MAPA DE GRAFO DE ATAQUE ──────────────────────────────────
+        # Mesma lógica de 3 estados do painel do dashboard: mostra o grafo
+        # mesmo sem caminho completo encontrado (confirma isolamento), não
+        # só quando há um caminho crítico.
+        if self.ch.get('attack_graph'):
+            g_summary = self.scan_data.get('graph_summary', {}) or {}
+            a_paths   = self.scan_data.get('attack_paths', []) or []
+
+            story.append(Paragraph(f"{next_sec}. MAPA DE GRAFO DE ATAQUE", H1))
+            story.append(Paragraph(
+                f"{g_summary.get('total_nodes', 0)} recurso(s) mapeado(s) · "
+                f"{g_summary.get('exposed_nodes', 0)} ponto(s) de entrada exposto(s) · "
+                f"{g_summary.get('high_value_nodes', 0)} alvo(s) de alto valor.",
+                styles['Normal']))
+            story.append(Spacer(1, 0.06*inch))
+
+            if a_paths:
+                expl = (
+                    f"<b>Atenção:</b> {len(a_paths)} caminho(s) de ataque completo(s) encontrado(s) — "
+                    "uma sequência de permissões/relações de confiança que leva de um ponto de entrada "
+                    "sem credencial até um recurso de acesso administrativo."
+                )
+                expl_color = self.COLOR_CRITICAL
+            elif g_summary.get('exposed_nodes', 0) > 0:
+                expl = (
+                    "Encontramos ponto(s) de entrada exposto(s) neste ambiente, mas nenhum caminho "
+                    "leva até um alvo de alto valor no grafo mapeado — não é uma falha crítica, mas "
+                    "os pontos de entrada expostos merecem revisão."
+                )
+                expl_color = self.COLOR_HIGH
+            else:
+                expl = (
+                    "Nenhum caminho de ataque encontrado — pontos de entrada expostos não se conectam "
+                    "a alvos de alto valor no grafo mapeado. Confirmação de que o acesso privilegiado "
+                    "está isolado corretamente."
+                )
+                expl_color = self.COLOR_LOW
+            story.append(Paragraph(expl, ParagraphStyle(
+                'GraphExpl', fontSize=9, textColor=expl_color, leading=13)))
+            story.append(Spacer(1, 0.1*inch))
+
+            # Mesma fórmula de altura da figura usada em ChartEngine.attack_graph()
+            # (figsize 10.5 x fig_h) -- sem isso o RLImage força a proporção
+            # fixa de width*0.55 e distorce grafos com muitos nós.
+            _n_nodes = g_summary.get('total_nodes', 0)
+            _fig_h = max(5.0, min(14.0, 3.0 + _n_nodes * 0.22))
+            _chart_w = 6.2*inch
+            add_chart(self.ch['attack_graph'], width=_chart_w, height=_chart_w * (_fig_h / 10.5),
+                      caption=f"Figura {8 if self.ch.get('gauges') else 7} — Mapa de Grafo de Ataque")
+
+            if a_paths:
+                story.append(Spacer(1, 0.1*inch))
+                story.append(Paragraph("Caminhos de ataque encontrados:", H2))
+                CELLP = ParagraphStyle('PathCell', fontSize=7.5, leading=10, textColor=colors.HexColor('#1e293b'))
+                path_rows = [['Severidade', 'Trilha (entrada → alvo)']]
+                for p in a_paths[:15]:
+                    trail = " → ".join(
+                        _xml_escape(str(n.get('label', n.get('id', '?')))) for n in p.get('nodes', [])
+                    )
+                    path_rows.append([p.get('severity', 'CRITICAL'), Paragraph(trail, CELLP)])
+                pt = Table(path_rows, colWidths=[1.0*inch, 5.2*inch])
+                pt.setStyle(TableStyle([
+                    ('BACKGROUND',(0,0),(-1,0),self.COLOR_PRIMARY),
+                    ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+                    ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+                    ('FONTSIZE',(0,0),(-1,-1),8),
+                    ('PADDING',(0,0),(-1,-1),6),
+                    ('GRID',(0,0),(-1,-1),0.5,colors.grey),
+                    ('TEXTCOLOR',(0,1),(0,-1),self.COLOR_CRITICAL),
+                    ('FONTNAME',(0,1),(0,-1),'Helvetica-Bold'),
+                    ('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,self.COLOR_BG_LIGHT]),
+                ]))
+                story.append(pt)
+                if len(a_paths) > 15:
+                    story.append(Paragraph(
+                        f"+ {len(a_paths) - 15} caminho(s) adicional(is) não exibido(s) por espaço.", NOTE))
+
+            story.append(PageBreak())
+            next_sec += 1
+
         # ── COMPARATIVO ───────────────────────────────────────────────
         comp = self._build_comparison()
         if comp:
@@ -2759,6 +2931,59 @@ class ProfessionalReportGenerator:
                         c = vt.rows[ri].cells[ci]
                         r = c.paragraphs[0].add_run(v)
                         r.font.size=Pt(8.5); r.font.name='Arial'
+                doc.add_paragraph()
+            next_sec += 1
+
+        # ── Mapa de Grafo de Ataque ─────────────────────────────────────
+        if self.ch.get('attack_graph'):
+            g_summary = self.scan_data.get('graph_summary', {}) or {}
+            a_paths   = self.scan_data.get('attack_paths', []) or []
+
+            self._docx_heading(doc, f'{next_sec}. MAPA DE GRAFO DE ATAQUE')
+            self._docx_body(doc,
+                f"{g_summary.get('total_nodes', 0)} recurso(s) mapeado(s) · "
+                f"{g_summary.get('exposed_nodes', 0)} ponto(s) de entrada exposto(s) · "
+                f"{g_summary.get('high_value_nodes', 0)} alvo(s) de alto valor.")
+
+            if a_paths:
+                expl = (f"Atenção: {len(a_paths)} caminho(s) de ataque completo(s) encontrado(s) — "
+                        "uma sequência de permissões/relações de confiança que leva de um ponto de "
+                        "entrada sem credencial até um recurso de acesso administrativo.")
+                expl_color = 'dc2626'
+            elif g_summary.get('exposed_nodes', 0) > 0:
+                expl = ("Encontramos ponto(s) de entrada exposto(s) neste ambiente, mas nenhum "
+                        "caminho leva até um alvo de alto valor no grafo mapeado — não é uma falha "
+                        "crítica, mas os pontos de entrada expostos merecem revisão.")
+                expl_color = 'ea580c'
+            else:
+                expl = ("Nenhum caminho de ataque encontrado — pontos de entrada expostos não se "
+                        "conectam a alvos de alto valor no grafo mapeado. Confirmação de que o "
+                        "acesso privilegiado está isolado corretamente.")
+                expl_color = '16a34a'
+            self._docx_body(doc, expl, color=expl_color, bold=True, size=9.5)
+
+            self._docx_add_chart(doc, self.ch['attack_graph'], width_in=6.2,
+                                  caption='Mapa de Grafo de Ataque')
+
+            if a_paths:
+                self._docx_heading(doc, 'Caminhos de ataque encontrados', level=2)
+                pt = doc.add_table(rows=1+min(len(a_paths), 15), cols=2)
+                pt.style = 'Table Grid'
+                for i, h in enumerate(['Severidade', 'Trilha (entrada → alvo)']):
+                    self._docx_set_bg(pt.rows[0].cells[i], '1e3a8a')
+                    r = pt.rows[0].cells[i].paragraphs[0].add_run(h)
+                    r.bold = True; r.font.size = Pt(9); r.font.name = 'Arial'
+                    r.font.color.rgb = RGBColor(255, 255, 255)
+                for ri, p in enumerate(a_paths[:15], 1):
+                    trail = " → ".join(str(n.get('label', n.get('id', '?'))) for n in p.get('nodes', []))
+                    sev_cell = pt.rows[ri].cells[0].paragraphs[0].add_run(p.get('severity', 'CRITICAL'))
+                    sev_cell.bold = True; sev_cell.font.size = Pt(8.5); sev_cell.font.name = 'Arial'
+                    sev_cell.font.color.rgb = RGBColor.from_string('dc2626')
+                    trail_run = pt.rows[ri].cells[1].paragraphs[0].add_run(trail)
+                    trail_run.font.size = Pt(8); trail_run.font.name = 'Arial'
+                if len(a_paths) > 15:
+                    self._docx_body(doc, f"+ {len(a_paths) - 15} caminho(s) adicional(is) não exibido(s) por espaço.",
+                                     color='6b7280', size=8)
                 doc.add_paragraph()
             next_sec += 1
 

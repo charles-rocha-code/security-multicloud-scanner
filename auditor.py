@@ -16,9 +16,10 @@ from engine_risk import (
     CONTENT_SCAN_MAX_FILES,
 )
 from cve_mapping import enrich_finding
+from graph_model import GraphCollector, GraphEdge, GraphNode
 
 
-class S3Auditor:
+class S3Auditor(GraphCollector):
     """
     Auditor S3 sem credenciais:
       - Descobre região via HEAD/GET (x-amz-bucket-region)
@@ -29,6 +30,7 @@ class S3Auditor:
     """
 
     def __init__(self, bucket_or_url: str, max_objects: int = 10000, timeout: int = 10):
+        GraphCollector.__init__(self)
         self.input = bucket_or_url.strip()
         self.max_objects = max_objects
         self.timeout = timeout
@@ -243,6 +245,22 @@ class S3Auditor:
             "total_size_bytes": sum(int(f.get("size") or 0) for f in files),
         }
 
+        # Grafo: no scan sem credenciais não há ACL/policy pra enumerar, mas
+        # o cenário em si já é o caminho de ataque mais direto que existe --
+        # se o bucket lista publicamente, a internet inteira é o ponto de
+        # entrada (sem credencial nenhuma) direto até o bucket.
+        bucket_node_id = f"bucket/{bucket}"
+        self.add_node(GraphNode(
+            id=bucket_node_id, type="s3_bucket", provider="AWS", label=bucket,
+            high_value=public_access,
+        ))
+        if public_access:
+            self.add_node(GraphNode(
+                id="internet/anonymous", type="external", provider="AWS",
+                label="Internet (sem credencial)", exposed=True,
+            ))
+            self.add_edge(GraphEdge("internet/anonymous", bucket_node_id, "public_listing"))
+
         payload: Dict[str, Any] = {
             "provider": "AWS_S3",
             "bucket": bucket,
@@ -253,6 +271,7 @@ class S3Auditor:
             "summary": summary,
             "files": files,
             "errors": [] if not list_error else [list_error],
+            "graph": self.graph_output(),
         }
 
         # Score avançado + distribuição + recomendações

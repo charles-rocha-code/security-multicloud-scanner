@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from cve_mapping import enrich_finding
+from graph_model import GraphCollector, GraphEdge, GraphNode
 
 KEY_AGE_HIGH_DAYS = 90
 KEY_AGE_WARN_DAYS = 45
@@ -36,11 +37,12 @@ HIGH_RISK_ROLES = {
 }
 
 
-class GCPIAMAuditor:
+class GCPIAMAuditor(GraphCollector):
     def __init__(self, service_account_key: dict):
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
 
+        GraphCollector.__init__(self)
         self._project_id = service_account_key.get("project_id", "unknown")
 
         creds = service_account.Credentials.from_service_account_info(
@@ -93,10 +95,30 @@ class GCPIAMAuditor:
 
         owners: List[str] = []
 
+        project_node_id = f"project/{self._project_id}"
+        self.add_node(GraphNode(
+            id=project_node_id, type="gcp_project", provider="GCP", label=self._project_id,
+            high_value=any(b.get("role") == "roles/owner" for b in bindings),
+        ))
+
         for binding in bindings:
             role = binding.get("role", "")
             members = binding.get("members", [])
             condition = binding.get("condition")
+
+            # Grafo: cada member já é iterado aqui pra gerar finding —
+            # a mesma leitura também vira nó + aresta "member tem role X no
+            # projeto". allUsers/allAuthenticatedUsers marca ponto de entrada
+            # exposto (literalmente qualquer um na internet).
+            for member in members:
+                self.add_node(GraphNode(
+                    id=f"member/{member}", type="gcp_member", provider="GCP", label=member,
+                    exposed=(member in ("allUsers", "allAuthenticatedUsers")),
+                ))
+                self.add_edge(GraphEdge(
+                    f"member/{member}", project_node_id, "has_permission",
+                    metadata={"role": role},
+                ))
 
             # Public bindings
             for member in members:
@@ -337,4 +359,5 @@ class GCPIAMAuditor:
             },
             "recommendations": self._recommendations(score),
             "errors": [],
+            "graph": self.graph_output(),
         }

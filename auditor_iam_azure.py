@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 import requests as _requests
 
 from cve_mapping import enrich_finding
+from graph_model import GraphCollector, GraphEdge, GraphNode
 
 MAX_OWNERS = 3
 MAX_GLOBAL_ADMINS = 4
@@ -32,7 +33,7 @@ GLOBAL_ADMIN_TEMPLATE_ID = "62e90394-69f5-4237-9190-012177145e10"
 PRIVILEGED_ROLE_ADMIN_TEMPLATE_ID = "e8611ab8-c189-46e8-94e1-60213ab1f814"
 
 
-class AzureIAMAuditor:
+class AzureIAMAuditor(GraphCollector):
     def __init__(
         self,
         tenant_id: str,
@@ -43,6 +44,7 @@ class AzureIAMAuditor:
         from azure.identity import ClientSecretCredential
         from azure.mgmt.authorization import AuthorizationManagementClient
 
+        GraphCollector.__init__(self)
         self._tenant_id = tenant_id
         self._subscription_id = subscription_id
         self._client_id = client_id
@@ -158,6 +160,26 @@ class AzureIAMAuditor:
 
             rd = role_defs.get(role_id)
             role_name = (rd.role_name if rd else role_id.split("/")[-1]) or "unknown"
+
+            # Grafo: o principal já é lido aqui pra cada finding — a mesma
+            # leitura também vira nó + aresta "principal tem role X no
+            # escopo Y". Guest é tratado como ponto de entrada exposto
+            # (identidade externa ao tenant); role Owner marca o escopo
+            # como alvo de alto valor.
+            if principal_id:
+                scope_id = scope or f"subscription/{self._subscription_id}"
+                self.add_node(GraphNode(
+                    id=f"principal/{principal_id}", type="azure_principal", provider="AZURE",
+                    label=principal_id[:32], exposed=(principal_type == "Guest"),
+                ))
+                self.add_node(GraphNode(
+                    id=scope_id, type="azure_scope", provider="AZURE", label=scope_id.split("/")[-1] or scope_id,
+                    high_value=(role_name == "Owner"),
+                ))
+                self.add_edge(GraphEdge(
+                    f"principal/{principal_id}", scope_id, "has_permission",
+                    metadata={"role": role_name},
+                ))
 
             # Owner role
             if rd and rd.role_name == "Owner":
@@ -433,4 +455,5 @@ class AzureIAMAuditor:
             },
             "recommendations": self._recommendations(score),
             "errors": [],
+            "graph": self.graph_output(),
         }

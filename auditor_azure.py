@@ -17,9 +17,10 @@ from urllib.parse import urlparse
 
 from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk, build_recommendations
 from cve_mapping import enrich_finding
+from graph_model import GraphCollector, GraphEdge, GraphNode
 
 
-class AzureBlobAuditor:
+class AzureBlobAuditor(GraphCollector):
     """
     Auditor Azure Blob Storage sem credenciais:
       - Descobre storage account do URL
@@ -37,6 +38,7 @@ class AzureBlobAuditor:
             max_objects: Número máximo de objetos a listar
             timeout: Timeout para requisições HTTP
         """
+        GraphCollector.__init__(self)
         self.input = account_or_url.strip()
         self.container = container
         self.max_objects = max_objects
@@ -288,7 +290,24 @@ class AzureBlobAuditor:
             "total_size_bytes": sum(int(f.get("size", 0)) for f in all_files),
             "containers_scanned": len(containers_scanned)
         }
-        
+
+        # Grafo: mesmo raciocínio do S3/GCS sem credenciais -- cada
+        # container com listagem pública confirmada já é um caminho de
+        # ataque completo (internet -> container), um nó por container
+        # encontrado (a conta pode ter mais de um container público).
+        if containers_scanned:
+            self.add_node(GraphNode(
+                id="internet/anonymous", type="external", provider="AZURE",
+                label="Internet (sem credencial)", exposed=True,
+            ))
+        for c in containers_scanned:
+            container_node_id = f"container/{account}/{c}"
+            self.add_node(GraphNode(
+                id=container_node_id, type="azure_container", provider="AZURE",
+                label=f"{account}/{c}", high_value=True,
+            ))
+            self.add_edge(GraphEdge("internet/anonymous", container_node_id, "public_listing"))
+
         payload: Dict[str, Any] = {
             "provider": "AZURE_BLOB",
             "account": account,
@@ -300,6 +319,7 @@ class AzureBlobAuditor:
             "summary": summary,
             "files": all_files,
             "errors": errors,
+            "graph": self.graph_output(),
         }
         
         # Score avançado + distribuição + recomendações

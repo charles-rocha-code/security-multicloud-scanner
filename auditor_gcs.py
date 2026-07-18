@@ -8,9 +8,10 @@ from urllib.parse import urlparse
 
 from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk, build_recommendations
 from cve_mapping import enrich_finding
+from graph_model import GraphCollector, GraphEdge, GraphNode
 
 
-class GCSAuditor:
+class GCSAuditor(GraphCollector):
     """
     Auditor GCS sem credenciais:
       - Testa listagem pública via XML API (https://storage.googleapis.com/<bucket>/?prefix=&max-keys=...)
@@ -20,6 +21,7 @@ class GCSAuditor:
     """
 
     def __init__(self, bucket_or_url: str, max_objects: int = 200, timeout: int = 10):
+        GraphCollector.__init__(self)
         self.input = bucket_or_url.strip()
         self.max_objects = max_objects
         self.timeout = timeout
@@ -125,6 +127,21 @@ class GCSAuditor:
             "total_size_bytes": sum(int(f.get("size") or 0) for f in files),
         }
 
+        # Grafo: mesmo raciocínio do S3 sem credenciais -- listagem pública
+        # já é o caminho de ataque completo (internet -> bucket), sem
+        # precisar de ACL/policy que não dá pra ler sem credencial.
+        bucket_node_id = f"bucket/{bucket}"
+        self.add_node(GraphNode(
+            id=bucket_node_id, type="gcs_bucket", provider="GCP", label=bucket,
+            high_value=public_access,
+        ))
+        if public_access:
+            self.add_node(GraphNode(
+                id="internet/anonymous", type="external", provider="GCP",
+                label="Internet (sem credencial)", exposed=True,
+            ))
+            self.add_edge(GraphEdge("internet/anonymous", bucket_node_id, "public_listing"))
+
         payload: Dict[str, Any] = {
             "provider": "GCS",
             "bucket": bucket,
@@ -135,6 +152,7 @@ class GCSAuditor:
             "summary": summary,
             "files": files,
             "errors": [] if not list_error else [list_error],
+            "graph": self.graph_output(),
         }
 
         payload.update(calculate_advanced_risk(payload))

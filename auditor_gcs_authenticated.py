@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from google.cloud import storage
@@ -9,6 +9,7 @@ from google.oauth2 import service_account
 
 from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk, build_recommendations
 from cve_mapping import enrich_finding
+from graph_model import GraphCollector, GraphEdge, GraphNode
 
 
 def _extract_bucket_name(bucket: str) -> str:
@@ -28,6 +29,7 @@ class GCSAuthenticatedAuditor:
     bucket_name: str
     service_account_key: Dict[str, Any]
     max_objects: int = 10000
+    _graph: GraphCollector = field(default_factory=GraphCollector, repr=False, compare=False)
 
     def _client(self) -> storage.Client:
         if not isinstance(self.service_account_key, dict) or self.service_account_key.get("type") != "service_account":
@@ -60,12 +62,40 @@ class GCSAuthenticatedAuditor:
         except Exception as e:
             errors.append(str(e))
 
+        # IAM policy do bucket — dado novo (não lido antes neste auditor).
+        # Além de alimentar o grafo (Fase 4 do roadmap), corrige um bug
+        # real encontrado ao adicionar isto: "public_access" estava sempre
+        # hardcoded em False, nunca refletindo a policy de verdade.
+        public_access = False
+        bucket_node_id = f"bucket/{bucket_name}"
+        try:
+            policy = bucket.get_iam_policy(requested_policy_version=3)
+            self._graph.add_node(GraphNode(
+                id=bucket_node_id, type="gcs_bucket", provider="GCP", label=bucket_name,
+            ))
+            for binding in policy.bindings:
+                role = binding.get("role", "")
+                for member in binding.get("members", []):
+                    exposed = member in ("allUsers", "allAuthenticatedUsers")
+                    if exposed:
+                        public_access = True
+                    self._graph.add_node(GraphNode(
+                        id=f"member/{member}", type="gcp_member", provider="GCP", label=member,
+                        exposed=exposed,
+                    ))
+                    self._graph.add_edge(GraphEdge(
+                        f"member/{member}", bucket_node_id, "has_permission",
+                        metadata={"role": role},
+                    ))
+        except Exception as e:
+            errors.append(f"Não foi possível ler IAM policy do bucket: {e}")
+
         payload: Dict[str, Any] = {
             "provider": "GCS",
             "bucket": bucket_name,
             "region": "global",
             "account_id": self.service_account_key.get("project_id", "-"),
-            "public_access": False,
+            "public_access": public_access,
             "public_listing": False,
             "summary": {
                 "objects_scanned": len(files),
@@ -73,6 +103,7 @@ class GCSAuthenticatedAuditor:
             },
             "files": files,
             "errors": errors,
+            "graph": self._graph.graph_output(),
         }
 
         payload.update(calculate_advanced_risk(payload))

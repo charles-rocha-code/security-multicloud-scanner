@@ -1047,11 +1047,11 @@ def scan_public(payload: PublicScanIn, user=Depends(require_mfa), async_mode: bo
         _job_write(job_id, {"job_id": job_id, "type": "public", "status": "queued",
                             "started_at": started_at, "finished_at": None, "result": None, "error": None})
         def _do_public():
-            return _exec_public_scan(payload, user)
+            return _attach_attack_paths(_exec_public_scan(payload, user))
         _EXECUTOR.submit(_run_in_background, job_id, "public", started_at, email, _do_public, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
-    result = _exec_public_scan(payload, user)
+    result = _attach_attack_paths(_exec_public_scan(payload, user))
     if email:
         LAST_SCAN_BY_EMAIL[email] = result
         if HISTORY_AVAILABLE:
@@ -1083,7 +1083,7 @@ def scan_authenticated(payload: AuthenticatedScanIn, user=Depends(require_mfa), 
                 if "private_key" in key and isinstance(key["private_key"], str):
                     key["private_key"] = key["private_key"].replace("\\n", "\n")
                 result = GCSAuthenticatedAuditor(bucket_name=payload.bucket, service_account_key=key, max_objects=payload.max_objects).run()
-                return _normalize_scan_result(result, provider="GCS", target=payload.bucket)
+                return _attach_attack_paths(_normalize_scan_result(result, provider="GCS", target=payload.bucket))
             region_name = payload.region_name or payload.region
             result = S3AuthenticatedAuditor(
                 bucket_name=payload.bucket,
@@ -1093,7 +1093,7 @@ def scan_authenticated(payload: AuthenticatedScanIn, user=Depends(require_mfa), 
                 region_name=region_name,
                 max_objects=payload.max_objects,
             ).run()
-            return _normalize_scan_result(result, provider="AWS_S3", target=payload.bucket)
+            return _attach_attack_paths(_normalize_scan_result(result, provider="AWS_S3", target=payload.bucket))
         _EXECUTOR.submit(_run_in_background, job_id, provider.lower(), started_at, email, _do_authenticated, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
@@ -1113,7 +1113,7 @@ def scan_authenticated(payload: AuthenticatedScanIn, user=Depends(require_mfa), 
                 max_objects=payload.max_objects,
             )
             result = auditor.run()
-            result = _normalize_scan_result(result, provider="GCS", target=payload.bucket)
+            result = _attach_attack_paths(_normalize_scan_result(result, provider="GCS", target=payload.bucket))
 
         # AWS S3 AUTENTICADO
         elif provider == "AWS_S3":
@@ -1129,7 +1129,7 @@ def scan_authenticated(payload: AuthenticatedScanIn, user=Depends(require_mfa), 
                 max_objects=payload.max_objects,
             )
             result = auditor.run()
-            result = _normalize_scan_result(result, provider="AWS_S3", target=payload.bucket)
+            result = _attach_attack_paths(_normalize_scan_result(result, provider="AWS_S3", target=payload.bucket))
 
         else:
             raise HTTPException(status_code=400, detail=f"Provider '{provider}' não suportado.")
@@ -1176,6 +1176,25 @@ class IamScanIn(BaseModel):
     region_name: str = "us-east-1"
 
 
+def _attach_attack_paths(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Fase 2 do roadmap de Mapa de Grafo de Ataque — computa os caminhos
+    em cima do grafo que o auditor já devolveu (Fase 0/1), sem o auditor
+    precisar saber de path-finding. Aditivo: se não houver chave "graph"
+    (auditor ainda não migrado) ou o cálculo falhar por qualquer motivo,
+    o resultado original segue intacto — nunca derruba o scan por causa
+    disso."""
+    graph = result.get("graph")
+    if not graph:
+        return result
+    try:
+        from graph_engine import find_attack_paths, graph_summary
+        result["attack_paths"] = find_attack_paths(graph)
+        result["graph_summary"] = graph_summary(graph)
+    except Exception as _e:
+        logger.warning(f"⚠️ Cálculo de attack_paths falhou, seguindo sem ele: {_e}")
+    return result
+
+
 @app.post("/scan/iam")
 def scan_iam(payload: IamScanIn, user=Depends(require_mfa), async_mode: bool = Query(False, alias="async")):
     """
@@ -1191,12 +1210,13 @@ def scan_iam(payload: IamScanIn, user=Depends(require_mfa), async_mode: bool = Q
                             "started_at": started_at, "finished_at": None, "result": None, "error": None})
         def _do_iam():
             from auditor_iam import IAMAuditor
-            return IAMAuditor(
+            result = IAMAuditor(
                 aws_access_key_id=payload.aws_access_key_id,
                 aws_secret_access_key=payload.aws_secret_access_key,
                 aws_session_token=payload.aws_session_token,
                 region_name=payload.region_name or "us-east-1",
             ).run()
+            return _attach_attack_paths(result)
         _EXECUTOR.submit(_run_in_background, job_id, "aws_iam", started_at, email, _do_iam, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
@@ -1209,6 +1229,7 @@ def scan_iam(payload: IamScanIn, user=Depends(require_mfa), async_mode: bool = Q
             region_name=payload.region_name or "us-east-1",
         )
         result = auditor.run()
+        result = _attach_attack_paths(result)
         if email:
             LAST_SCAN_BY_EMAIL[email] = result
             if HISTORY_AVAILABLE:
@@ -1247,7 +1268,8 @@ def scan_iam_gcp(payload: GcpIamScanIn, user=Depends(require_mfa), async_mode: b
                             "started_at": started_at, "finished_at": None, "result": None, "error": None})
         def _do_gcp_iam():
             from auditor_iam_gcp import GCPIAMAuditor
-            return GCPIAMAuditor(service_account_key=payload.service_account_key).run()
+            result = GCPIAMAuditor(service_account_key=payload.service_account_key).run()
+            return _attach_attack_paths(result)
         _EXECUTOR.submit(_run_in_background, job_id, "gcp_iam", started_at, email, _do_gcp_iam, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
@@ -1255,6 +1277,7 @@ def scan_iam_gcp(payload: GcpIamScanIn, user=Depends(require_mfa), async_mode: b
         from auditor_iam_gcp import GCPIAMAuditor
         auditor = GCPIAMAuditor(service_account_key=payload.service_account_key)
         result = auditor.run()
+        result = _attach_attack_paths(result)
         if email:
             LAST_SCAN_BY_EMAIL[email] = result
             if HISTORY_AVAILABLE:
@@ -1294,12 +1317,13 @@ def scan_iam_azure(payload: AzureIamScanIn, user=Depends(require_mfa), async_mod
                             "started_at": started_at, "finished_at": None, "result": None, "error": None})
         def _do_azure_iam():
             from auditor_iam_azure import AzureIAMAuditor
-            return AzureIAMAuditor(
+            result = AzureIAMAuditor(
                 tenant_id=payload.tenant_id,
                 client_id=payload.client_id,
                 client_secret=payload.client_secret,
                 subscription_id=payload.subscription_id,
             ).run()
+            return _attach_attack_paths(result)
         _EXECUTOR.submit(_run_in_background, job_id, "azure_iam", started_at, email, _do_azure_iam, _request_id=get_request_id())
         return JSONResponse({"job_id": job_id, "status": "queued"})
 
@@ -1312,6 +1336,7 @@ def scan_iam_azure(payload: AzureIamScanIn, user=Depends(require_mfa), async_mod
             subscription_id=payload.subscription_id,
         )
         result = auditor.run()
+        result = _attach_attack_paths(result)
         if email:
             LAST_SCAN_BY_EMAIL[email] = result
             if HISTORY_AVAILABLE:
@@ -1367,6 +1392,10 @@ def _run_full_k8s_scan(kubeconfig_yaml: str, max_objects: int) -> dict:
             set(result.get("recommendations", [])) | set(rbac_result.get("recommendations", []))
         )
         result["errors"] = list(result.get("errors", [])) + list(rbac_result.get("errors", []))
+        # K8sStorageAuditor não produz grafo (não lê RBAC) -- só o
+        # K8sAuthenticatedAuditor (Fase 4 do roadmap) tem essa chave.
+        if "graph" in rbac_result:
+            result["graph"] = rbac_result["graph"]
     except Exception as e:
         result.setdefault("errors", []).append(
             f"Scan de RBAC/rede/workload não pôde ser executado: {e}. Verifique se o "
@@ -1393,7 +1422,7 @@ def _run_full_k8s_scan(kubeconfig_yaml: str, max_objects: int) -> dict:
     raw = sum(dist[k] * weights[k] for k in dist)
     result["risk_score"] = min(100, int((raw / max_score) * 100)) if total else 0
 
-    return result
+    return _attach_attack_paths(result)
 
 
 @app.post("/scan/k8s")

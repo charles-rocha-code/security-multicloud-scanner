@@ -87,6 +87,20 @@ def _sanitize_text(value, max_len: int = 300) -> str:
     return text
 
 
+def _attack_paths_summary(r: dict) -> list[dict]:
+    """Fase 5 do roadmap de Mapa de Grafo de Ataque — reduz cada caminho a
+    uma trilha de texto (não os nós/arestas completos, que já foram vistos
+    pelo dashboard) pra caber no prompt sem gastar token à toa. Aditivo:
+    scan sem 'attack_paths' (provider ainda não migrado, ou nenhum caminho
+    encontrado) retorna lista vazia, sem quebrar nada."""
+    paths = r.get("attack_paths") or []
+    out = []
+    for p in paths[:10]:
+        trail = " → ".join(_sanitize_text(n.get("label", "?"), max_len=60) for n in p.get("nodes", []))
+        out.append({"severity": p.get("severity", "?"), "trail": trail})
+    return out
+
+
 def _scan_summary(scan: dict) -> dict:
     """Extrai campos relevantes para reduzir tokens."""
     r = scan.get("result", scan)
@@ -106,6 +120,8 @@ def _scan_summary(scan: dict) -> dict:
         "risk_score":            r.get("risk_score", 0),
         "summary":               r.get("summary", {}),
         "top_findings":          top_findings,
+        "graph_summary":         r.get("graph_summary"),
+        "attack_paths":          _attack_paths_summary(r),
     }
 
 
@@ -133,6 +149,9 @@ def analyze(scan: dict) -> str:
 
 **Top findings:**
 {json.dumps(summary['top_findings'], indent=2, default=str, ensure_ascii=False)}
+
+**Caminhos de ataque (Mapa de Grafo de Ataque — cadeias conectadas de exposição até acesso privilegiado):**
+{json.dumps(summary['attack_paths'], indent=2, default=str, ensure_ascii=False) if summary['attack_paths'] else "Nenhum caminho de ataque completo encontrado no grafo mapeado."}
 </scan_data>
 
 ---
@@ -141,15 +160,18 @@ Forneça:
 ## 1. Avaliação Executiva
 (Estado geral da postura de segurança — 2 a 3 parágrafos)
 
-## 2. Top 5 Ações Prioritárias
-(Ordenadas por risco, com comandos específicos quando possível)
+## 2. Caminhos de Ataque Críticos
+(Se houver "Caminhos de ataque" acima, explique cada trilha em português claro — o que um atacante faria, passo a passo, e qual elo da cadeia é o mais fácil de quebrar pra invalidar o caminho inteiro. Se não houver nenhum, diga isso em uma linha e siga em frente — não invente caminho.)
 
-## 3. Timeline de Remediação
+## 3. Top 5 Ações Prioritárias
+(Ordenadas por risco — findings que fazem parte de um caminho de ataque contam como prioridade mais alta que findings isolados de mesma severidade, com comandos específicos quando possível)
+
+## 4. Timeline de Remediação
 - **0–24 horas:** ações críticas
 - **7 dias:** ações de alto risco
 - **30 dias:** melhorias estruturais
 
-## 4. Impacto em Conformidade
+## 5. Impacto em Conformidade
 (CIS Benchmark, ISO 27001, NIST 800-53 — o que está sendo violado)
 """
 
@@ -245,6 +267,8 @@ def ask(question: str, scan: dict, history: Optional[list[dict]] = None, user_em
     prompt = f"""{context}
 
 ---
+Se a pergunta for sobre caminho de ataque / cadeia de exploração / "como um atacante chegaria em X", use a seção "attack_paths" do scan atual acima — explique a trilha em português claro (passo a passo) e aponte qual elo é o mais fácil de quebrar pra invalidar o caminho inteiro. Se não houver attack_paths relevante à pergunta, responda normalmente com base nos findings.
+
 **Pergunta:** {question}"""
 
     resp = _client().messages.create(

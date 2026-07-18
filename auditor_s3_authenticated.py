@@ -16,9 +16,10 @@ from engine_risk import (
     CONTENT_SCAN_MAX_FILES,
 )
 from cve_mapping import enrich_finding
+from graph_model import GraphCollector, GraphEdge, GraphNode
 
 
-class S3AuthenticatedAuditor:
+class S3AuthenticatedAuditor(GraphCollector):
     """
     Auditor S3 COM credenciais (AWS Access Keys):
       - Usa boto3 para listar objetos
@@ -38,6 +39,7 @@ class S3AuthenticatedAuditor:
         max_objects: int = 10000,
         timeout: int = 30
     ):
+        GraphCollector.__init__(self)
         self.bucket = bucket_name.strip()
         self.max_objects = max_objects
         self.timeout = timeout
@@ -92,14 +94,15 @@ class S3AuthenticatedAuditor:
         """Verifica ACL do bucket"""
         try:
             acl = self.s3_client.get_bucket_acl(Bucket=bucket_name)
-            
+
             public_read = False
             public_write = False
-            
+            bucket_node_id = f"bucket/{bucket_name}"
+
             for grant in acl.get('Grants', []):
                 grantee = grant.get('Grantee', {})
                 permission = grant.get('Permission', '')
-                
+
                 # Verifica se é público (AllUsers ou AuthenticatedUsers)
                 grantee_uri = grantee.get('URI', '')
                 if 'AllUsers' in grantee_uri:
@@ -110,7 +113,21 @@ class S3AuthenticatedAuditor:
                 elif 'AuthenticatedUsers' in grantee_uri:
                     if permission in ['READ', 'FULL_CONTROL']:
                         public_read = True
-            
+
+                # Grafo: mesma leitura de grant já feita acima, agora também
+                # vira nó + aresta -- AllUsers/AuthenticatedUsers marcam
+                # ponto de entrada exposto (sem credencial nenhuma).
+                if grantee_uri:
+                    grantee_label = grantee_uri.rsplit('/', 1)[-1]
+                    self.add_node(GraphNode(
+                        id=f"acl/{grantee_uri}", type="s3_acl_grantee", provider="AWS", label=grantee_label,
+                        exposed=('AllUsers' in grantee_uri or 'AuthenticatedUsers' in grantee_uri),
+                    ))
+                    self.add_edge(GraphEdge(
+                        f"acl/{grantee_uri}", bucket_node_id, "has_permission",
+                        metadata={"permission": permission},
+                    ))
+
             return {
                 'public_read': public_read,
                 'public_write': public_write,
@@ -127,18 +144,35 @@ class S3AuthenticatedAuditor:
             policy = json.loads(policy_str)
             
             public_access = False
-            
-            # Analisa statements da política
+            bucket_node_id = f"bucket/{bucket_name}"
+
+            # Analisa statements da política -- sem "break" antecipado agora:
+            # o grafo precisa ver todos os principals, não só parar no
+            # primeiro "*" encontrado (a checagem de public_access original
+            # continua funcionando igual, só não corta a leitura mais cedo).
             for statement in policy.get('Statement', []):
                 principal = statement.get('Principal', {})
                 effect = statement.get('Effect', '')
-                
-                # Verifica se permite acesso público
-                if effect == 'Allow':
-                    if principal == '*' or principal == {'AWS': '*'}:
-                        public_access = True
-                        break
-            
+                if effect != 'Allow':
+                    continue
+
+                is_public = principal == '*' or principal == {'AWS': '*'}
+                if is_public:
+                    public_access = True
+
+                # Grafo: mesma leitura de Principal já feita acima -- vira
+                # nó + aresta "principal tem permissão no bucket".
+                principal_label = json.dumps(principal, ensure_ascii=False) if isinstance(principal, dict) else str(principal)
+                principal_id = f"policy-principal/{principal_label}"
+                self.add_node(GraphNode(
+                    id=principal_id, type="s3_policy_principal", provider="AWS", label=principal_label,
+                    exposed=is_public,
+                ))
+                self.add_edge(GraphEdge(
+                    principal_id, bucket_node_id, "has_permission",
+                    metadata={"actions": statement.get("Action")},
+                ))
+
             return {
                 'has_policy': True,
                 'public_access': public_access,
@@ -233,11 +267,20 @@ class S3AuthenticatedAuditor:
         
         # Determina se há acesso público
         public_access = (
-            acl_info.get('public_read', False) or 
-            acl_info.get('public_write', False) or 
+            acl_info.get('public_read', False) or
+            acl_info.get('public_write', False) or
             policy_info.get('public_access', False)
         )
-        
+
+        # Grafo: garante o nó do bucket, marcado como alvo de alto valor se
+        # qualquer uma das duas fontes (ACL ou policy) encontrou acesso
+        # público -- add_node é idempotente, não duplica se os checks acima
+        # já adicionaram o mesmo id.
+        self.add_node(GraphNode(
+            id=f"bucket/{bucket_name}", type="s3_bucket", provider="AWS", label=bucket_name,
+            high_value=public_access,
+        ))
+
         # Monta summary
         summary = {
             'objects_scanned': len(files),
@@ -257,6 +300,7 @@ class S3AuthenticatedAuditor:
             'summary': summary,
             'files': files,
             'errors': errors,
+            'graph': self.graph_output(),
         }
         
         # Calcula risk score e recomendações

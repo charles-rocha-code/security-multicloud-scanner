@@ -43,3 +43,6 @@ anthropic>=0.25.0
 kubernetes>=28.1.0
 pyyaml>=6.0.1
 
+# Mapa de Grafo de Ataque — motor de grafo em memória (Fase 1 do roadmap)
+networkx>=3.2
+

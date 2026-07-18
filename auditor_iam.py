@@ -26,12 +26,13 @@ import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 
 from cve_mapping import enrich_finding
+from graph_model import GraphCollector, GraphEdge, GraphNode
 
 KEY_AGE_HIGH_DAYS = 90
 KEY_AGE_WARN_DAYS = 45
 INACTIVE_DAYS = 90
 
-class IAMAuditor:
+class IAMAuditor(GraphCollector):
     def __init__(
         self,
         aws_access_key_id: str,
@@ -39,6 +40,7 @@ class IAMAuditor:
         aws_session_token: Optional[str] = None,
         region_name: str = "us-east-1",
     ):
+        GraphCollector.__init__(self)
         session = boto3.Session(
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
@@ -249,6 +251,13 @@ class IAMAuditor:
         for page in paginator.paginate():
             for u in page["Users"]:
                 uname = u["UserName"]
+                uarn = u.get("Arn", f"user/{uname}")
+
+                # Nó do grafo — todo usuário processado vira nó, mesmo sem
+                # achado (pode ser pivô de um caminho mais longo depois).
+                self.add_node(GraphNode(
+                    id=uarn, type="iam_user", provider="AWS", label=uname,
+                ))
 
                 # Managed policies diretamente no usuário
                 try:
@@ -263,6 +272,12 @@ class IAMAuditor:
                             f"'{uname}' tem AdministratorAccess direta (CIS 1.16 — usar grupos/roles).",
                             f"aws iam detach-user-policy --user-name {uname} --policy-arn {pol['PolicyArn']}",
                         )
+                        self.mark_high_value(uarn)
+                        self.add_node(GraphNode(
+                            id="policy/AdministratorAccess", type="iam_policy", provider="AWS",
+                            label="AdministratorAccess", high_value=True,
+                        ))
+                        self.add_edge(GraphEdge(uarn, "policy/AdministratorAccess", "has_permission"))
 
                 # Inline policies com wildcard total
                 try:
@@ -299,6 +314,11 @@ class IAMAuditor:
                 if rname.startswith("AWSServiceRole") or "/aws-service-role/" in role.get("Path", ""):
                     continue
 
+                rarn = role.get("Arn", f"role/{rname}")
+                self.add_node(GraphNode(
+                    id=rarn, type="iam_role", provider="AWS", label=rname,
+                ))
+
                 # AdministratorAccess em role
                 try:
                     attached = self.iam.list_attached_role_policies(RoleName=rname)["AttachedPolicies"]
@@ -312,8 +332,17 @@ class IAMAuditor:
                             f"Role '{rname}' tem AdministratorAccess — revisar se realmente necessário.",
                             f"aws iam detach-role-policy --role-name {rname} --policy-arn {pol['PolicyArn']}",
                         )
+                        self.mark_high_value(rarn)
+                        self.add_node(GraphNode(
+                            id="policy/AdministratorAccess", type="iam_policy", provider="AWS",
+                            label="AdministratorAccess", high_value=True,
+                        ))
+                        self.add_edge(GraphEdge(rarn, "policy/AdministratorAccess", "has_permission"))
 
-                # Cross-account trust aberta
+                # Cross-account trust aberta — a trust policy já é lida aqui
+                # de qualquer forma (pro finding de Principal=*); a mesma
+                # leitura também vira aresta "quem pode assumir esta role",
+                # pra qualquer principal AWS, não só o caso "*".
                 trust = role.get("AssumeRolePolicyDocument", {})
                 if isinstance(trust, str):
                     try: trust = json.loads(trust)
@@ -327,6 +356,17 @@ class IAMAuditor:
                         aws_p = principal.get("AWS", [])
                         principals = [aws_p] if isinstance(aws_p, str) else aws_p
                     for p in principals:
+                        # Nó do principal que pode assumir a role — "*" vira
+                        # um nó "exposto" próprio (entrada pro grafo), não um
+                        # ARN real. Qualquer outro principal (conta, usuário,
+                        # role específica) vira nó normal com o próprio ARN.
+                        p_id = "external/any-aws-account" if p == "*" else p
+                        self.add_node(GraphNode(
+                            id=p_id, type="principal", provider="AWS", label=p,
+                            exposed=(p == "*"),
+                        ))
+                        self.add_edge(GraphEdge(p_id, rarn, "can_assume"))
+
                         if p == "*":
                             self._add(
                                 "role", rname, "Trust policy com Principal=* (qualquer entidade pode assumir)",
@@ -437,4 +477,8 @@ class IAMAuditor:
             },
             "recommendations": self._recommendations(score),
             "errors": [],
+            # Fase 0 do roadmap de Mapa de Grafo de Ataque — aditivo, chave
+            # nova. Consumidores existentes de run() que não conhecem "graph"
+            # simplesmente ignoram a chave, sem quebrar nada.
+            "graph": self.graph_output(),
         }

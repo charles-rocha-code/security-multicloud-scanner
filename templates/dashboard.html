@@ -14,6 +14,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <!-- Plugin para mostrar porcentagens dentro dos gráficos -->
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+  <!-- Cytoscape.js — grafo interativo do Mapa de Ataque (Fase 3 do roadmap) -->
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
 
   <style>
     /* ============================================================
@@ -2511,6 +2513,9 @@
               <span id="cred-summary-text">Scan Privado</span>
               <button class="cred-edit-btn" onclick="expandCredentials()">Editar credenciais</button>
             </div>
+            <div style="display:flex; justify-content:flex-end;">
+              <button class="cred-edit-btn" onclick="collapseCredentials()">↑ Recolher</button>
+            </div>
             <div class="warning-box">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
               <span><strong>Modo Autenticado:</strong> Suas credenciais são usadas apenas para este scan e não são armazenadas.</span>
@@ -2967,6 +2972,60 @@ roleRef:
                 <span style="color:#22c55e;">■</span> Low
               </span>
             </div>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             Painel: Mapa de Grafo de Ataque (Fase 3 do roadmap)
+             ============================================================ -->
+        <div class="panel" id="attack-graph-panel" style="display:none; grid-column: 1 / -1; margin-bottom: 4px;">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:6px;margin-top:-2px"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M8.5 7.5 15.5 16.5M15.5 7.5 8.5 16.5"/></svg>
+                Mapa de Grafo de Ataque
+              </div>
+              <div class="panel-sub" id="attack-graph-sub">Caminhos conectando exposição pública a acesso de alto privilégio</div>
+            </div>
+            <button class="cred-edit-btn" id="attack-graph-expand-btn" style="display:none; align-items:center; gap:5px;" onclick="openAttackGraphFullscreen()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+              Expandir
+            </button>
+          </div>
+
+          <div id="attack-graph-legend" style="display:none; padding: 10px 16px; border-bottom: 1px solid #1f2937; font-size:11.5px; color:#9ca3af; gap:18px; flex-wrap:wrap;">
+            <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#ef4444;margin-right:5px;"></span>Alvo de alto valor (ex: acesso administrativo)</span>
+            <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#eab308;margin-right:5px;"></span>Ponto de entrada exposto (sem credencial)</span>
+            <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#374151;border:1px solid #4b5563;margin-right:5px;"></span>Recurso mapeado (precisa de credencial)</span>
+          </div>
+
+          <div id="attack-graph-explain" style="display:none; padding: 10px 16px; font-size:12.5px; color:#9ca3af; border-bottom: 1px solid #1f2937;"></div>
+
+          <div id="attack-graph-empty" style="display:none; padding: 24px; text-align:center; color:#6b7280; font-size:13px;">
+            ✅ Nenhum caminho de ataque encontrado — pontos de entrada expostos não se conectam a alvos de alto valor no grafo mapeado.
+          </div>
+          <div id="attack-graph-canvas" style="height:420px; display:none;"></div>
+          <div id="attack-graph-list" style="padding: 0 16px 16px;"></div>
+        </div>
+
+        <!-- ============================================================
+             Modal: Mapa de Grafo de Ataque em tela cheia
+             ============================================================ -->
+        <div id="attack-graph-modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:1000; align-items:center; justify-content:center; padding:32px;" onclick="if (event.target === this) closeAttackGraphFullscreen()">
+          <div style="background:#111827; border:1px solid #1f2937; border-radius:10px; width:100%; height:100%; max-width:1600px; display:flex; flex-direction:column; overflow:hidden;">
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-bottom:1px solid #1f2937;">
+              <div class="panel-title" style="font-size:14px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:6px;margin-top:-2px"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M8.5 7.5 15.5 16.5M15.5 7.5 8.5 16.5"/></svg>
+                Mapa de Grafo de Ataque
+              </div>
+              <button class="cred-edit-btn" onclick="closeAttackGraphFullscreen()">✕ Fechar</button>
+            </div>
+            <div id="attack-graph-legend-fullscreen" style="display:flex; padding: 10px 20px; border-bottom: 1px solid #1f2937; font-size:11.5px; color:#9ca3af; gap:18px; flex-wrap:wrap;">
+              <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#ef4444;margin-right:5px;"></span>Alvo de alto valor (ex: acesso administrativo)</span>
+              <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#eab308;margin-right:5px;"></span>Ponto de entrada exposto (sem credencial)</span>
+              <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#374151;border:1px solid #4b5563;margin-right:5px;"></span>Recurso mapeado (precisa de credencial)</span>
+            </div>
+            <div id="attack-graph-canvas-fullscreen" style="flex:1; min-height:0;"></div>
           </div>
         </div>
 
@@ -4089,6 +4148,12 @@ function logout() {
       // Mapa de vulnerabilidades
       renderVulnMap(files, data);
 
+      // Mapa de Grafo de Ataque (Fase 3 do roadmap) — só existe se o
+      // backend já migrou esse tipo de scan (hoje: aws_iam); scans de
+      // outros providers simplesmente não têm graph_summary e o painel
+      // some, sem erro.
+      renderAttackGraph(data);
+
       // Risk Matrix (ISO 27001 / NIST)
       renderRiskMatrix(files);
 
@@ -4282,6 +4347,243 @@ function logout() {
 
       document.getElementById('vuln-map-total').textContent = `${totalRisk} objeto${totalRisk !== 1 ? 's' : ''} analisado${totalRisk !== 1 ? 's' : ''}`;
       panel.style.display = 'block';
+    }
+
+
+    // ============================================================
+    // MAPA DE GRAFO DE ATAQUE (Fase 3 do roadmap)
+    // ============================================================
+    let _attackCy = null; // instância Cytoscape ativa, pra destruir antes de recriar
+    let _attackCyFullscreen = null; // instância separada do modal em tela cheia
+    let _lastAttackGraphElements = null; // reaproveitado pelo modal, sem recalcular
+
+    // Encurta um id/label pra caber no nó, preferindo cortar em '/' ou ':'
+    // em vez de posição fixa -- mesma lógica de _smart_short_label() do
+    // gerador de relatório (generate_report.py), só que em JS.
+    function smartShortLabel(name, maxlen) {
+      maxlen = maxlen || 18;
+      const s = String(name || '');
+      if (s.length <= maxlen) return s;
+      const parts = s.replace(/:/g, '/').split('/').filter(Boolean);
+      if (!parts.length) return s.slice(-maxlen);
+      let short = parts[parts.length - 1];
+      for (let i = parts.length - 2; i >= 0; i--) {
+        const candidate = parts[i] + '/' + short;
+        if (candidate.length > maxlen - 1) break;
+        short = candidate;
+      }
+      if (short.length > maxlen) short = short.slice(-(maxlen - 1));
+      return short === s ? s : '…' + short;
+    }
+
+    const ATTACK_GRAPH_STYLE = [
+      { selector: 'node', style: {
+          'label': 'data(shortLabel)', 'font-size': 9, 'color': '#e5e7eb', 'text-valign': 'bottom', 'text-margin-y': 6,
+          'text-wrap': 'ellipsis', 'text-max-width': 90, 'min-zoomed-font-size': 7,
+          'background-color': '#374151', 'width': 26, 'height': 26, 'border-width': 2, 'border-color': '#4b5563',
+      }},
+      { selector: 'node[kind = "exposed"]', style: { 'background-color': '#eab308', 'border-color': '#eab308', 'width': 30, 'height': 30 } },
+      { selector: 'node[kind = "target"]',  style: { 'background-color': '#ef4444', 'border-color': '#ef4444', 'width': 30, 'height': 30 } },
+      { selector: 'edge', style: {
+          'label': 'data(label)', 'font-size': 7, 'color': '#9ca3af', 'curve-style': 'bezier', 'min-zoomed-font-size': 9,
+          'target-arrow-shape': 'triangle', 'target-arrow-color': '#6b7280', 'line-color': '#6b7280', 'width': 1.2,
+      }},
+    ];
+
+    // Layout force-directed (built-in do Cytoscape, sem plugin extra) --
+    // 'breadthfirst' empilhava todo nó sem aresta numa fila só na mesma
+    // linha, criando uma sopa de texto ilegível em contas com muitos
+    // recursos isolados (ex.: dezenas de roles/policies sem relação
+    // encontrada). 'cose' espalha em 2D e evita sobreposição.
+    function attackGraphLayout(nodeCount) {
+      return {
+        name: 'cose',
+        padding: 40,
+        nodeRepulsion: 18000,
+        idealEdgeLength: 90,
+        edgeElasticity: 100,
+        gravity: 40,
+        numIter: 1500,
+        nodeOverlap: 24,
+        componentSpacing: 90,
+        animate: false,
+        fit: true,
+      };
+    }
+
+    function _attackGraphControls(cy, container) {
+      const wrap = document.createElement('div');
+      wrap.setAttribute('data-graph-controls', '1');
+      wrap.style.cssText = 'position:absolute; bottom:10px; right:10px; display:flex; gap:6px; z-index:5;';
+      const mkBtn = (label, title, fn) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.title = title;
+        b.style.cssText = 'width:26px; height:26px; border-radius:5px; border:1px solid #374151; background:#1f2937; color:#e5e7eb; cursor:pointer; font-size:14px; line-height:1;';
+        b.onclick = fn;
+        return b;
+      };
+      wrap.appendChild(mkBtn('+', 'Aproximar', () => cy.zoom({ level: cy.zoom() * 1.3, renderedPosition: { x: cy.width()/2, y: cy.height()/2 } })));
+      wrap.appendChild(mkBtn('–', 'Afastar', () => cy.zoom({ level: cy.zoom() / 1.3, renderedPosition: { x: cy.width()/2, y: cy.height()/2 } })));
+      wrap.appendChild(mkBtn('⤢', 'Ajustar à tela', () => cy.fit(undefined, 30)));
+      container.style.position = 'relative';
+      container.appendChild(wrap);
+    }
+
+    function openAttackGraphFullscreen() {
+      if (!_lastAttackGraphElements) return;
+      const overlay = document.getElementById('attack-graph-modal-overlay');
+      overlay.style.display = 'flex';
+      if (_attackCyFullscreen) { _attackCyFullscreen.destroy(); _attackCyFullscreen = null; }
+      const container = document.getElementById('attack-graph-canvas-fullscreen');
+      container.querySelectorAll(':scope > div[data-graph-controls]').forEach(el => el.remove());
+      _attackCyFullscreen = cytoscape({
+        container: container,
+        elements: _lastAttackGraphElements,
+        layout: attackGraphLayout(_lastAttackGraphElements.length),
+        style: ATTACK_GRAPH_STYLE,
+      });
+      _attackGraphControls(_attackCyFullscreen, container);
+    }
+
+    function closeAttackGraphFullscreen() {
+      const overlay = document.getElementById('attack-graph-modal-overlay');
+      overlay.style.display = 'none';
+      if (_attackCyFullscreen) { _attackCyFullscreen.destroy(); _attackCyFullscreen = null; }
+    }
+
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') {
+        const overlay = document.getElementById('attack-graph-modal-overlay');
+        if (overlay && overlay.style.display !== 'none') closeAttackGraphFullscreen();
+      }
+    });
+
+    function renderAttackGraph(data) {
+      const panel = document.getElementById('attack-graph-panel');
+      if (!panel) return;
+
+      closeAttackGraphFullscreen(); // scan novo enquanto o modal tava aberto -- fecha pra não mostrar grafo desatualizado
+
+      const summary = data && data.graph_summary;
+      const paths = (data && data.attack_paths) || [];
+
+      // Scan de um provider que ainda não emite grafo (Fase 4 expande isso
+      // pra Azure/GCP/K8s) — painel some, sem erro, sem "N/A" confuso.
+      if (!summary) { panel.style.display = 'none'; return; }
+
+      panel.style.display = 'block';
+      const emptyEl = document.getElementById('attack-graph-empty');
+      const canvasEl = document.getElementById('attack-graph-canvas');
+      const listEl = document.getElementById('attack-graph-list');
+      const subEl = document.getElementById('attack-graph-sub');
+      const legendEl = document.getElementById('attack-graph-legend');
+      const explainEl = document.getElementById('attack-graph-explain');
+      const expandBtn = document.getElementById('attack-graph-expand-btn');
+
+      if (summary.total_nodes > 0) {
+        legendEl.style.display = 'flex';
+        explainEl.style.display = 'block';
+        if (paths.length > 0) {
+          explainEl.innerHTML = `⚠️ <b style="color:#e5e7eb;">O que isto significa:</b> existe um caminho conectado, ponta a ponta, de um recurso <b style="color:#eab308;">exposto (sem credencial)</b> até um <b style="color:#ef4444;">alvo de alto valor</b> (acesso administrativo). Isso é diferente de um achado isolado — alguém sem login algum poderia seguir essa cadeia até obter acesso total.`;
+        } else if (summary.exposed_nodes > 0) {
+          explainEl.innerHTML = `⚠️ <b style="color:#e5e7eb;">Atenção parcial:</b> existe(m) <b style="color:#eab308;">${summary.exposed_nodes} ponto(s) de entrada exposto(s)</b> mapeado(s), mas nenhum se conecta diretamente a um alvo de alto valor no grafo atual — vale revisar mesmo assim, exposição sem credencial é sempre um ponto de atenção.`;
+        } else {
+          explainEl.innerHTML = `<b style="color:#e5e7eb;">O que isto significa:</b> encontramos ${summary.high_value_nodes} recurso(s) de acesso administrativo (círculo vermelho) neste ambiente, mas nenhum caminho de entrada sem credencial leva até ele(s) — os círculos cinza são recursos que já exigem autenticação válida pra serem usados. Não é uma falha: é a confirmação de que o acesso privilegiado está isolado corretamente.`;
+        }
+      } else {
+        legendEl.style.display = 'none';
+        explainEl.style.display = 'none';
+      }
+
+      expandBtn.style.display = summary.total_nodes > 0 ? 'inline-flex' : 'none';
+      subEl.textContent = `${summary.total_nodes} recursos mapeados · ${summary.exposed_nodes} ponto(s) de entrada exposto(s) · ${summary.high_value_nodes} alvo(s) de alto valor`;
+
+      if (_attackCy) { _attackCy.destroy(); _attackCy = null; }
+
+      const rawGraph = (data && data.graph) || { nodes: [], edges: [] };
+
+      // Sem NENHUM recurso mapeado (provider migrado mas grafo vazio de
+      // verdade) -- aí sim não tem o que desenhar. Diferente de "sem
+      // caminho de ataque", que ainda tem recursos pra mostrar (ver abaixo).
+      if (summary.total_nodes === 0) {
+        emptyEl.style.display = 'block';
+        canvasEl.style.display = 'none';
+        listEl.innerHTML = '';
+        _lastAttackGraphElements = null;
+        return;
+      }
+
+      emptyEl.style.display = paths.length === 0 ? 'block' : 'none';
+      canvasEl.style.display = 'block';
+
+      let elements;
+      if (paths.length > 0) {
+        // Só os nós/arestas que fazem parte de algum caminho encontrado
+        const nodeIds = new Set();
+        elements = [];
+        paths.forEach(p => {
+          p.nodes.forEach(n => {
+            if (nodeIds.has(n.id)) return;
+            nodeIds.add(n.id);
+            elements.push({ data: { id: n.id, label: n.label, shortLabel: smartShortLabel(n.label), kind: n.exposed ? 'exposed' : (n.high_value ? 'target' : 'pivot') } });
+          });
+          p.edges.forEach(e => {
+            elements.push({ data: { id: `${e.source}__${e.target}`, source: e.source, target: e.target, label: e.relation } });
+          });
+        });
+      } else {
+        // Sem caminho completo -- desenha o grafo inteiro mapeado mesmo
+        // assim (todos os recursos + relações encontrados), pra mostrar o
+        // que foi analisado em vez de esconder o desenho por completo.
+        elements = [
+          ...rawGraph.nodes.map(n => ({ data: { id: n.id, label: n.label, shortLabel: smartShortLabel(n.label), kind: n.exposed ? 'exposed' : (n.high_value ? 'target' : 'pivot') } })),
+          ...rawGraph.edges.map(e => ({ data: { id: `${e.source}__${e.target}`, source: e.source, target: e.target, label: e.relation } })),
+        ];
+      }
+
+      _lastAttackGraphElements = elements;
+
+      const inlineContainer = canvasEl;
+      inlineContainer.querySelectorAll(':scope > div[data-graph-controls]').forEach(el => el.remove());
+
+      _attackCy = cytoscape({
+        container: canvasEl,
+        elements: elements,
+        layout: attackGraphLayout(elements.length),
+        style: ATTACK_GRAPH_STYLE,
+      });
+      _attackGraphControls(_attackCy, inlineContainer);
+
+      if (paths.length > 0) {
+        listEl.innerHTML = '<div style="font-size:12px;color:#9ca3af;margin-bottom:8px;">Caminhos encontrados:</div>' +
+          paths.map(p => {
+            const trail = p.nodes.map(n => n.label).join(' → ');
+            return `<div style="font-size:12px;color:#e5e7eb;padding:6px 0;border-top:1px solid #1f2937;">
+              <span style="color:#ef4444;font-weight:700;">[${p.severity}]</span> ${trail}
+            </div>`;
+          }).join('');
+      } else {
+        // Sem caminho -- lista só os recursos com alguma relevância de risco
+        // (alvo de alto valor / ponto de entrada exposto). O resto já está
+        // visível no desenho do grafo acima; listar todos aqui virava uma
+        // parede de dezenas de nomes sem tag, sem agregar nada de análise
+        // (mantém a transparência de "mostramos tudo" via o resumo no fim).
+        const tagged = rawGraph.nodes.filter(n => n.high_value || n.exposed);
+        const untaggedCount = rawGraph.nodes.length - tagged.length;
+        let html = '';
+        if (tagged.length > 0) {
+          html += '<div style="font-size:12px;color:#9ca3af;margin:12px 0 8px;">Recursos de risco mapeados no grafo:</div>' +
+            tagged.map(n => {
+              const tag = n.high_value ? '<span style="color:#ef4444;font-weight:700;">[ALVO]</span> ' : '<span style="color:#eab308;font-weight:700;">[EXPOSTO]</span> ';
+              return `<div style="font-size:12px;color:#e5e7eb;padding:5px 0;border-top:1px solid #1f2937;">${tag}${n.label}</div>`;
+            }).join('');
+        }
+        if (untaggedCount > 0) {
+          html += `<div style="font-size:12px;color:#6b7280;padding:8px 0;border-top:1px solid #1f2937;">+ ${untaggedCount} outro(s) recurso(s) mapeado(s) sem relação de acesso encontrada — visíveis no grafo acima.</div>`;
+        }
+        listEl.innerHTML = html;
+      }
     }
 
 

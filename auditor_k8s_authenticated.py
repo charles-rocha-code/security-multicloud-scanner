@@ -10,6 +10,13 @@ try:
 except ImportError:
     K8S_AVAILABLE = False
 
+from graph_model import GraphCollector, GraphEdge, GraphNode
+
+# Sujeitos que, se vinculados a uma ClusterRole perigosa, representam ponto
+# de entrada exposto de verdade — qualquer requisição não autenticada ou
+# qualquer usuário autenticado (mesmo sem identidade específica) cai aqui.
+EXPOSED_SUBJECT_NAMES = {"system:unauthenticated", "system:authenticated"}
+
 
 SENSITIVE_KEY_PATTERNS = (
     "password", "passwd", "secret", "token", "apikey", "api_key",
@@ -17,7 +24,7 @@ SENSITIVE_KEY_PATTERNS = (
 )
 
 
-class K8sAuthenticatedAuditor:
+class K8sAuthenticatedAuditor(GraphCollector):
     """
     Auditor Kubernetes COM credenciais (kubeconfig):
       - Lista workloads (Pods/Deployments) e checa SecurityContext
@@ -46,6 +53,7 @@ class K8sAuthenticatedAuditor:
                 "Rode: pip install kubernetes>=29.0.0"
             )
 
+        GraphCollector.__init__(self)
         self.namespace = namespace
         self.max_resources = max_resources
         self.timeout = timeout
@@ -185,16 +193,46 @@ class K8sAuthenticatedAuditor:
                                   f"Não foi possível listar ClusterRoles: {e.reason}",
                                   "Verifique permissões da conta de auditoria.")]
 
+        dangerous_roles: set = set()
         for role in roles.items:
             for rule in role.rules or []:
                 verbs = rule.verbs or []
                 resources = rule.resources or []
                 if "*" in verbs and "*" in resources:
+                    dangerous_roles.add(role.metadata.name)
                     findings.append(self._finding(
                         "CRITICAL", "RBAC", "ClusterRole", role.metadata.name, None,
                         "ClusterRole concede '*' verbs em '*' resources",
                         "Aplicar princípio do menor privilégio; remover wildcards.",
                     ))
+
+        # Grafo: quem está vinculado (bound) às roles perigosas encontradas
+        # acima. Dado novo em relação aos outros clouds — list_cluster_role
+        # já era chamado, mas list_cluster_role_binding não, porque o check
+        # original só olhava a permissão da role, não quem pode usá-la.
+        if dangerous_roles:
+            try:
+                bindings = self.rbac.list_cluster_role_binding(_request_timeout=self.timeout)
+            except ApiException:
+                bindings = None
+            if bindings:
+                for binding in bindings.items:
+                    role_ref = binding.role_ref.name if binding.role_ref else None
+                    if role_ref not in dangerous_roles:
+                        continue
+                    role_id = f"clusterrole/{role_ref}"
+                    self.add_node(GraphNode(
+                        id=role_id, type="k8s_clusterrole", provider="KUBERNETES",
+                        label=role_ref, high_value=True,
+                    ))
+                    for subject in binding.subjects or []:
+                        subj_name = subject.name or "unknown"
+                        subj_id = f"{subject.kind}/{subj_name}"
+                        self.add_node(GraphNode(
+                            id=subj_id, type="k8s_subject", provider="KUBERNETES", label=subj_name,
+                            exposed=(subj_name in EXPOSED_SUBJECT_NAMES),
+                        ))
+                        self.add_edge(GraphEdge(subj_id, role_id, "has_permission"))
 
         return findings
 
@@ -338,4 +376,5 @@ class K8sAuthenticatedAuditor:
             "risk_score": risk_score,
             "recommendations": recommendations,
             "errors": errors,
+            "graph": self.graph_output(),
         }
