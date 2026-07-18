@@ -8,7 +8,7 @@
 #   python3 -m venv /tmp/lockvenv && /tmp/lockvenv/bin/pip install -r requirements.txt
 #   /tmp/lockvenv/bin/pip freeze | grep -viE "^(pip|setuptools)==" | sort > requirements.lock.txt
 #
-# Gerado em: 2026-07-03
+# Gerado em: 2026-07-18
 
 Deprecated==1.3.1
 Jinja2==3.1.6
@@ -17,7 +17,7 @@ Pillow==10.1.0
 PyJWT==2.13.0
 PyYAML==6.0.3
 annotated-types==0.7.0
-anthropic==0.116.0
+anthropic==0.117.0
 anyio==4.12.1
 async-timeout==5.0.1
 azure-common==1.1.28
@@ -31,7 +31,7 @@ boto3==1.42.97
 botocore==1.42.97
 certifi==2026.6.17
 cffi==2.0.0
-charset-normalizer==3.4.7
+charset-normalizer==3.4.9
 click==8.1.8
 contourpy==1.3.0
 cryptography==49.0.0
@@ -70,12 +70,13 @@ lxml==6.1.1
 matplotlib==3.9.4
 msal-extensions==1.3.1
 msal==1.37.0
+networkx==3.2.1
 numpy==2.0.2
 oauthlib==3.3.1
 packaging==24.2
 proto-plus==1.27.2
 protobuf==6.33.6
-pyasn1==0.6.3
+pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycparser==2.23
 pydantic==2.13.4
