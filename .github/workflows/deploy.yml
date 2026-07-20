@@ -173,6 +173,20 @@ jobs:
               continue
             fi
 
+            # Publica o token de deploy no SSM Parameter Store (SecureString) em vez
+            # de interpolar ele direto no comando abaixo -- "aws ssm send-command" grava
+            # o texto do comando no histórico (list-commands/get-command-invocation),
+            # legível por qualquer credencial com permissão de leitura no SSM. O valor de
+            # um parâmetro SecureString não fica em texto claro nesse histórico nem no
+            # CloudTrail; a instância busca ele sozinha em runtime (mesmo padrão já usado
+            # abaixo para ANTHROPIC_API_KEY).
+            aws ssm put-parameter \
+              --name "/security-scanner/deploy/github-token" \
+              --value "$GH_TOKEN" \
+              --type SecureString \
+              --overwrite \
+              --region "$REGION"
+
             # Deploy via SSM
             COMMAND_ID=$(aws ssm send-command \
               --instance-ids "$INSTANCE_ID" \
@@ -183,12 +197,14 @@ jobs:
                 \"export HOME=/root\",\
                 \"if [ ! -f /swapfile ]; then fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo 'Swap 1G ativado'; else echo 'Swap ja existe'; fi\",\
                 \"(apt-get install -y redis-server -qq && systemctl enable redis-server && systemctl start redis-server && echo 'Redis OK') 2>/dev/null || true\",\
-                \"if [ ! -d $APP_DIR ]; then echo 'Bootstrap - clonando repositorio'; git clone 'https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git' $APP_DIR && python3 -m venv $APP_DIR/venv && mkdir -p $APP_DIR/logs && chown -R ubuntu:ubuntu $APP_DIR && echo 'Bootstrap concluido'; fi\",\
+                \"DEPLOY_TOKEN=\$(aws ssm get-parameter --name /security-scanner/deploy/github-token --with-decryption --region us-east-2 --query Parameter.Value --output text)\",\
+                \"if [ ! -d $APP_DIR ]; then echo 'Bootstrap - clonando repositorio'; git clone https://x-access-token:\$DEPLOY_TOKEN@github.com/charles-rocha-code/security-multicloud-scanner.git $APP_DIR && python3 -m venv $APP_DIR/venv && mkdir -p $APP_DIR/logs && chown -R ubuntu:ubuntu $APP_DIR && echo 'Bootstrap concluido'; fi\",\
                 \"git config --global --add safe.directory $APP_DIR\",\
                 \"cd $APP_DIR\",\
                 \"git remote remove origin 2>/dev/null || true\",\
-                \"git remote add origin 'https://x-access-token:${GH_TOKEN}@github.com/charles-rocha-code/security-multicloud-scanner.git'\",\
+                \"git remote add origin https://x-access-token:\$DEPLOY_TOKEN@github.com/charles-rocha-code/security-multicloud-scanner.git\",\
                 \"git fetch origin main\",\
+                \"unset DEPLOY_TOKEN\",\
                 \"git reset --hard origin/main\",\
                 \"git clean -fd\",\
                 \"git remote set-url origin 'https://github.com/charles-rocha-code/security-multicloud-scanner.git'\",\
@@ -283,3 +299,8 @@ jobs:
             exit 1
           fi
           [ $FAILED -eq 0 ] && echo "" && echo "✅ Deploy concluído em $DEPLOYED instância(s)" || exit 1
+
+      - name: Remove token de deploy temporário do SSM
+        if: always()
+        run: |
+          aws ssm delete-parameter --name "/security-scanner/deploy/github-token" --region us-east-2 2>/dev/null || true
