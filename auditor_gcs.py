@@ -1,6 +1,7 @@
 # auditor_gcs.py
 from __future__ import annotations
 
+import re
 import requests
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
@@ -118,6 +119,29 @@ class GCSAuditor(GraphCollector):
 
     def run(self) -> Dict[str, Any]:
         bucket = self._parse_bucket()
+
+        # Defesa em profundidade contra SSRF -- mesma logica do auditor.py
+        # (S3): nunca monta URL de requisição com um valor que não pareça
+        # mesmo um nome de bucket GCS, caso _parse_bucket() caia no
+        # fallback que devolve a string de entrada inteira sem validar.
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]", bucket):
+            self.add_node(GraphNode(id=f"bucket/{bucket}", type="gcs_bucket", provider="GCP", label=bucket))
+            invalid_payload: Dict[str, Any] = {
+                "provider": "GCS",
+                "bucket": bucket,
+                "region": "global",
+                "account_id": "-",
+                "public_access": False,
+                "public_listing": False,
+                "summary": {"objects_scanned": 0, "total_size_bytes": 0},
+                "files": [],
+                "errors": [f"'{bucket}' não é um nome de bucket GCS válido."],
+                "graph": self.graph_output(),
+            }
+            invalid_payload.update(calculate_advanced_risk(invalid_payload))
+            invalid_payload["severity_distribution"] = build_severity_distribution(invalid_payload["files"])
+            invalid_payload["recommendations"] = build_recommendations(invalid_payload)
+            return invalid_payload
 
         public_listing, files, list_error = self._list_objects(bucket)
         public_access = public_listing

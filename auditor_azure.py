@@ -10,6 +10,7 @@ Suporta:
 
 from __future__ import annotations
 
+import re
 import requests
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
@@ -220,12 +221,45 @@ class AzureBlobAuditor(GraphCollector):
            - Scaneia apenas esse container
         """
         account = self._parse_account()
-        
+
         all_files: List[Dict[str, Any]] = []
         errors: List[str] = []
         containers_scanned: List[str] = []
         public_access = False
-        
+
+        # Defesa em profundidade contra SSRF -- mesma lógica de auditor.py
+        # (S3) e auditor_gcs.py: nunca monta URL de requisição com um valor
+        # que não pareça mesmo uma storage account/container Azure válidos,
+        # caso _parse_account() caia num fallback sem validar. Regras reais
+        # da Azure: storage account = 3-24 chars, só letra minúscula/dígito;
+        # container = 3-63 chars, letra minúscula/dígito/hífen.
+        def _invalid_target_payload(container_field: str, error_msg: str) -> Dict[str, Any]:
+            invalid_payload: Dict[str, Any] = {
+                "provider": "AZURE_BLOB",
+                "account": account,
+                "region": "global",
+                "container": container_field,
+                "containers": [],
+                "public_access": False,
+                "public_listing": False,
+                "summary": {"objects_scanned": 0, "total_size_bytes": 0, "containers_scanned": 0},
+                "files": [],
+                "errors": [error_msg],
+            }
+            invalid_payload.update(calculate_advanced_risk(invalid_payload))
+            invalid_payload["severity_distribution"] = build_severity_distribution(invalid_payload["files"])
+            invalid_payload["recommendations"] = build_recommendations_azure(invalid_payload)
+            return invalid_payload
+
+        if not re.fullmatch(r"[a-z0-9]{3,24}", account):
+            return _invalid_target_payload(
+                self.container or "-", f"'{account}' não é um nome de storage account Azure válido.",
+            )
+        if self.container and not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", self.container.lower()):
+            return _invalid_target_payload(
+                self.container, f"'{self.container}' não é um nome de container Azure válido.",
+            )
+
         # Se container específico foi fornecido
         if self.container:
             print(f"Scanning specific container: {self.container}")

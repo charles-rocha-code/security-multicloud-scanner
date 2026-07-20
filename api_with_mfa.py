@@ -492,6 +492,11 @@ class UserLoginIn(BaseModel):
 
 class MFASetupIn(BaseModel):
     email: EmailStr
+    # Só exigidos quando a conta já tem um MFA configurado (ver setup_mfa em
+    # auth_mfa.py) -- onboarding de conta nova (mfa_secret ainda None)
+    # continua funcionando sem esses dois campos.
+    password: Optional[str] = None
+    code: Optional[str] = None
 
 
 class MFAVerifyIn(BaseModel):
@@ -513,8 +518,7 @@ def auth_mfa_setup(data: MFASetupIn):
         if not user:
             raise HTTPException(status_code=404, detail="Usuário não encontrado")
         
-        # ✅ CORRIGIDO: Chamada simplificada sem senha
-        mfa = setup_mfa(email=email)
+        mfa = setup_mfa(email=email, password=data.password, code=data.code)
         
         return {
             "email": email,
@@ -584,29 +588,34 @@ def _format_bytes(num: Any) -> str:
     return f"{n:.2f} PB"
 
 import re
+from urllib.parse import urlparse
 
 def _detect_provider(target: str) -> str:
-    t = (target or "").lower().strip()
+    t = (target or "").strip()
+    if not t:
+        return "UNIVERSAL"
 
-    # remove esquema
-    if t.startswith("http://"):
-        t = t[len("http://"):]
-    if t.startswith("https://"):
-        t = t[len("https://"):]
+    # Decide sempre pelo HOST parseado (urlparse), nunca por regex/substring
+    # na string crua -- essa era a causa de um SSRF real: um "target" tipo
+    # "attacker.com/x.s3.amazonaws.com/" continha ".s3.amazonaws.com/" em
+    # QUALQUER posição da string (não só no host), então batia no regex
+    # antigo e era roteado como AWS_S3 -- indo direto para S3Auditor, que
+    # (sem esquema "://") caía no fallback "retorna a string inteira" e
+    # montava a URL de requisição com "attacker.com" como host de verdade.
+    normalized = t if "://" in t else f"https://{t}"
+    host = (urlparse(normalized).hostname or "").lower()
 
-    # AWS S3 (pega s3-REGION e s3.REGION e s3.amazonaws.com)
-    if (
-        re.search(r"\.s3([.-][a-z0-9-]+)?\.amazonaws\.com($|/)", t)
-        or re.search(r"\.s3\.[a-z0-9-]+\.amazonaws\.com($|/)", t)
-    ):
+    # AWS S3 (s3-REGION, s3.REGION, s3.amazonaws.com) -- ancorado no FIM do
+    # host, não em qualquer lugar da string
+    if re.search(r"\.s3([.-][a-z0-9-]+)?\.amazonaws\.com$", host):
         return "AWS_S3"
 
     # GCS
-    if "storage.googleapis.com" in t or ".storage.googleapis.com" in t:
+    if host == "storage.googleapis.com" or host.endswith(".storage.googleapis.com"):
         return "GCS"
 
     # Azure Blob
-    if ".blob.core.windows.net" in t:
+    if host.endswith(".blob.core.windows.net"):
         return "AZURE_BLOB"
 
     return "UNIVERSAL"

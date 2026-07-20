@@ -1,6 +1,7 @@
 # auditor.py
 from __future__ import annotations
 
+import re
 import requests
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
@@ -233,6 +234,32 @@ class S3Auditor(GraphCollector):
 
     def run(self) -> Dict[str, Any]:
         bucket = self._parse_bucket()
+
+        # Defesa em profundidade contra SSRF: nunca monta URL de requisição
+        # com um valor que não pareça mesmo um nome de bucket S3 (regras
+        # reais da AWS). _parse_bucket() cai num fallback que devolve a
+        # string de entrada inteira quando não reconhece o formato -- sem
+        # essa validação, um "target" malicioso vira o host de verdade da
+        # requisição (self.add_node/graph_output continuam funcionando
+        # normalmente com o valor rejeitado, só não sai nenhuma requisição).
+        if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
+            self.add_node(GraphNode(id=f"bucket/{bucket}", type="s3_bucket", provider="AWS", label=bucket))
+            invalid_payload: Dict[str, Any] = {
+                "provider": "AWS_S3",
+                "bucket": bucket,
+                "region": "-",
+                "account_id": "-",
+                "public_access": False,
+                "public_listing": False,
+                "summary": {"objects_scanned": 0, "total_size_bytes": 0},
+                "files": [],
+                "errors": [f"'{bucket}' não é um nome de bucket S3 válido."],
+                "graph": self.graph_output(),
+            }
+            invalid_payload.update(calculate_advanced_risk(invalid_payload))
+            invalid_payload["severity_distribution"] = build_severity_distribution(invalid_payload["files"])
+            invalid_payload["recommendations"] = build_recommendations(invalid_payload)
+            return invalid_payload
 
         region = self._head_bucket_region(bucket)
         account_id = "-"  # sem credenciais, não dá para obter com segurança

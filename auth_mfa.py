@@ -488,10 +488,24 @@ def login_user(email: str, password: str, mfa_code: Optional[str] = None, respon
             "full_name": user.get("full_name"), "token": token, "mfa_enabled": False}
 
 
-def setup_mfa(email: str) -> Dict[str, Any]:
+def setup_mfa(email: str, password: Optional[str] = None, code: Optional[str] = None) -> Dict[str, Any]:
     user = _user_get(email)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
+
+    # Se já existe um secret configurado, exige prova de posse da conta antes
+    # de gerar um novo -- sem isso, qualquer requisição sem autenticação
+    # (só com o email) conseguia sobrescrever o MFA de qualquer conta em
+    # segredo (mfa_enabled continua True) e sequestrá-la sabendo a senha.
+    # Conta nova (mfa_secret ainda None, chamada direto por /auth/register)
+    # continua liberada, sem quebrar o fluxo de onboarding.
+    if user.get("mfa_secret"):
+        if not password or not verify_password(password, user["password"]):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Senha incorreta")
+        if user.get("mfa_enabled"):
+            if not code or not verify_totp_code(user["mfa_secret"], code):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código MFA inválido")
+
     secret = generate_mfa_secret()
     backup_codes = generate_backup_codes()
     qr_code = generate_qr_code(email, secret)
