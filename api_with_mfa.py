@@ -566,6 +566,31 @@ class GenerateReportIn(BaseModel):
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
+def _report_owner_prefix(email: str) -> str:
+    """Prefixo estável que amarra um relatório ao dono -- embutido no nome
+    do arquivo (não num índice separado) pra sobreviver ao S3 fallback
+    entre instâncias sem precisar de estado compartilhado novo."""
+    return _safe_filename((email or "unknown").lower()) + "__"
+
+
+def _rename_to_owned(path: Optional[Path], email: str) -> Optional[Path]:
+    """Renomeia um relatório recém-gerado pra incluir o dono no nome,
+    fechando o IDOR entre tenants em /reports_executive e /download-report
+    (ver _filename_owned_by abaixo)."""
+    if not path or not path.exists():
+        return path
+    prefix = _report_owner_prefix(email)
+    if path.name.startswith(prefix):
+        return path
+    new_path = path.parent / f"{prefix}{path.name}"
+    path.rename(new_path)
+    return new_path
+
+
+def _filename_owned_by(filename: str, email: str) -> bool:
+    return filename.startswith(_report_owner_prefix(email))
+
+
 def _safe_filename(name: str) -> str:
     keep = []
     for ch in str(name):
@@ -950,9 +975,14 @@ def auth_reset_password(data: ResetPasswordIn):
 
 @app.get("/auth/mfa/status")
 def auth_mfa_status(email: EmailStr):
+    # Chamada antes do login (login.html::checkMFAStatus, sem sessão ainda),
+    # então não dá pra exigir autenticação aqui. Em vez disso, resposta
+    # idêntica exista ou não a conta -- mesmo padrão já usado em
+    # /forgot-password -- pra essa rota não virar ferramenta de descobrir
+    # quais emails têm cadastro (antes: 404 vs 200 entregava isso de bandeja).
     user = USERS_DB.get(str(email))
     if not user:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        return {"email": str(email), "mfa_enabled": False, "has_secret": False}
     return {
         "email": user.get("email"),
         "mfa_enabled": bool(user.get("mfa_enabled")),
@@ -1646,6 +1676,8 @@ def generate_report(data: GenerateReportIn, user=Depends(require_mfa)):
             results = _gen_executive_report(scan, client_info=client_info, output_format="both")
             pdf_file = Path(results.get("pdf", "")) if results.get("pdf") else None
             docx_file = Path(results.get("docx", "")) if results.get("docx") else None
+            pdf_file = _rename_to_owned(pdf_file, email or "unknown")
+            docx_file = _rename_to_owned(docx_file, email or "unknown")
             if pdf_file and pdf_file.exists() and pdf_file.name:
                 _upload_report_s3(pdf_file)
             if docx_file and docx_file.exists() and docx_file.name:
@@ -1667,6 +1699,8 @@ def generate_report(data: GenerateReportIn, user=Depends(require_mfa)):
     # ── Fallback simples ──────────────────────────────────────────────
     pdf_path = _make_pdf(scan, data.report_title, data.client_name)
     docx_path = _make_docx(scan, data.report_title, data.client_name)
+    pdf_path = _rename_to_owned(pdf_path, email or "unknown")
+    docx_path = _rename_to_owned(docx_path, email or "unknown")
     return {
         "success": True,
         "files": {
@@ -1677,11 +1711,14 @@ def generate_report(data: GenerateReportIn, user=Depends(require_mfa)):
     }
 
 @app.get("/reports_executive/{filename}", include_in_schema=False)
-def serve_report_file(filename: str):
+def serve_report_file(filename: str, user=Depends(require_mfa)):
     """Serve relatório do disco local ou baixa do S3 se não encontrado nesta instância."""
     safe = _safe_filename(filename)
     if not safe:
         raise HTTPException(status_code=400, detail="Nome de arquivo inválido")
+    email = user.get("email") if isinstance(user, dict) else None
+    if not email or not _filename_owned_by(safe, email):
+        raise HTTPException(status_code=404, detail="Relatório não encontrado")
     path = REPORTS_DIR / safe
     if not path.exists():
         downloaded = _download_report_s3(safe)
@@ -1703,6 +1740,9 @@ def download_report(filename: str, user=Depends(require_mfa)):
     safe = _safe_filename(filename)
     if not safe:
         raise HTTPException(status_code=400, detail="Nome de arquivo inválido")
+    email = user.get("email") if isinstance(user, dict) else None
+    if not email or not _filename_owned_by(safe, email):
+        raise HTTPException(status_code=404, detail="Relatório não encontrado")
     path = REPORTS_DIR / safe
     if not path.exists():
         path = _download_report_s3(safe) or path

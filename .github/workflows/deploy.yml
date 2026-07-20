@@ -12,6 +12,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write  # necessário pro OIDC (aws-actions/configure-aws-credentials com role-to-assume)
 
 jobs:
   deploy:
@@ -19,11 +20,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (OIDC -- sem chave de longa duração)
         uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6.2.0
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::442042548551:role/security-scanner-github-actions-deploy
           aws-region: us-east-2
 
       - name: Rolling deploy via SSM com ALB draining
