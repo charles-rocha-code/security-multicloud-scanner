@@ -3,16 +3,21 @@ name: Reset banco de usuários
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write  # necessário pro OIDC (aws-actions/configure-aws-credentials com role-to-assume)
+
 jobs:
   reset-all-instances:
     name: Reset DB — todas as instâncias (ASG dinâmico)
     runs-on: ubuntu-latest
     steps:
-      - name: Configurar credenciais AWS
+      - name: Configurar credenciais AWS (OIDC -- sem chave de longa duração)
         uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6.2.0
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          # Mesma role do deploy.yml -- já cobre autoscaling:DescribeAutoScalingGroups
+          # e ssm:SendCommand/GetCommandInvocation, tudo que este workflow usa.
+          role-to-assume: arn:aws:iam::442042548551:role/security-scanner-github-actions-deploy
           aws-region: us-east-2
 
       - name: Reset via SSM em todas as instâncias do ASG
