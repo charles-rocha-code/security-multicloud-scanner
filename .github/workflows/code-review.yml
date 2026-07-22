@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  id-token: write  # a action usa OIDC internamente pra autenticar, mesmo sem GitHub App custom
 
 jobs:
   review:
