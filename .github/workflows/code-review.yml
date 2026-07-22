@@ -27,4 +27,4 @@ jobs:
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
           plugins: "code-review@claude-code-plugins"
           prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment"
-          claude_args: "--max-turns 15"
+          claude_args: "--max-turns 40"  # --comment dispara subagentes de verificacao + postagem, precisa de mais turns
