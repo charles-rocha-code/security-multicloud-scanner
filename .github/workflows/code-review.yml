@@ -1,0 +1,28 @@
+name: Code Review
+
+# Roda a cada PR aberto ou atualizado -- revisao automatica, nao bloqueia
+# merge (so comenta achados inline). Auto-hospedado (Opcao B) em vez do
+# produto gerenciado da Anthropic: paga por uso de token normal em vez de
+# US$15-25/review fixo, funciona em qualquer plano.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          claude_args: "--max-turns 15"
