@@ -56,7 +56,7 @@ from pydantic import BaseModel, EmailStr, Field, ValidationError, field_validato
 from auth_mfa import (  # type: ignore
     ACTIVE_SESSIONS,
     S3_BUCKET,
-    USERS_DB,
+    _user_get,
     change_password,
     get_current_user,
     login_user,
@@ -514,7 +514,7 @@ def auth_mfa_setup(data: MFASetupIn):
         sync_from_s3()
 
         # Validar se usuário existe
-        user = USERS_DB.get(email)
+        user = _user_get(email)
         if not user:
             raise HTTPException(status_code=404, detail="Usuário não encontrado")
         
@@ -980,7 +980,7 @@ def auth_mfa_status(email: EmailStr):
     # idêntica exista ou não a conta -- mesmo padrão já usado em
     # /forgot-password -- pra essa rota não virar ferramenta de descobrir
     # quais emails têm cadastro (antes: 404 vs 200 entregava isso de bandeja).
-    user = USERS_DB.get(str(email))
+    user = _user_get(str(email))
     if not user:
         return {"email": str(email), "mfa_enabled": False, "has_secret": False}
     return {
