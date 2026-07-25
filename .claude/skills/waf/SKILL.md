@@ -1,4 +1,5 @@
 ---
+name: waf
 description: Gerencia o WAF do security-scanner — status das regras, bloqueio/desbloqueio de IPs (ex: /waf block 1.2.3.4, /waf unblock 1.2.3.4, /waf status)
 allowed-tools: Bash
 ---

@@ -1,4 +1,5 @@
 ---
+name: health
 description: Verifica a saúde completa do ambiente AWS — instâncias, ALB, Target Groups e alarmes CloudWatch
 allowed-tools: Bash
 ---

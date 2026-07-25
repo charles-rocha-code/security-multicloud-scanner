@@ -1,4 +1,5 @@
 ---
+name: logs
 description: Busca e analisa logs da aplicação no CloudWatch — aceita argumento de janela de tempo (ex: /logs 30m, /logs 2h)
 allowed-tools: Bash
 ---

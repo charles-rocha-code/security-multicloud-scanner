@@ -1,4 +1,5 @@
 ---
+name: reset-db
 description: Dispara o workflow de reset do banco de usuários em todas as instâncias AWS via GitHub Actions
 allowed-tools: Bash
 ---

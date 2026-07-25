@@ -1,4 +1,5 @@
 ---
+name: security-audit
 description: Auditoria de segurança completa do ambiente AWS — IMDSv2, IAM, Security Groups, WAF, S3, DynamoDB e exposição de secrets
 allowed-tools: Bash
 ---

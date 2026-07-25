@@ -1,4 +1,5 @@
 ---
+name: blue-green
 description: Gerencia o deploy blue-green — mostra estado atual, promove o slot green ou faz rollback para o main (ex: /blue-green status, /blue-green promote, /blue-green rollback)
 allowed-tools: Bash
 ---

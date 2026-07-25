@@ -1,4 +1,5 @@
 ---
+name: scale
 description: Escala o ASG principal do security-scanner — aceita argumentos: up, down ou número direto (ex: /scale up, /scale 3)
 allowed-tools: Bash
 ---

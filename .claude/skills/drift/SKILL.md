@@ -1,4 +1,5 @@
 ---
+name: drift
 description: Detecta drift entre o Terraform e o estado real da AWS — IAM policies, Security Groups, configurações de instâncias e recursos não gerenciados
 allowed-tools: Bash
 ---
