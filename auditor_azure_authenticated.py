@@ -23,7 +23,14 @@ except ImportError:
     AZURE_SDK_AVAILABLE = False
     print("Warning: azure-storage-blob not installed. Run: pip install azure-storage-blob")
 
-from engine_risk import classify_severity, build_severity_distribution, calculate_advanced_risk
+from engine_risk import (
+    classify_severity,
+    build_severity_distribution,
+    calculate_advanced_risk,
+    should_scan_content,
+    scan_content_for_secrets,
+    CONTENT_SCAN_MAX_FILES,
+)
 from cve_mapping import enrich_finding
 
 
@@ -69,7 +76,11 @@ class AzureBlobAuthenticatedAuditor:
         self.container = container
         self.max_objects = max_objects
         self.timeout = timeout
-        
+        # Contador de instância -- _list_blobs() é chamado uma vez por
+        # container (até 20 por scan), então o limite de custo precisa
+        # valer pro scan inteiro, não por container.
+        self._content_scans_done = 0
+
         # Parse storage account
         self.account = self._parse_account()
         
@@ -314,6 +325,21 @@ class AzureBlobAuthenticatedAuditor:
 
                 # URL do blob
                 blob_url = f"https://{self.account}.blob.core.windows.net/{container_name}/{blob_name}"
+
+                # Inspeciona o CONTEÚDO de candidatos pequenos e sem extensão
+                # sensível óbvia -- pega segredo embutido num arquivo "sem
+                # cara de sensível", que a checagem por nome/extensão nunca
+                # via. Mesma lógica do S3 (auditor_s3_authenticated.py).
+                if self._content_scans_done < CONTENT_SCAN_MAX_FILES and should_scan_content(blob_name, blob.size or 0, sev):
+                    try:
+                        downloader = container_client.download_blob(blob_name)
+                        self._content_scans_done += 1
+                        text = downloader.readall().decode("utf-8", errors="ignore")
+                        content_hit = scan_content_for_secrets(text)
+                        if content_hit:
+                            sev, reason = content_hit
+                    except Exception:
+                        pass  # objeto ilegível/binário/sem permissão -- segue com a classificação por nome
 
                 files.append(enrich_finding({
                     "key": blob_name,
