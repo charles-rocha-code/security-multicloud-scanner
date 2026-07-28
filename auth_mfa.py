@@ -219,13 +219,14 @@ def _migrate_from_s3() -> None:
         logger.warning(f"⚠️ Migration error: {e}")
 
 
-# Carrega usuários na inicialização; migra do S3 se DynamoDB estiver vazio
-USERS_DB = _users_load_all()
-if not USERS_DB:
-    _migrate_from_s3()
-    USERS_DB = _users_load_all()
-
-logger.info(f"✅ Banco de dados carregado: {len(USERS_DB)} usuário(s)")
+# Cache começa vazio e é populado sob demanda por _user_get() (GetItem por
+# chave). Pré-aquecer via _users_load_all() foi removido em 2026-07-28: a
+# role da aplicação não tem mais dynamodb:Scan (commit 040761b, reduz raio
+# de exposição de uma credencial vazada) desde 2026-07-25, então a chamada
+# só gerava AccessDeniedException em todo boot -- sem esse fallback, o
+# "if not USERS_DB" também nunca era realmente False, disparando
+# _migrate_from_s3() (sobrescrita via snapshot do S3) a cada boot também.
+logger.info("✅ Cache de usuários iniciado vazio — populado sob demanda via GetItem")
 
 # ==================== COMPATIBILIDADE DE API ====================
 
