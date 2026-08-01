@@ -2320,13 +2320,13 @@
 
       <!-- Region -->
       <span class="header-pill">
-        <span class="header-label">REGION</span>
+        <span id="region-label" class="header-label">REGION</span>
         <span id="region-value" style="color:var(--text-primary); font-weight:600; font-size:12px;">-</span>
       </span>
 
       <!-- Account -->
       <span class="header-pill">
-        <span class="header-label">ACCOUNT</span>
+        <span id="account-label" class="header-label">ACCOUNT</span>
         <span id="account-value" style="color:var(--text-primary); font-weight:600; font-size:12px;">-</span>
       </span>
 
@@ -4080,7 +4080,7 @@ function logout() {
 
       // Header
       updateProviderBadge(provider);
-      updateRegionAccount(region, accountId);
+      updateRegionAccount(region, accountId, provider);
       updateRiskBadge(calcRiskLevel(riskScore), riskScore);
 
       // Cards
@@ -4886,7 +4886,14 @@ function logout() {
       }
     }
 
-    function updateRegionAccount(region, accountId) {
+    function updateRegionAccount(region, accountId, provider) {
+      // Kubernetes nao tem "regiao"/"conta" no sentido AWS/GCP/Azure -- os
+      // valores aqui sao o nome do cluster e o usuario do contexto ativo do
+      // kubeconfig (ver auditor_k8s.py), entao os rotulos precisam refletir
+      // isso em vez de sugerir geografia/conta de nuvem.
+      const isK8s = provider === "KUBERNETES";
+      document.getElementById("region-label").innerText = isK8s ? "CLUSTER" : "REGION";
+      document.getElementById("account-label").innerText = isK8s ? "IDENTIDADE" : "ACCOUNT";
       document.getElementById("region-value").innerText = region;
       document.getElementById("account-value").innerText = accountId;
     }
