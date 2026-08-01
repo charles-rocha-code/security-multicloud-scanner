@@ -304,13 +304,25 @@ class K8sStorageAuditor:
         raw = sum(dist[k] * weights[k] for k in dist)
         risk_score = min(100, int((raw / max_score) * 100)) if total else 0
 
-        # Cluster server para exibir como "bucket"
+        # Cluster server para exibir como "bucket"; nome do cluster e usuário
+        # do contexto ativo pra exibir como "region"/"account" na barra
+        # superior -- k8s não tem esses conceitos, mas são o equivalente
+        # mais próximo (cluster = onde, user do contexto = quem conecta).
         cluster_server = "-"
+        cluster_name = "-"
+        account_identity = "-"
         try:
             cfg_dict = yaml.safe_load(self.kubeconfig_yaml)
             clusters = cfg_dict.get("clusters", [])
             if clusters:
                 cluster_server = clusters[0].get("cluster", {}).get("server", "-")
+                cluster_name = clusters[0].get("name", "-")
+
+            current_context = cfg_dict.get("current-context")
+            for ctx in cfg_dict.get("contexts", []):
+                if ctx.get("name") == current_context:
+                    account_identity = ctx.get("context", {}).get("user", "-")
+                    break
         except Exception:
             pass
 
@@ -327,8 +339,8 @@ class K8sStorageAuditor:
         return {
             "provider": "KUBERNETES",
             "bucket": cluster_server,
-            "region": "cluster",
-            "account_id": "-",
+            "region": cluster_name,
+            "account_id": account_identity,
             "public_access": dist["critical"] > 0,
             "public_listing": False,
             "summary": {
