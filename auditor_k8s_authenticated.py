@@ -11,6 +11,7 @@ except ImportError:
     K8S_AVAILABLE = False
 
 from graph_model import GraphCollector, GraphEdge, GraphNode
+from ssrf_guard import assert_server_not_ssrf_target
 
 # Sujeitos que, se vinculados a uma ClusterRole perigosa, representam ponto
 # de entrada exposto de verdade — qualquer requisição não autenticada ou
@@ -67,6 +68,8 @@ class K8sAuthenticatedAuditor(GraphCollector):
                 config.load_kube_config(context=context)
         except Exception as e:
             raise ValueError(f"Erro ao carregar configuração k8s: {e}")
+
+        assert_server_not_ssrf_target(client.Configuration.get_default_copy().host)
 
         self.core = client.CoreV1Api()
         self.apps = client.AppsV1Api()

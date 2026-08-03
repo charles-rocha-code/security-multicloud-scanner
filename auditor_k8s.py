@@ -21,6 +21,7 @@ from kubernetes import client, config as k8s_config
 from kubernetes.client.rest import ApiException
 
 from cve_mapping import enrich_finding
+from ssrf_guard import assert_server_not_ssrf_target
 
 
 SENSITIVE_PATTERNS = [
@@ -60,6 +61,7 @@ class K8sStorageAuditor:
         loader = k8s_config.kube_config.KubeConfigLoader(config_dict=cfg_dict)
         cfg = client.Configuration()
         loader.load_and_set(cfg)
+        assert_server_not_ssrf_target(cfg.host)  # bloqueia antes do 1º request real
         return client.ApiClient(configuration=cfg)
 
     def _safe(self, fn, *args, **kwargs):
