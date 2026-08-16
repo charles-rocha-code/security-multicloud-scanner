@@ -1,0 +1,42 @@
+name: Tests
+
+# Separado de deploy.yml e code-review.yml de propósito -- filosofias de
+# gate diferentes, não misturar. Não-bloqueante por enquanto: sem branch
+# protection exigindo este check, o X aparece visível na lista de checks
+# do PR (diferente de continue-on-error, que esconde a falha), mas não
+# impede merge. Mesmo espírito do soft_fail do Checkov em terraform.yml --
+# promover pra bloqueante depois de um tempo de check verde, via branch
+# protection (Settings -> Branches), não por mudança de código aqui.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Testes unitários
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0  # v6.0.3
+
+      - name: Setup Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9  # v6.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Instala dependências
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # Sem credencial AWS nenhuma aqui -- moto intercepta toda chamada
+      # boto3 localmente. Nenhum teste deste lote fala com Bedrock/Anthropic
+      # de verdade (embed_text é mockado onde usado).
+      - name: Roda pytest
+        run: pytest tests/ -v

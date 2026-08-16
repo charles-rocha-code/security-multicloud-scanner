@@ -1,0 +1,7 @@
+# Dependências só de teste/CI -- nunca instaladas em produção (deploy.yml
+# continua usando requirements.lock.txt, sem tocar neste arquivo).
+pytest>=8.0.0
+# moto intercepta as chamadas boto3 localmente (sem rede, sem credencial
+# AWS) -- só os serviços que os testes de fato usam, pra manter a imagem
+# de CI enxuta.
+moto[dynamodb]>=5.0.0
