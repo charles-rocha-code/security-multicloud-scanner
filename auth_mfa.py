@@ -28,7 +28,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from logging_setup import get_logger
-from local_store import DATA_DIR, read_json, write_json
+from local_store import DATA_DIR, read_json, update_json
 
 logger = get_logger("auth_mfa")
 
@@ -89,24 +89,25 @@ def _session_put(token: str, email: str) -> None:
         "expires_at_unix": int(time.time()) + SESSION_TTL_SECONDS,
     }
     if _backend() != "aws":
-        sessions = read_json(SESSIONS_FILE, {})
-        sessions[token] = item
-        write_json(SESSIONS_FILE, sessions)
+        def _mutate(sessions):
+            sessions[token] = item
+            return sessions, None
+        update_json(SESSIONS_FILE, _mutate)
         return
     _tbl_sessions().put_item(Item=item)
 
 
 def _session_get(token: str) -> Optional[Dict[str, Any]]:
     if _backend() != "aws":
-        sessions = read_json(SESSIONS_FILE, {})
-        item = sessions.get(token)
-        if not item:
-            return None
-        if int(item.get("expires_at_unix", 0)) < int(time.time()):
-            del sessions[token]
-            write_json(SESSIONS_FILE, sessions)
-            return None
-        return item
+        def _mutate(sessions):
+            found = sessions.get(token)
+            if not found:
+                return sessions, None
+            if int(found.get("expires_at_unix", 0)) < int(time.time()):
+                del sessions[token]
+                return sessions, None
+            return sessions, found
+        return update_json(SESSIONS_FILE, _mutate)
     try:
         resp = _tbl_sessions().get_item(Key={"token": token})
         item = resp.get("Item")
@@ -124,10 +125,10 @@ def _session_get(token: str) -> Optional[Dict[str, Any]]:
 
 def _session_delete(token: str) -> None:
     if _backend() != "aws":
-        sessions = read_json(SESSIONS_FILE, {})
-        if token in sessions:
-            del sessions[token]
-            write_json(SESSIONS_FILE, sessions)
+        def _mutate(sessions):
+            sessions.pop(token, None)
+            return sessions, None
+        update_json(SESSIONS_FILE, _mutate)
         return
     try:
         _tbl_sessions().delete_item(Key={"token": token})
@@ -161,24 +162,25 @@ def _reset_token_put(token: str, email: str) -> None:
         "expires_at_unix": int(time.time()) + PASSWORD_RESET_TTL_SECONDS,
     }
     if _backend() != "aws":
-        resets = read_json(PASSWORD_RESETS_FILE, {})
-        resets[token] = item
-        write_json(PASSWORD_RESETS_FILE, resets)
+        def _mutate(resets):
+            resets[token] = item
+            return resets, None
+        update_json(PASSWORD_RESETS_FILE, _mutate)
         return
     _tbl_password_resets().put_item(Item=item)
 
 
 def _reset_token_get(token: str) -> Optional[Dict[str, Any]]:
     if _backend() != "aws":
-        resets = read_json(PASSWORD_RESETS_FILE, {})
-        item = resets.get(token)
-        if not item:
-            return None
-        if int(item.get("expires_at_unix", 0)) < int(time.time()):
-            del resets[token]
-            write_json(PASSWORD_RESETS_FILE, resets)
-            return None
-        return item
+        def _mutate(resets):
+            found = resets.get(token)
+            if not found:
+                return resets, None
+            if int(found.get("expires_at_unix", 0)) < int(time.time()):
+                del resets[token]
+                return resets, None
+            return resets, found
+        return update_json(PASSWORD_RESETS_FILE, _mutate)
     try:
         resp = _tbl_password_resets().get_item(Key={"token": token})
         item = resp.get("Item")
@@ -195,10 +197,10 @@ def _reset_token_get(token: str) -> Optional[Dict[str, Any]]:
 
 def _reset_token_delete(token: str) -> None:
     if _backend() != "aws":
-        resets = read_json(PASSWORD_RESETS_FILE, {})
-        if token in resets:
-            del resets[token]
-            write_json(PASSWORD_RESETS_FILE, resets)
+        def _mutate(resets):
+            resets.pop(token, None)
+            return resets, None
+        update_json(PASSWORD_RESETS_FILE, _mutate)
         return
     try:
         _tbl_password_resets().delete_item(Key={"token": token})
@@ -245,9 +247,10 @@ ACTIVE_SESSIONS: Dict[str, Dict[str, Any]] = {}  # mantido para compatibilidade 
 
 def _user_put(email: str, data: Dict[str, Any]) -> None:
     if _backend() != "aws":
-        users = read_json(USERS_FILE, {})
-        users[email] = data
-        write_json(USERS_FILE, users)
+        def _mutate(users):
+            users[email] = data
+            return users, None
+        update_json(USERS_FILE, _mutate)
         USERS_DB[email] = data
         return
     try:
