@@ -18,15 +18,18 @@ _K8S_CVE_INDEX: Dict[str, List[str]] = {}
 
 
 def _load_cve_index() -> Dict[str, List[str]]:
-    # Try S3 first (written by Lambda), fall back to local file
-    try:
-        import boto3
-        s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
-        bucket = os.environ.get("DB_S3_BUCKET", "security-scanner-db-442042548551")
-        resp = s3.get_object(Bucket=bucket, Key="cve-cache/k8s_cves_cache.json")
-        return json.loads(resp["Body"].read().decode("utf-8")).get("tagged", {})
-    except Exception:
-        pass
+    # Try S3 first (written by Lambda), fall back to local file. Skipped
+    # entirely in STORAGE_BACKEND=local (default without AWS) to avoid a
+    # pointless network attempt on every boot.
+    if os.environ.get("STORAGE_BACKEND", "local") == "aws":
+        try:
+            import boto3
+            s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
+            bucket = os.environ.get("DB_S3_BUCKET", "security-scanner-db-442042548551")
+            resp = s3.get_object(Bucket=bucket, Key="cve-cache/k8s_cves_cache.json")
+            return json.loads(resp["Body"].read().decode("utf-8")).get("tagged", {})
+        except Exception:
+            pass
     try:
         with open(_CACHE_PATH, "r", encoding="utf-8") as _f:
             return json.load(_f).get("tagged", {})

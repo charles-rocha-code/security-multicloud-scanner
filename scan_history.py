@@ -1,6 +1,7 @@
 """
-scan_history.py — Persiste e recupera histórico de scans no S3.
-Usa o mesmo bucket que users_db/sessions_db (DB_S3_BUCKET).
+scan_history.py — Persiste e recupera histórico de scans. STORAGE_BACKEND=aws
+usa S3 (mesmo bucket que users_db/sessions_db, DB_S3_BUCKET); STORAGE_BACKEND=local
+(padrão) usa local_data/scan_history/ -- sem depender de AWS.
 """
 from __future__ import annotations
 
@@ -12,9 +13,16 @@ from typing import Optional
 import boto3
 from botocore.exceptions import ClientError
 
+from local_store import DATA_DIR, read_json, write_json
+
 S3_BUCKET  = os.getenv("DB_BUCKET") or os.getenv("DB_S3_BUCKET", "security-scanner-db-442042548551")
 REGION     = os.getenv("AWS_DEFAULT_REGION", "us-east-2")
 PREFIX     = "scan-history/"
+LOCAL_DIR  = DATA_DIR / PREFIX
+
+
+def _backend() -> str:
+    return os.environ.get("STORAGE_BACKEND", "local")
 
 
 def _s3():
@@ -48,8 +56,9 @@ def _index_scan_for_rag(email: str, provider: str, ts: str, result: dict) -> Non
 
 
 def save_scan(email: str, provider: str, result: dict) -> str:
-    """Salva resultado de scan no S3. Retorna a chave S3 gerada."""
-    if not S3_BUCKET or not email:
+    """Salva resultado de scan (S3 em modo aws, local_data/ em modo local).
+    Retorna a chave gerada (mesmo formato relativo nos dois backends)."""
+    if not email:
         return ""
 
     ts  = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
@@ -62,6 +71,14 @@ def save_scan(email: str, provider: str, result: dict) -> str:
         "result":    result,
     }
 
+    if _backend() != "aws":
+        write_json(DATA_DIR / key, payload)
+        print(f"📦 Scan salvo (local): {key}")
+        _index_scan_for_rag(email, provider, ts, result)
+        return key
+
+    if not S3_BUCKET:
+        return ""
     try:
         _s3().put_object(
             Bucket=S3_BUCKET,
@@ -79,7 +96,29 @@ def save_scan(email: str, provider: str, result: dict) -> str:
 
 def list_scans(email: str, provider: Optional[str] = None, limit: int = 20) -> list[dict]:
     """Lista metadados dos últimos N scans de um usuário (mais recente primeiro)."""
-    if not S3_BUCKET or not email:
+    if not email:
+        return []
+
+    if _backend() != "aws":
+        base = LOCAL_DIR / _email_safe(email)
+        if provider:
+            base = base / provider.lower()
+        if not base.exists():
+            return []
+        files = sorted(base.rglob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
+        out = []
+        for f in files:
+            parts = f.relative_to(LOCAL_DIR).parts
+            out.append({
+                "key":           f"{PREFIX}{'/'.join(parts)}",
+                "provider":      parts[1] if len(parts) > 2 else "unknown",
+                "timestamp":     (parts[2].replace(".json", "") if len(parts) > 2 else parts[-1].replace(".json", "")),
+                "size_bytes":    f.stat().st_size,
+                "last_modified": datetime.utcfromtimestamp(f.stat().st_mtime).isoformat(),
+            })
+        return out
+
+    if not S3_BUCKET:
         return []
 
     prefix = f"{PREFIX}{_email_safe(email)}/"
@@ -110,9 +149,11 @@ def list_scans(email: str, provider: Optional[str] = None, limit: int = 20) -> l
         return []
 
 
-def load_scan(s3_key: str) -> dict:
-    """Carrega um scan pelo S3 key."""
-    resp = _s3().get_object(Bucket=S3_BUCKET, Key=s3_key)
+def load_scan(key: str) -> dict:
+    """Carrega um scan pela chave retornada por save_scan()/list_scans()."""
+    if _backend() != "aws":
+        return read_json(DATA_DIR / key, {})
+    resp = _s3().get_object(Bucket=S3_BUCKET, Key=key)
     return json.loads(resp["Body"].read().decode("utf-8"))
 
 

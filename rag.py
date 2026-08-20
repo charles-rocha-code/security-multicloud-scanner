@@ -7,6 +7,12 @@ runtimes (EC2 e Lambda) não compartilham pacote Python entre repositórios.
 Embeddings via Bedrock Titan (amazon.titan-embed-text-v2:0). Similaridade
 calculada em memória (cosine) — sem OpenSearch Serverless, cujo piso de custo
 é desproporcional ao volume deste projeto (dezenas a centenas de chunks).
+
+Em STORAGE_BACKEND=local (padrão sem AWS) o RAG fica desativado de forma
+graciosa: retrieve() volta [] e index_chunk() é no-op -- sem Bedrock não há
+como gerar embedding de qualidade real, e um embedding local aproximado não
+valeria o código extra. /ai/ask continua funcionando com o histórico de scans
+como contexto, só perde a busca semântica.
 """
 from __future__ import annotations
 
@@ -25,6 +31,10 @@ EMBED_MODEL    = "amazon.titan-embed-text-v2:0"
 # isso, qualquer teste local escreve na base de conhecimento de produção.
 TABLE          = os.getenv("RAG_KNOWLEDGE_TABLE", "security-scanner-knowledge")
 DYNAMO_REGION  = "us-east-2"
+
+
+def _backend() -> str:
+    return os.environ.get("STORAGE_BACKEND", "local")
 
 
 def embed_text(text: str) -> list[float]:
@@ -46,6 +56,8 @@ def index_chunk(text: str, source: str, category: str = "", owner: str = "") -> 
     `owner` (normalmente o e-mail do usuário dono do dado) permite que
     `retrieve()` restrinja a busca semântica ao próprio tenant — sem isso,
     qualquer chunk indexado é visível para qualquer busca."""
+    if _backend() != "aws":
+        return str(uuid.uuid4())
     embedding = embed_text(text)
     chunk_id  = str(uuid.uuid4())
     table = boto3.resource("dynamodb", region_name=DYNAMO_REGION).Table(TABLE)
@@ -80,6 +92,8 @@ def retrieve(query: str, k: int = 3, category: str | None = None, owner: str | N
     Chunks indexados antes desse campo existir (sem `owner`) ficam de fora
     de buscas filtradas: comportamento seguro por padrão.
     """
+    if _backend() != "aws":
+        return []
     query_embedding = embed_text(query)
     table = boto3.resource("dynamodb", region_name=DYNAMO_REGION).Table(TABLE)
 

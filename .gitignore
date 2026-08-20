@@ -63,6 +63,9 @@ users_db.json
 sessions_db.json
 cookies.txt
 
+# STORAGE_BACKEND=local (sessões/usuários/histórico de scan em JSON local)
+local_data/
+
 # Backups de código
 *.bak
 api_with_mfa.py.bak

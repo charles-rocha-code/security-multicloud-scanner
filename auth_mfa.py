@@ -1,9 +1,12 @@
 """
-auth_mfa.py - Autenticação MFA com persistência em DynamoDB.
+auth_mfa.py - Autenticação MFA com persistência em DynamoDB (STORAGE_BACKEND=aws)
+ou em arquivos JSON locais (STORAGE_BACKEND=local, padrão para dev sem AWS).
 
 Sessões: DynamoDB (security-scanner-sessions) — sem race condition entre instâncias.
 Usuários: DynamoDB (security-scanner-users) com cache em memória — consistência forte.
 Migration: na primeira inicialização, se DynamoDB vazio, migra de users_db.json no S3.
+Em STORAGE_BACKEND=local, envio de email de reset é substituído por log do link
+(sem depender de SES) e sessões/usuários/resets vivem em local_data/*.json.
 """
 
 from fastapi import HTTPException, Depends, status, Request, Response
@@ -25,10 +28,16 @@ import boto3
 from botocore.exceptions import ClientError
 
 from logging_setup import get_logger
+from local_store import DATA_DIR, read_json, write_json
 
 logger = get_logger("auth_mfa")
 
 # ==================== CONFIGURAÇÃO ====================
+
+# "local" (padrão) roda sem nenhuma credencial AWS -- sessões/usuários/resets
+# em local_data/*.json, email de reset vira log. "aws" usa DynamoDB/S3/SES,
+# igual à produção. Ver docs/env vars em .env.example.
+STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "local")
 
 S3_BUCKET = os.environ.get("DB_S3_BUCKET", "security-scanner-db-442042548551")
 DYNAMO_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-2")
@@ -45,34 +54,67 @@ APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://scanner.oisolucoes.app.br
 SESSION_TTL_SECONDS = 86400  # 24 h
 PASSWORD_RESET_TTL_SECONDS = 1800  # 30 min
 
-_dynamo = boto3.resource("dynamodb", region_name=DYNAMO_REGION)
-_tbl_sessions = _dynamo.Table(SESSIONS_TABLE)
-_tbl_users = _dynamo.Table(USERS_TABLE)
-_tbl_password_resets = _dynamo.Table(PASSWORD_RESETS_TABLE)
-_ses = boto3.client("ses", region_name=SES_REGION)
+SESSIONS_FILE = DATA_DIR / "sessions.json"
+USERS_FILE = DATA_DIR / "users.json"
+PASSWORD_RESETS_FILE = DATA_DIR / "password_resets.json"
 
-# ==================== DYNAMO — SESSÕES ====================
+
+def _backend() -> str:
+    # Lida com o valor a cada chamada (não em constante de módulo) para que
+    # testes com monkeypatch.setenv("STORAGE_BACKEND", ...) surtam efeito
+    # mesmo depois deste módulo já ter sido importado.
+    return os.environ.get("STORAGE_BACKEND", STORAGE_BACKEND)
+
+
+def _tbl_sessions():
+    return boto3.resource("dynamodb", region_name=DYNAMO_REGION).Table(SESSIONS_TABLE)
+
+
+def _tbl_users():
+    return boto3.resource("dynamodb", region_name=DYNAMO_REGION).Table(USERS_TABLE)
+
+
+def _tbl_password_resets():
+    return boto3.resource("dynamodb", region_name=DYNAMO_REGION).Table(PASSWORD_RESETS_TABLE)
+
+# ==================== SESSÕES ====================
 
 def _session_put(token: str, email: str) -> None:
-    _tbl_sessions.put_item(Item={
+    item = {
         "token": token,
         "email": email,
         "created_at": datetime.now().isoformat(),
         "authenticated": True,
         "mfa_verified": True,
         "expires_at_unix": int(time.time()) + SESSION_TTL_SECONDS,
-    })
+    }
+    if _backend() != "aws":
+        sessions = read_json(SESSIONS_FILE, {})
+        sessions[token] = item
+        write_json(SESSIONS_FILE, sessions)
+        return
+    _tbl_sessions().put_item(Item=item)
 
 
 def _session_get(token: str) -> Optional[Dict[str, Any]]:
+    if _backend() != "aws":
+        sessions = read_json(SESSIONS_FILE, {})
+        item = sessions.get(token)
+        if not item:
+            return None
+        if int(item.get("expires_at_unix", 0)) < int(time.time()):
+            del sessions[token]
+            write_json(SESSIONS_FILE, sessions)
+            return None
+        return item
     try:
-        resp = _tbl_sessions.get_item(Key={"token": token})
+        resp = _tbl_sessions().get_item(Key={"token": token})
         item = resp.get("Item")
         if not item:
             return None
         # Verificação manual de expiração (TTL do DynamoDB não é instantâneo)
         if int(item.get("expires_at_unix", 0)) < int(time.time()):
-            _tbl_sessions.delete_item(Key={"token": token})
+            _tbl_sessions().delete_item(Key={"token": token})
             return None
         return dict(item)
     except Exception as e:
@@ -81,16 +123,25 @@ def _session_get(token: str) -> Optional[Dict[str, Any]]:
 
 
 def _session_delete(token: str) -> None:
+    if _backend() != "aws":
+        sessions = read_json(SESSIONS_FILE, {})
+        if token in sessions:
+            del sessions[token]
+            write_json(SESSIONS_FILE, sessions)
+        return
     try:
-        _tbl_sessions.delete_item(Key={"token": token})
+        _tbl_sessions().delete_item(Key={"token": token})
     except Exception as e:
         logger.warning(f"⚠️ DynamoDB delete_session error: {e}")
 
 
 def _sessions_for_email(email: str):
-    """Retorna todos os tokens ativos de um email via GSI."""
+    """Retorna todos os tokens ativos de um email (GSI em modo aws)."""
+    if _backend() != "aws":
+        sessions = read_json(SESSIONS_FILE, {})
+        return [token for token, item in sessions.items() if item.get("email") == email]
     try:
-        resp = _tbl_sessions.query(
+        resp = _tbl_sessions().query(
             IndexName="email-index",
             KeyConditionExpression=boto3.dynamodb.conditions.Key("email").eq(email),
         )
@@ -99,26 +150,42 @@ def _sessions_for_email(email: str):
         logger.warning(f"⚠️ DynamoDB query sessions by email error: {e}")
         return []
 
-# ==================== DYNAMO — TOKENS DE RESET DE SENHA ====================
+# ==================== TOKENS DE RESET DE SENHA ====================
 
 def _reset_token_put(token: str, email: str) -> None:
-    _tbl_password_resets.put_item(Item={
+    item = {
         "token": token,
         "email": email,
         "created_at": datetime.now().isoformat(),
         "used": False,
         "expires_at_unix": int(time.time()) + PASSWORD_RESET_TTL_SECONDS,
-    })
+    }
+    if _backend() != "aws":
+        resets = read_json(PASSWORD_RESETS_FILE, {})
+        resets[token] = item
+        write_json(PASSWORD_RESETS_FILE, resets)
+        return
+    _tbl_password_resets().put_item(Item=item)
 
 
 def _reset_token_get(token: str) -> Optional[Dict[str, Any]]:
+    if _backend() != "aws":
+        resets = read_json(PASSWORD_RESETS_FILE, {})
+        item = resets.get(token)
+        if not item:
+            return None
+        if int(item.get("expires_at_unix", 0)) < int(time.time()):
+            del resets[token]
+            write_json(PASSWORD_RESETS_FILE, resets)
+            return None
+        return item
     try:
-        resp = _tbl_password_resets.get_item(Key={"token": token})
+        resp = _tbl_password_resets().get_item(Key={"token": token})
         item = resp.get("Item")
         if not item:
             return None
         if int(item.get("expires_at_unix", 0)) < int(time.time()):
-            _tbl_password_resets.delete_item(Key={"token": token})
+            _tbl_password_resets().delete_item(Key={"token": token})
             return None
         return dict(item)
     except Exception as e:
@@ -127,15 +194,27 @@ def _reset_token_get(token: str) -> Optional[Dict[str, Any]]:
 
 
 def _reset_token_delete(token: str) -> None:
+    if _backend() != "aws":
+        resets = read_json(PASSWORD_RESETS_FILE, {})
+        if token in resets:
+            del resets[token]
+            write_json(PASSWORD_RESETS_FILE, resets)
+        return
     try:
-        _tbl_password_resets.delete_item(Key={"token": token})
+        _tbl_password_resets().delete_item(Key={"token": token})
     except Exception as e:
         logger.warning(f"⚠️ DynamoDB delete_reset_token error: {e}")
 
 
 def _send_password_reset_email(to_email: str, reset_link: str) -> bool:
+    if _backend() != "aws":
+        # Sem SES em modo local -- loga o link pra quem estiver testando o
+        # fluxo poder seguir manualmente, sem precisar de infra de email.
+        logger.info(f"✉️ [STORAGE_BACKEND=local] Link de redefinição de senha para {to_email}: {reset_link}")
+        return True
     try:
-        _ses.send_email(
+        ses = boto3.client("ses", region_name=SES_REGION)
+        ses.send_email(
             Source=SES_SENDER,
             Destination={"ToAddresses": [to_email]},
             Message={
@@ -157,16 +236,22 @@ def _send_password_reset_email(to_email: str, reset_link: str) -> bool:
         logger.warning(f"⚠️ SES send_password_reset_email error: {e}")
         return False
 
-# ==================== DYNAMO — USUÁRIOS ====================
+# ==================== USUÁRIOS ====================
 
-# Cache em memória; DynamoDB é a fonte de verdade
+# Cache em memória; DynamoDB (ou local_data/users.json) é a fonte de verdade
 USERS_DB: Dict[str, Dict[str, Any]] = {}
 ACTIVE_SESSIONS: Dict[str, Dict[str, Any]] = {}  # mantido para compatibilidade de importação
 
 
 def _user_put(email: str, data: Dict[str, Any]) -> None:
+    if _backend() != "aws":
+        users = read_json(USERS_FILE, {})
+        users[email] = data
+        write_json(USERS_FILE, users)
+        USERS_DB[email] = data
+        return
     try:
-        _tbl_users.put_item(Item={"email": email, **data})
+        _tbl_users().put_item(Item={"email": email, **data})
         USERS_DB[email] = data
     except Exception as e:
         logger.warning(f"⚠️ DynamoDB put_user error: {e}")
@@ -176,8 +261,15 @@ def _user_put(email: str, data: Dict[str, Any]) -> None:
 def _user_get(email: str) -> Optional[Dict[str, Any]]:
     if email in USERS_DB:
         return USERS_DB[email]
+    if _backend() != "aws":
+        users = read_json(USERS_FILE, {})
+        item = users.get(email)
+        if item:
+            USERS_DB[email] = item
+            return item
+        return None
     try:
-        resp = _tbl_users.get_item(Key={"email": email})
+        resp = _tbl_users().get_item(Key={"email": email})
         item = resp.get("Item")
         if item:
             USERS_DB[email] = dict(item)
@@ -189,8 +281,10 @@ def _user_get(email: str) -> Optional[Dict[str, Any]]:
 
 
 def _users_load_all() -> Dict[str, Dict[str, Any]]:
+    if _backend() != "aws":
+        return read_json(USERS_FILE, {})
     try:
-        resp = _tbl_users.scan()
+        resp = _tbl_users().scan()
         return {item["email"]: dict(item) for item in resp.get("Items", [])}
     except Exception as e:
         logger.warning(f"⚠️ DynamoDB scan_users error: {e}")
@@ -198,8 +292,9 @@ def _users_load_all() -> Dict[str, Dict[str, Any]]:
 
 
 def _migrate_from_s3() -> None:
-    """Migração única: copia users_db.json do S3 para DynamoDB."""
-    if not S3_BUCKET:
+    """Migração única: copia users_db.json do S3 para DynamoDB. Só faz
+    sentido em STORAGE_BACKEND=aws -- em local não há S3 nem DynamoDB."""
+    if _backend() != "aws" or not S3_BUCKET:
         return
     try:
         s3 = boto3.client("s3", region_name=DYNAMO_REGION)
@@ -209,7 +304,7 @@ def _migrate_from_s3() -> None:
             return
         logger.info(f"🔄 Migrando {len(users)} usuário(s) do S3 para DynamoDB...")
         for email, data in users.items():
-            _tbl_users.put_item(Item={"email": email, **data})
+            _tbl_users().put_item(Item={"email": email, **data})
         logger.info(f"✅ Migração completa: {len(users)} usuário(s)")
     except ClientError as e:
         if e.response["Error"]["Code"] == "NoSuchKey":
@@ -659,11 +754,14 @@ def logout_all_sessions(email: str) -> int:
 # ==================== INFORMAÇÕES ====================
 
 def get_system_stats() -> Dict[str, Any]:
-    try:
-        resp = _tbl_sessions.scan(Select="COUNT")
-        active_count = resp.get("Count", 0)
-    except Exception:
-        active_count = -1
+    if _backend() != "aws":
+        active_count = len(read_json(SESSIONS_FILE, {}))
+    else:
+        try:
+            resp = _tbl_sessions().scan(Select="COUNT")
+            active_count = resp.get("Count", 0)
+        except Exception:
+            active_count = -1
     return {
         "total_users": len(USERS_DB),
         "users_with_mfa": sum(1 for u in USERS_DB.values() if u.get("mfa_enabled")),

@@ -8,6 +8,7 @@ tabelas DynamoDB "-dev" (nunca produção). Cria um usuário de teste e remove
 ao final.
 
 Uso:
+  export STORAGE_BACKEND=aws
   export USERS_DYNAMO_TABLE=security-scanner-users-dev
   export SESSIONS_DYNAMO_TABLE=security-scanner-sessions-dev
   export PASSWORD_RESETS_DYNAMO_TABLE=security-scanner-password-resets-dev
@@ -46,7 +47,7 @@ def main() -> None:
     client = TestClient(app)
 
     try:
-        auth_mfa._tbl_users.delete_item(Key={"email": TEST_EMAIL})
+        auth_mfa._tbl_users().delete_item(Key={"email": TEST_EMAIL})
     except Exception:
         pass
 
@@ -85,7 +86,7 @@ def main() -> None:
           f"grafo: {len(result['graph']['nodes'])} nós / {len(result['graph']['edges'])} arestas, "
           f"attack_paths: {len(result['attack_paths'])}")
 
-    auth_mfa._tbl_users.delete_item(Key={"email": TEST_EMAIL})
+    auth_mfa._tbl_users().delete_item(Key={"email": TEST_EMAIL})
     print("Usuário de teste removido da tabela -dev.")
 
 

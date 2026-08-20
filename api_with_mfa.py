@@ -138,8 +138,16 @@ REPORTS_DIR.mkdir(exist_ok=True)
 
 _S3_REPORTS_PREFIX = "reports/"
 
+
+def _backend() -> str:
+    return os.environ.get("STORAGE_BACKEND", "local")
+
+
 def _upload_report_s3(local_path: Path) -> None:
-    if not S3_BUCKET or not local_path.exists() or not local_path.name:
+    # Relatórios já ficam em REPORTS_DIR (disco local) independente do
+    # backend -- este upload é só um espelho para as outras instâncias EC2
+    # em produção (STORAGE_BACKEND=aws), não faz sentido em modo local.
+    if _backend() != "aws" or not S3_BUCKET or not local_path.exists() or not local_path.name:
         return
     try:
         s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
@@ -148,7 +156,7 @@ def _upload_report_s3(local_path: Path) -> None:
         logger.warning(f"⚠️ S3 report upload error: {e}")
 
 def _download_report_s3(filename: str) -> Path | None:
-    if not S3_BUCKET or not filename:
+    if _backend() != "aws" or not S3_BUCKET or not filename:
         return None
     try:
         dest = REPORTS_DIR / filename
@@ -164,7 +172,7 @@ def _email_safe(email: str) -> str:
 
 
 def _save_last_scan(email: str, result: Dict[str, Any]) -> None:
-    if not S3_BUCKET or not email:
+    if _backend() != "aws" or not S3_BUCKET or not email:
         return
     try:
         s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
@@ -180,7 +188,7 @@ def _save_last_scan(email: str, result: Dict[str, Any]) -> None:
 
 
 def _load_last_scan(email: str) -> Optional[Dict[str, Any]]:
-    if not S3_BUCKET or not email:
+    if _backend() != "aws" or not S3_BUCKET or not email:
         return None
     try:
         s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
@@ -217,7 +225,7 @@ _JOB_STORE_MEM: Dict[str, Dict[str, Any]] = {}
 
 def _job_write(job_id: str, data: Dict[str, Any]) -> None:
     _JOB_STORE_MEM[job_id] = data
-    if not S3_BUCKET:
+    if _backend() != "aws" or not S3_BUCKET:
         return
     try:
         s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))
@@ -234,7 +242,7 @@ def _job_write(job_id: str, data: Dict[str, Any]) -> None:
 def _job_read(job_id: str) -> Optional[Dict[str, Any]]:
     if job_id in _JOB_STORE_MEM:
         return _JOB_STORE_MEM[job_id]
-    if not S3_BUCKET:
+    if _backend() != "aws" or not S3_BUCKET:
         return None
     try:
         s3 = boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-2"))

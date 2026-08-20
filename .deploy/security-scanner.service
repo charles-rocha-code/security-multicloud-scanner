@@ -10,6 +10,7 @@ Group=ubuntu
 WorkingDirectory=/home/ubuntu/security-scanner
 Environment="PATH=/home/ubuntu/security-scanner/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
+Environment="STORAGE_BACKEND=aws"
 Environment="AWS_DEFAULT_REGION=us-east-2"
 Environment="DB_S3_BUCKET=security-scanner-db-442042548551"
 Environment="SESSIONS_DYNAMO_TABLE=security-scanner-sessions"
