@@ -86,13 +86,13 @@ pyparsing==3.3.2
 pypng==0.20220715.0
 python-dateutil==2.9.0.post0
 python-docx==1.2.0
-python-dotenv==1.0.0
-python-multipart==0.0.30
+python-dotenv==1.2.3
+python-multipart==0.0.32
 qrcode==7.4.2
 redis==7.0.1
 reportlab==5.0.0
 requests-oauthlib==2.0.0
-requests==2.32.5
+requests==2.34.2
 s3transfer==0.16.1
 six==1.17.0
 slowapi==0.1.10
