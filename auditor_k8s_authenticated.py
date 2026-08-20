@@ -348,11 +348,19 @@ class K8sAuthenticatedAuditor(GraphCollector):
         try:
             sars = self.rbac.list_cluster_role_binding(_request_timeout=self.timeout)
             for crb in sars.items:
-                if crb.metadata.name in _BENIGN_ANONYMOUS_BINDINGS:
+                role_ref_name = crb.role_ref.name if crb.role_ref else None
+                if (
+                    crb.metadata.name in _BENIGN_ANONYMOUS_BINDINGS
+                    and role_ref_name in _BENIGN_ANONYMOUS_BINDINGS
+                ):
                     # system:public-info-viewer só expõe /healthz e /version
                     # -- shipped por padrão em todo cluster desde ~1.14, não
-                    # é acesso anônimo real. Um binding NOVO com esse mesmo
-                    # subject mas nome diferente continua sendo pego abaixo.
+                    # é acesso anônimo real. Checa nome do binding E
+                    # role_ref: sem isso, alguém reapontando esse binding
+                    # pra cluster-admin (mantendo o mesmo nome) passaria
+                    # despercebido -- exatamente o CRITICAL que este check
+                    # existe pra pegar. Um binding novo com nome diferente
+                    # continua sendo pego abaixo.
                     continue
                 for s in crb.subjects or []:
                     if s.name == "system:anonymous" or s.name == "system:unauthenticated":

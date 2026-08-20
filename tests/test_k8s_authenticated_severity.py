@@ -121,9 +121,10 @@ def test_cluster_admin_com_binding_aparece_no_grafo_sem_finding():
     assert "clusterrole/cluster-admin" in node_ids
 
 
-def _fake_crb(name, subject_names):
+def _fake_crb(name, subject_names, role_ref=None):
     return SimpleNamespace(
         metadata=SimpleNamespace(name=name),
+        role_ref=SimpleNamespace(name=role_ref if role_ref is not None else name),
         subjects=[SimpleNamespace(name=n) for n in subject_names],
     )
 
@@ -146,6 +147,28 @@ def test_binding_novo_para_anonymous_continua_reportado():
     auditor.rbac = SimpleNamespace(
         list_cluster_role_binding=lambda **kw: SimpleNamespace(items=[
             _fake_crb("um-binding-perigoso-qualquer", ["system:anonymous"]),
+        ])
+    )
+
+    findings = auditor._check_anonymous_auth()
+
+    assert len(findings) == 1
+    assert findings[0]["severity"] == "CRITICAL"
+
+
+def test_public_info_viewer_reapontado_para_role_perigosa_continua_reportado():
+    # Achado do code review: excluir só pelo nome do binding deixava passar
+    # alguém reapontando o role_ref pra cluster-admin mantendo o mesmo nome
+    # system:public-info-viewer -- exatamente o CRITICAL que o check existe
+    # pra pegar. Checar nome do binding E role_ref fecha esse buraco.
+    auditor = _make_auditor()
+    auditor.rbac = SimpleNamespace(
+        list_cluster_role_binding=lambda **kw: SimpleNamespace(items=[
+            _fake_crb(
+                "system:public-info-viewer",
+                ["system:unauthenticated"],
+                role_ref="cluster-admin",
+            ),
         ])
     )
 
