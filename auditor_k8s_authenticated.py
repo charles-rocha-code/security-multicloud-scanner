@@ -12,6 +12,7 @@ except ImportError:
 
 from graph_model import GraphCollector, GraphEdge, GraphNode
 from ssrf_guard import assert_server_not_ssrf_target
+from auditor_k8s import _is_system_namespace
 
 # Sujeitos que, se vinculados a uma ClusterRole perigosa, representam ponto
 # de entrada exposto de verdade — qualquer requisição não autenticada ou
@@ -23,6 +24,20 @@ SENSITIVE_KEY_PATTERNS = (
     "password", "passwd", "secret", "token", "apikey", "api_key",
     "access_key", "private_key", "credential", "auth",
 )
+
+# ClusterRoles nativas do Kubernetes que legitimamente concedem '*'/'*' --
+# hoje só cluster-admin bate nisso de verdade (admin/edit/view são escopadas
+# por apiGroup, não têm resources=["*"] literal). Continua entrando no grafo
+# (dangerous_roles) porque o Mapa de Grafo de Ataque precisa dela pra mostrar
+# "existe alvo de alto valor, mas nenhum caminho sem credencial leva até ele"
+# -- só não vira um finding CRITICAL solto, que é ruído (é assim que
+# cluster-admin existe em todo cluster Kubernetes, não uma misconfiguração).
+_NATIVE_WILDCARD_CLUSTERROLES = {"cluster-admin"}
+
+# ClusterRoleBindings nativas que concedem acesso mínimo (só /healthz,
+# /version) a system:unauthenticated/system:authenticated -- shipped por
+# padrão em todo cluster Kubernetes desde ~1.14, não é acesso anônimo real.
+_BENIGN_ANONYMOUS_BINDINGS = {"system:public-info-viewer"}
 
 
 class K8sAuthenticatedAuditor(GraphCollector):
@@ -126,8 +141,21 @@ class K8sAuthenticatedAuditor(GraphCollector):
     # ------------------------------------------------------------------
 
     def _check_workload_security(self, namespaces: List[str]) -> List[Dict[str, Any]]:
-        """Privileged, hostNetwork, runAsRoot, sem resource limits."""
+        """Privileged, hostNetwork, runAsRoot, sem resource limits.
+
+        Em namespace de sistema (kube-system etc.), esses padrões são como o
+        próprio control plane/CNI funciona (etcd, kube-apiserver, kindnet,
+        kube-proxy) -- reportar isso como CRITICAL/HIGH genérico é ruído que
+        afoga achado real de workload de usuário. Severidade cai pra LOW
+        nesses namespaces, sem deixar de reportar (visibilidade continua,
+        só não grita alarme falso)."""
         findings: List[Dict[str, Any]] = []
+
+        def finding(default_severity, category, resource_type, resource_name, namespace, reason, recommendation):
+            if _is_system_namespace(namespace):
+                default_severity = "LOW"
+                reason = f"{reason} -- namespace de sistema ({namespace}), esperado em control plane/CNI"
+            return self._finding(default_severity, category, resource_type, resource_name, namespace, reason, recommendation)
 
         for ns in namespaces:
             try:
@@ -140,19 +168,19 @@ class K8sAuthenticatedAuditor(GraphCollector):
                 spec = pod.spec
 
                 if spec.host_network:
-                    findings.append(self._finding(
+                    findings.append(finding(
                         "HIGH", "Workload Security", "Pod", name, ns,
                         "Pod com hostNetwork=true (compartilha rede do nó)",
                         "Remover hostNetwork salvo necessidade técnica justificada.",
                     ))
                 if spec.host_pid:
-                    findings.append(self._finding(
+                    findings.append(finding(
                         "HIGH", "Workload Security", "Pod", name, ns,
                         "Pod com hostPID=true (vê processos do nó)",
                         "Remover hostPID.",
                     ))
                 if spec.host_ipc:
-                    findings.append(self._finding(
+                    findings.append(finding(
                         "HIGH", "Workload Security", "Pod", name, ns,
                         "Pod com hostIPC=true",
                         "Remover hostIPC.",
@@ -162,14 +190,14 @@ class K8sAuthenticatedAuditor(GraphCollector):
                     sc = c.security_context
                     if sc:
                         if sc.privileged:
-                            findings.append(self._finding(
+                            findings.append(finding(
                                 "CRITICAL", "Workload Security", "Container",
                                 f"{name}/{c.name}", ns,
                                 "Container rodando como privileged",
                                 "Remover privileged=true; usar capabilities específicas se necessário.",
                             ))
                         if sc.run_as_user == 0 or (sc.run_as_user is None and sc.run_as_non_root is not True):
-                            findings.append(self._finding(
+                            findings.append(finding(
                                 "HIGH", "Workload Security", "Container",
                                 f"{name}/{c.name}", ns,
                                 "Container pode estar rodando como root",
@@ -177,7 +205,7 @@ class K8sAuthenticatedAuditor(GraphCollector):
                             ))
 
                     if not c.resources or not c.resources.limits:
-                        findings.append(self._finding(
+                        findings.append(finding(
                             "MEDIUM", "Workload Security", "Container",
                             f"{name}/{c.name}", ns,
                             "Container sem resources.limits (CPU/memory)",
@@ -202,12 +230,19 @@ class K8sAuthenticatedAuditor(GraphCollector):
                 verbs = rule.verbs or []
                 resources = rule.resources or []
                 if "*" in verbs and "*" in resources:
+                    # Continua em dangerous_roles (o grafo abaixo precisa
+                    # dela pra mostrar "existe alvo de alto valor, nenhum
+                    # caminho sem credencial chega nele") -- só não vira
+                    # finding solto se for uma role nativa do Kubernetes
+                    # (cluster-admin existe em todo cluster, não é
+                    # misconfiguração de ninguém).
                     dangerous_roles.add(role.metadata.name)
-                    findings.append(self._finding(
-                        "CRITICAL", "RBAC", "ClusterRole", role.metadata.name, None,
-                        "ClusterRole concede '*' verbs em '*' resources",
-                        "Aplicar princípio do menor privilégio; remover wildcards.",
-                    ))
+                    if role.metadata.name not in _NATIVE_WILDCARD_CLUSTERROLES:
+                        findings.append(self._finding(
+                            "CRITICAL", "RBAC", "ClusterRole", role.metadata.name, None,
+                            "ClusterRole concede '*' verbs em '*' resources",
+                            "Aplicar princípio do menor privilégio; remover wildcards.",
+                        ))
 
         # Grafo: quem está vinculado (bound) às roles perigosas encontradas
         # acima. Dado novo em relação aos outros clouds — list_cluster_role
@@ -313,6 +348,12 @@ class K8sAuthenticatedAuditor(GraphCollector):
         try:
             sars = self.rbac.list_cluster_role_binding(_request_timeout=self.timeout)
             for crb in sars.items:
+                if crb.metadata.name in _BENIGN_ANONYMOUS_BINDINGS:
+                    # system:public-info-viewer só expõe /healthz e /version
+                    # -- shipped por padrão em todo cluster desde ~1.14, não
+                    # é acesso anônimo real. Um binding NOVO com esse mesmo
+                    # subject mas nome diferente continua sendo pego abaixo.
+                    continue
                 for s in crb.subjects or []:
                     if s.name == "system:anonymous" or s.name == "system:unauthenticated":
                         findings.append(self._finding(
