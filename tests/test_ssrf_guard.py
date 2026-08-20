@@ -5,11 +5,13 @@ quando corrigimos o gap de SSRF aberto pelas exceções de WAF em /scan/k8s
 e /generate-report. Sem isso, o teste "passou uma vez" não protege contra
 alguém remover a checagem sem querer num refactor futuro.
 
-Loopback só é bloqueado em STORAGE_BACKEND=aws (produção) -- em modo local
-(padrão sem AWS) o risco que o bloqueio existe pra evitar (SSRF contra o
-próprio host de produção atrás do WAF) não se aplica, e clusters de dev
-local (ex.: kind) só publicam a API em loopback. Link-local/metadados
-continuam bloqueados sempre, em qualquer backend.
+Loopback só é liberado quando STORAGE_BACKEND é EXPLICITAMENTE "local" -- em
+qualquer outro valor, inclusive a variável não definida (ambiente novo, ou
+deploy mal configurado), o bloqueio de loopback fica ativo por padrão
+(fail-safe: risco de SSRF contra host de produção atrás do WAF não pode
+depender de alguém lembrar de setar STORAGE_BACKEND=aws em todo caminho de
+deploy possível). Link-local/metadados continuam bloqueados sempre, em
+qualquer backend.
 
 Usa só IPs literais (nunca hostname a resolver de verdade) -- não pode
 depender de rede/DNS disponível no runner do CI.
@@ -47,6 +49,19 @@ def test_bloqueia_loopback_em_producao(url, monkeypatch):
 def test_permite_loopback_em_modo_local(url, monkeypatch):
     monkeypatch.setenv("STORAGE_BACKEND", "local")
     assert assert_server_not_ssrf_target(url) is None
+
+
+@pytest.mark.parametrize("url", [
+    "https://127.0.0.1:6443",
+    "https://[::1]:6443",
+])
+def test_bloqueia_loopback_quando_storage_backend_nao_esta_definido(url, monkeypatch):
+    # Achado do code review: se ninguem setar STORAGE_BACKEND (ambiente
+    # novo, deploy que esqueceu a variavel), o bloqueio de loopback nao
+    # pode ficar liberado por omissao -- so "local" explicito libera.
+    monkeypatch.delenv("STORAGE_BACKEND", raising=False)
+    with pytest.raises(ValueError):
+        assert_server_not_ssrf_target(url)
 
 
 def test_bloqueia_localhost_via_resolucao_dns_em_producao(monkeypatch):

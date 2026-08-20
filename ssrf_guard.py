@@ -9,11 +9,14 @@ sempre, em qualquer backend -- risco de metadados do host é independente de
 onde a app roda. NÃO bloqueia faixa privada geral (10.x/172.16.x/192.168.x)
 porque cluster K8s privado legítimo é um caso de uso real desta ferramenta.
 
-Loopback só é bloqueado em STORAGE_BACKEND=aws (produção): lá, permitir
-'server: 127.0.0.1' seria SSRF contra o próprio host de produção atrás do
-WAF. Em STORAGE_BACKEND=local (padrão sem AWS) quem roda o scan é o mesmo
-dono da máquina e do cluster (ex.: kind, que só publica a API em loopback) --
-o risco que esse bloqueio existe pra evitar não se aplica nesse cenário.
+Loopback só é liberado quando STORAGE_BACKEND está EXPLICITAMENTE definido
+como "local" no ambiente: aí quem roda o scan é o mesmo dono da máquina e do
+cluster (ex.: kind, que só publica a API em loopback), e o risco de SSRF
+contra host de produção atrás do WAF não se aplica. Fail-safe de propósito:
+se a variável não estiver definida (ambiente novo, deploy mal configurado
+que esqueceu de setar STORAGE_BACKEND=aws), o bloqueio de loopback continua
+ativo por padrão -- não depende de alguém lembrar de setar "aws" em todo
+caminho de deploy possível, só de ninguém setar "local" por engano.
 """
 from __future__ import annotations
 
@@ -46,7 +49,7 @@ def assert_server_not_ssrf_target(server_url: str) -> None:
         raise ValueError(f"Não foi possível resolver o endereço do cluster: {host}")
 
     blocked_networks = list(_ALWAYS_BLOCKED_NETWORKS)
-    if os.environ.get("STORAGE_BACKEND", "local") == "aws":
+    if os.environ.get("STORAGE_BACKEND") != "local":
         blocked_networks += _LOOPBACK_NETWORKS
 
     for addr in addrs:
