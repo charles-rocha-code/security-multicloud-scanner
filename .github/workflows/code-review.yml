@@ -28,4 +28,3 @@ jobs:
           plugins: "code-review@claude-code-plugins"
           prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment"
           claude_args: "--max-turns 40"  # --comment dispara subagentes de verificacao + postagem, precisa de mais turns
-          show_full_output: true  # DEBUG temporario -- falhando com is_error:true desde 20/08, sem detalhe. Reverter depois do diagnostico.
