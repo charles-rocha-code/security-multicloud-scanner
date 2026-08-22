@@ -2386,34 +2386,71 @@
           <span>Todos</span>
           <span class="cat-filter-count" id="cat-count-all">0</span>
         </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('cred', this)" id="cat-btn-cred">
-          <span>Credenciais</span>
-          <span class="cat-filter-count" id="cat-count-cred">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('keys', this)" id="cat-btn-keys">
-          <span>Chaves Crypto</span>
-          <span class="cat-filter-count" id="cat-count-keys">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('db', this)" id="cat-btn-db">
-          <span>Backups / DB</span>
-          <span class="cat-filter-count" id="cat-count-db">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('config', this)" id="cat-btn-config">
-          <span>Configs</span>
-          <span class="cat-filter-count" id="cat-count-config">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('code', this)" id="cat-btn-code">
-          <span>Código</span>
-          <span class="cat-filter-count" id="cat-count-code">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('archive', this)" id="cat-btn-archive">
-          <span>Compactados</span>
-          <span class="cat-filter-count" id="cat-count-archive">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('other', this)" id="cat-btn-other">
-          <span>Outros</span>
-          <span class="cat-filter-count" id="cat-count-other">0</span>
-        </button>
+
+        <!-- Categorias p/ scan de bucket (S3/GCS/Azure) — classificação por extensão -->
+        <div id="sidebar-categories-generic">
+          <button class="cat-filter-btn" onclick="setCategoryFilter('cred', this)" id="cat-btn-cred">
+            <span>Credenciais</span>
+            <span class="cat-filter-count" id="cat-count-cred">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('keys', this)" id="cat-btn-keys">
+            <span>Chaves Crypto</span>
+            <span class="cat-filter-count" id="cat-count-keys">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('db', this)" id="cat-btn-db">
+            <span>Backups / DB</span>
+            <span class="cat-filter-count" id="cat-count-db">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('config', this)" id="cat-btn-config">
+            <span>Configs</span>
+            <span class="cat-filter-count" id="cat-count-config">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('code', this)" id="cat-btn-code">
+            <span>Código</span>
+            <span class="cat-filter-count" id="cat-count-code">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('archive', this)" id="cat-btn-archive">
+            <span>Compactados</span>
+            <span class="cat-filter-count" id="cat-count-archive">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('other', this)" id="cat-btn-other">
+            <span>Outros</span>
+            <span class="cat-filter-count" id="cat-count-other">0</span>
+          </button>
+        </div>
+
+        <!-- Categorias p/ scan Kubernetes — mesmas do Mapa de Vulnerabilidades e
+             Top Achados por Categoria (ver K8S_CATEGORY_MAP/getFileCategory) -->
+        <div id="sidebar-categories-k8s" style="display:none;">
+          <button class="cat-filter-btn" onclick="setCategoryFilter('storage', this)" id="cat-btn-storage">
+            <span>Storage (K8s)</span>
+            <span class="cat-filter-count" id="cat-count-storage">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('workload', this)" id="cat-btn-workload">
+            <span>Workload</span>
+            <span class="cat-filter-count" id="cat-count-workload">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('rbac', this)" id="cat-btn-rbac">
+            <span>RBAC</span>
+            <span class="cat-filter-count" id="cat-count-rbac">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('secrets-k8s', this)" id="cat-btn-secrets-k8s">
+            <span>Secrets</span>
+            <span class="cat-filter-count" id="cat-count-secrets-k8s">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('network-k8s', this)" id="cat-btn-network-k8s">
+            <span>Rede</span>
+            <span class="cat-filter-count" id="cat-count-network-k8s">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('apiserver', this)" id="cat-btn-apiserver">
+            <span>API Server</span>
+            <span class="cat-filter-count" id="cat-count-apiserver">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('other', this)" id="cat-btn-other-k8s">
+            <span>Outros</span>
+            <span class="cat-filter-count" id="cat-count-other-k8s">0</span>
+          </button>
+        </div>
       </div>
 
     </aside>
@@ -4140,7 +4177,7 @@ function logout() {
       updateFileList(files);
 
       // Contagens de categoria para sidebar
-      updateCategoryCounts(files);
+      updateCategoryCounts(files, data);
 
       // Resumo executivo de achados
       renderExecutiveSummary(files, data);
@@ -5559,10 +5596,12 @@ function logout() {
         });
       }
 
-      // Filtro por categoria
+      // Filtro por categoria — usa getFileCategory (cobre tanto CATEGORY_DEFS
+      // quanto K8S_CATEGORY_MAP) em vez de só CATEGORY_DEFS, senão categorias
+      // K8s (storage/workload/rbac/secrets-k8s/network-k8s/apiserver) batiam
+      // 'not found' aqui e o filtro virava no-op silencioso.
       if (selectedCategory) {
-        const catDef = CATEGORY_DEFS.find(c => c.id === selectedCategory);
-        if (catDef) filtered = filtered.filter(f => catDef.test(f));
+        filtered = filtered.filter(f => getFileCategory(f) === selectedCategory);
       }
 
       // Ordenação
@@ -5669,14 +5708,34 @@ function logout() {
       applyFilters();
     }
 
-    function updateCategoryCounts(files) {
-      const counts = { cred:0, keys:0, db:0, config:0, code:0, archive:0, other:0 };
-      files.forEach(f => { counts[getFileCategory(f)]++; });
-      counts.all = files.length;
-      Object.entries(counts).forEach(([id, n]) => {
-        const el = document.getElementById(`cat-count-${id}`);
-        if (el) el.textContent = n.toLocaleString('pt-BR');
+    function updateCategoryCounts(files, data) {
+      const isK8s = !!(data && data.provider === 'KUBERNETES');
+      // 'other' existe nos dois grupos com IDs de DOM distintos (cat-count-other
+      // vs cat-count-other-k8s) pra não colidir — só um grupo fica visível por vez.
+      const domId = isK8s
+        ? { storage:'storage', workload:'workload', rbac:'rbac', 'secrets-k8s':'secrets-k8s', 'network-k8s':'network-k8s', apiserver:'apiserver', other:'other-k8s' }
+        : { cred:'cred', keys:'keys', db:'db', config:'config', code:'code', archive:'archive', other:'other' };
+
+      const counts = {};
+      Object.keys(domId).forEach(id => { counts[id] = 0; });
+      files.forEach(f => {
+        const cat = getFileCategory(f);
+        if (counts[cat] !== undefined) counts[cat]++;
       });
+      counts.all = files.length;
+
+      const genericGroup = document.getElementById('sidebar-categories-generic');
+      const k8sGroup = document.getElementById('sidebar-categories-k8s');
+      if (genericGroup) genericGroup.style.display = isK8s ? 'none' : '';
+      if (k8sGroup) k8sGroup.style.display = isK8s ? '' : 'none';
+
+      const el = document.getElementById('cat-count-all');
+      if (el) el.textContent = counts.all.toLocaleString('pt-BR');
+      Object.entries(domId).forEach(([catId, suffix]) => {
+        const countEl = document.getElementById(`cat-count-${suffix}`);
+        if (countEl) countEl.textContent = counts[catId].toLocaleString('pt-BR');
+      });
+
       const sidebar = document.getElementById('sidebar-categories');
       if (sidebar) sidebar.style.display = files.length > 0 ? 'block' : 'none';
     }
