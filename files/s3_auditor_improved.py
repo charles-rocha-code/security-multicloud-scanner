@@ -1,7 +1,7 @@
 import os
 import json
 import datetime
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 import re
 import hashlib
 from collections import Counter, defaultdict

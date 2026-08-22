@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 import requests
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
