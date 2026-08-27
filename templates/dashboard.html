@@ -2786,8 +2786,11 @@ roleRef:
                     </li>
                     <li>Com o contexto certo já selecionado, salve o manifesto acima em um arquivo e aplique: <code style="color:#d1d5db;">kubectl apply -f security-scanner-readonly.yaml</code></li>
                     <li>Rode o script abaixo — ele lê o servidor e o CA do seu contexto <code style="color:#d1d5db;">kubectl</code> atual, gera um token para a ServiceAccount <code style="color:#d1d5db;">security-scanner-readonly</code> e monta um kubeconfig novo com só essa credencial.</li>
-                    <li>Cole o <strong style="color:#facc15;">conteúdo do arquivo gerado</strong> (<code style="color:#d1d5db;">security-scanner-kubeconfig.yaml</code>) no campo "Kubeconfig YAML" acima — não o seu <code style="color:#d1d5db;">~/.kube/config</code> pessoal.</li>
+                    <li>Cole o <strong style="color:#facc15;">conteúdo do arquivo gerado</strong> (<code style="color:#d1d5db;">security-scanner-kubeconfig-&lt;contexto&gt;.yaml</code>) no campo "Kubeconfig YAML" acima — não o seu <code style="color:#d1d5db;">~/.kube/config</code> pessoal.</li>
                   </ol>
+                  <span class="help-text" style="display:block; margin-bottom:6px;">Pré-requisito: quem roda o script precisa de permissão <code>create</code> em
+                    <code>serviceaccounts/token</code> no cluster (na prática, só quem já tem acesso administrativo consegue emitir o token — esperado,
+                    só um admin deveria provisionar a credencial do scanner).</span>
                   <div style="position:relative; margin-top:6px;">
                     <pre id="k8s-token-script" style="font-size:11px; line-height:1.5; background:#111827; padding:12px 40px 12px 12px; border-radius:6px; overflow-x:auto; white-space:pre; color:#d1d5db;">#!/usr/bin/env bash
 set -euo pipefail
@@ -2799,33 +2802,58 @@ read -p "Continuar? [y/N] " -n 1 -r; echo
 
 CLUSTER=$(kubectl config view -o jsonpath="{.contexts[?(@.name=='$CONTEXT')].context.cluster}")
 SERVER=$(kubectl config view -o jsonpath="{.clusters[?(@.name=='$CLUSTER')].cluster.server}")
+[[ -n "$SERVER" ]] || { echo "Erro: server vazio — verifique o contexto com 'kubectl config view'."; exit 1; }
+
 CA_DATA=$(kubectl config view --raw -o jsonpath="{.clusters[?(@.name=='$CLUSTER')].cluster.certificate-authority-data}")
+if [[ -z "$CA_DATA" ]]; then
+  # Clusters locais (kind/minikube) costumam referenciar o CA por arquivo
+  # em vez de embutir em base64 -- lê o arquivo e embute manualmente.
+  CA_FILE=$(kubectl config view --raw -o jsonpath="{.clusters[?(@.name=='$CLUSTER')].cluster.certificate-authority}")
+  if [[ -n "$CA_FILE" ]]; then
+    CA_DATA=$(base64 "$CA_FILE" | tr -d '\n')
+  else
+    echo "Aviso: sem CA embutido nem arquivo de CA (cluster pode usar insecure-skip-tls-verify)."
+    read -p "Gerar kubeconfig sem verificação TLS do servidor? [y/N] " -n 1 -r; echo
+    [[ $REPLY =~ ^[Yy]$ ]] || { echo "Cancelado."; exit 1; }
+    INSECURE_TLS=1
+  fi
+fi
+if [[ -n "${INSECURE_TLS:-}" ]]; then
+  CA_LINE="insecure-skip-tls-verify: true"
+else
+  CA_LINE="certificate-authority-data: ${CA_DATA}"
+fi
 
-# --duration controla a validade do token (aqui: ~1 ano). Prefira um valor
-# curto e reemitir periodicamente em vez de um token que nunca expira.
-TOKEN=$(kubectl create token security-scanner-readonly -n default --duration=8760h)
+# --duration curto de propósito: token válido por 24h. Se vazar (commit sem
+# querer, log de CI), a janela de exposição fica pequena. Pra scans
+# recorrentes, prefira reemitir via cronjob a estender esse valor.
+TOKEN=$(kubectl create token security-scanner-readonly -n default --duration=24h)
 
-cat > security-scanner-kubeconfig.yaml &lt;&lt;EOF
+OUT_FILE="security-scanner-kubeconfig-${CONTEXT}.yaml"
+
+cat > "$OUT_FILE" &lt;&lt;EOF
 apiVersion: v1
 kind: Config
 clusters:
 - cluster:
     server: ${SERVER}
-    certificate-authority-data: ${CA_DATA}
-  name: scanner-cluster
+    ${CA_LINE}
+  name: scanner-${CONTEXT}
 contexts:
 - context:
-    cluster: scanner-cluster
+    cluster: scanner-${CONTEXT}
     user: security-scanner-readonly
-  name: scanner-context
-current-context: scanner-context
+  name: scanner-${CONTEXT}
+current-context: scanner-${CONTEXT}
 users:
 - name: security-scanner-readonly
   user:
     token: ${TOKEN}
 EOF
+chmod 600 "$OUT_FILE"
 
-echo "Gerado: security-scanner-kubeconfig.yaml — cole o conteúdo desse arquivo no campo Kubeconfig YAML."</pre>
+echo "Gerado: $OUT_FILE (permissão 600) — cole o conteúdo desse arquivo no campo Kubeconfig YAML."
+echo "Não commite este arquivo em git — contém um bearer token válido."</pre>
                     <button type="button" class="btn-copy-key" title="Copiar script" onclick="copyK8sTokenScript(this)" style="position:absolute; top:8px; right:8px;">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     </button>
