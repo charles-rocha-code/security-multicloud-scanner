@@ -11,6 +11,9 @@ jobs:
   reset-all-instances:
     name: Reset DB — todas as instâncias (ASG dinâmico)
     runs-on: ubuntu-latest
+    # Ação destrutiva (apaga users_db/sessions_db de produção) disparável por
+    # qualquer collaborator com write access — exige aprovação antes de rodar.
+    environment: production
     steps:
       - name: Configurar credenciais AWS (OIDC -- sem chave de longa duração)
         uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6.2.0

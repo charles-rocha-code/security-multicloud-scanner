@@ -1,0 +1,6 @@
+# Pin de versão do Semgrep usado em security-scan.yml -- existe só pra dar
+# ao cache do actions/setup-python um arquivo estável pra hashear (antes o
+# job rodava "pip install semgrep" sem pin nenhum, a única ferramenta da
+# esteira sem versão fixa). Atualize manualmente quando quiser subir de
+# versão -- confirme rodando "semgrep --version" localmente antes.
+semgrep==1.174.0

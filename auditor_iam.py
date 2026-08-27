@@ -32,6 +32,25 @@ KEY_AGE_HIGH_DAYS = 90
 KEY_AGE_WARN_DAYS = 45
 INACTIVE_DAYS = 90
 
+# Roles com AdministratorAccess que são provisionadas e geridas pela própria
+# AWS, não misconfiguração de quem administra a conta -- mesmo padrão do
+# allowlist de 'cluster-admin' no auditor K8s (auditor_k8s_authenticated.py):
+# a role continua no grafo (mark_high_value) porque um attacker-path real
+# pode passar por ela, só não vira finding solto que é ruído.
+#   - OrganizationAccountAccessRole: criada automaticamente pela AWS
+#     Organizations na conta membro; existe só pra permitir a conta de
+#     management administrar essa conta. Trust já é restrita à conta org
+#     (checada à parte pelo finding de Principal=*).
+#   - Path /aws-reserved/...: roles reservadas da AWS (ex.: permission sets
+#     do IAM Identity Center/SSO, AWSReservedSSO_AdministratorAccess_*) --
+#     só assumíveis via login federado (SAML/SSO), não por credencial solta.
+_NATIVE_ADMIN_ROLE_NAMES = {"OrganizationAccountAccessRole"}
+
+
+def _is_native_admin_role(role_name: str, role_path: str) -> bool:
+    return role_name in _NATIVE_ADMIN_ROLE_NAMES or role_path.startswith("/aws-reserved/")
+
+
 class IAMAuditor(GraphCollector):
     def __init__(
         self,
@@ -326,18 +345,19 @@ class IAMAuditor(GraphCollector):
                     attached = []
                 for pol in attached:
                     if pol["PolicyName"] == "AdministratorAccess":
-                        self._add(
-                            "role", rname, "AdministratorAccess na role",
-                            "HIGH",
-                            f"Role '{rname}' tem AdministratorAccess — revisar se realmente necessário.",
-                            f"aws iam detach-role-policy --role-name {rname} --policy-arn {pol['PolicyArn']}",
-                        )
                         self.mark_high_value(rarn)
                         self.add_node(GraphNode(
                             id="policy/AdministratorAccess", type="iam_policy", provider="AWS",
                             label="AdministratorAccess", high_value=True,
                         ))
                         self.add_edge(GraphEdge(rarn, "policy/AdministratorAccess", "has_permission"))
+                        if not _is_native_admin_role(rname, role.get("Path", "")):
+                            self._add(
+                                "role", rname, "AdministratorAccess na role",
+                                "HIGH",
+                                f"Role '{rname}' tem AdministratorAccess — revisar se realmente necessário.",
+                                f"aws iam detach-role-policy --role-name {rname} --policy-arn {pol['PolicyArn']}",
+                            )
 
                 # Cross-account trust aberta — a trust policy já é lida aqui
                 # de qualquer forma (pro finding de Principal=*); a mesma

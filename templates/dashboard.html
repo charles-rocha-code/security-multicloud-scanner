@@ -2720,6 +2720,18 @@
                   kubeconfig precisa de <strong style="color:#facc15;">get/list</strong> em: namespaces, pods,
                   services, secrets, configmaps, persistentvolumes(claims), storageclasses, networkpolicies,
                   clusterroles e clusterrolebindings.</span>
+                <div class="warning-box" style="border-color: rgba(250,204,21,0.35); background: rgba(250,204,21,0.08); margin-top:8px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#facc15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+                  <div>
+                    <strong style="color:#facc15;">Não cole seu kubeconfig pessoal/admin aqui.</strong><br/>
+                    <span style="font-size:11px; color:#9ca3af;">
+                      Esta ServiceAccount tem <code>get/list</code> em Secrets de <strong>todos</strong> os
+                      namespaces — equivalente em sensibilidade a uma credencial de admin, mesmo sem nenhum
+                      verbo de escrita. Aplique o manifesto abaixo e gere um kubeconfig <em>a partir do token
+                      dela</em> (passo a passo logo em seguida) em vez de usar sua credencial de cluster-admin.
+                    </span>
+                  </div>
+                </div>
                 <details style="margin-top:8px;">
                   <summary style="cursor:pointer; font-size:12px; color:#9ca3af;">Ver manifesto de permissões (ClusterRole read-only)</summary>
                   <div style="position:relative; margin-top:6px;">
@@ -2764,6 +2776,63 @@ roleRef:
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     </button>
                   </div>
+                </details>
+                <details style="margin-top:8px;">
+                  <summary style="cursor:pointer; font-size:12px; color:#9ca3af;">Como usar este manifesto (gerar o kubeconfig)</summary>
+                  <ol style="font-size:11px; color:#9ca3af; margin:8px 0 8px 18px; padding:0; line-height:1.6;">
+                    <li><strong style="color:#facc15;">Confira qual cluster está ativo</strong> antes de tudo — o manifesto e o script abaixo agem sempre sobre o contexto <em>atual</em> do seu <code style="color:#d1d5db;">kubectl</code>, não existe campo pra digitar o nome do cluster em lugar nenhum. Se você tem mais de um cluster configurado:
+                      <code style="color:#d1d5db; display:block; margin-top:4px;">kubectl config get-contexts</code>
+                      <code style="color:#d1d5db; display:block; margin-top:2px;">kubectl config use-context &lt;nome-do-cluster-a-escanear&gt;</code>
+                    </li>
+                    <li>Com o contexto certo já selecionado, salve o manifesto acima em um arquivo e aplique: <code style="color:#d1d5db;">kubectl apply -f security-scanner-readonly.yaml</code></li>
+                    <li>Rode o script abaixo — ele lê o servidor e o CA do seu contexto <code style="color:#d1d5db;">kubectl</code> atual, gera um token para a ServiceAccount <code style="color:#d1d5db;">security-scanner-readonly</code> e monta um kubeconfig novo com só essa credencial.</li>
+                    <li>Cole o <strong style="color:#facc15;">conteúdo do arquivo gerado</strong> (<code style="color:#d1d5db;">security-scanner-kubeconfig.yaml</code>) no campo "Kubeconfig YAML" acima — não o seu <code style="color:#d1d5db;">~/.kube/config</code> pessoal.</li>
+                  </ol>
+                  <div style="position:relative; margin-top:6px;">
+                    <pre id="k8s-token-script" style="font-size:11px; line-height:1.5; background:#111827; padding:12px 40px 12px 12px; border-radius:6px; overflow-x:auto; white-space:pre; color:#d1d5db;">#!/usr/bin/env bash
+set -euo pipefail
+
+CONTEXT=$(kubectl config current-context)
+echo "Contexto ativo: $CONTEXT — confirme que é este o cluster que você quer escanear."
+read -p "Continuar? [y/N] " -n 1 -r; echo
+[[ $REPLY =~ ^[Yy]$ ]] || { echo "Cancelado. Rode 'kubectl config use-context &lt;nome&gt;' e tente de novo."; exit 1; }
+
+CLUSTER=$(kubectl config view -o jsonpath="{.contexts[?(@.name=='$CONTEXT')].context.cluster}")
+SERVER=$(kubectl config view -o jsonpath="{.clusters[?(@.name=='$CLUSTER')].cluster.server}")
+CA_DATA=$(kubectl config view --raw -o jsonpath="{.clusters[?(@.name=='$CLUSTER')].cluster.certificate-authority-data}")
+
+# --duration controla a validade do token (aqui: ~1 ano). Prefira um valor
+# curto e reemitir periodicamente em vez de um token que nunca expira.
+TOKEN=$(kubectl create token security-scanner-readonly -n default --duration=8760h)
+
+cat > security-scanner-kubeconfig.yaml &lt;&lt;EOF
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: ${SERVER}
+    certificate-authority-data: ${CA_DATA}
+  name: scanner-cluster
+contexts:
+- context:
+    cluster: scanner-cluster
+    user: security-scanner-readonly
+  name: scanner-context
+current-context: scanner-context
+users:
+- name: security-scanner-readonly
+  user:
+    token: ${TOKEN}
+EOF
+
+echo "Gerado: security-scanner-kubeconfig.yaml — cole o conteúdo desse arquivo no campo Kubeconfig YAML."</pre>
+                    <button type="button" class="btn-copy-key" title="Copiar script" onclick="copyK8sTokenScript(this)" style="position:absolute; top:8px; right:8px;">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                  </div>
+                  <span class="help-text" style="display:block; margin-top:6px;">Requer Kubernetes 1.24+ (<code>kubectl create token</code>). Em clusters mais
+                    antigos, crie manualmente um Secret do tipo <code>kubernetes.io/service-account-token</code> anotado com
+                    <code>kubernetes.io/service-account.name: security-scanner-readonly</code> e leia o token de lá.</span>
                 </details>
               </div>
               <div style="margin-top: 12px;">
@@ -6209,6 +6278,20 @@ Tem certeza que deseja continuar?`;
         btn.classList.add('copied');
         btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
         showToast('Manifesto copiado!', 'success', 2000);
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+        }, 2000);
+      }).catch(() => showToast('Falha ao copiar.', 'error'));
+    }
+
+    function copyK8sTokenScript(btn) {
+      const pre = document.getElementById('k8s-token-script');
+      if (!pre) return;
+      navigator.clipboard.writeText(pre.innerText).then(() => {
+        btn.classList.add('copied');
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+        showToast('Script copiado!', 'success', 2000);
         setTimeout(() => {
           btn.classList.remove('copied');
           btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
