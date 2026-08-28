@@ -1033,6 +1033,29 @@ def scan_job_status(job_id: str, user=Depends(require_mfa)):
 
 
 # -----------------------------------------------------------------------------
+# Histórico de scans
+# -----------------------------------------------------------------------------
+# Precisa vir ANTES de /scan/{target:path} -- FastAPI casa rotas na ordem de
+# registro, e {target:path} é um coringa que aceitaria "history" como se
+# fosse um alvo de scan de verdade (bug real: GET /scan/history acabava
+# tentando escanear um bucket/host chamado "history").
+@app.get("/scan/history")
+def scan_history_endpoint(
+    provider: Optional[str] = None,
+    limit: int = 20,
+    user=Depends(require_mfa),
+):
+    """Lista os últimos scans do usuário logado. Filtre por provider opcional."""
+    if not HISTORY_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Histórico de scans indisponível.")
+    email = user.get("email") if isinstance(user, dict) else None
+    if not email:
+        raise HTTPException(status_code=401, detail="Usuário não identificado.")
+    scans = list_scans(email, provider=provider, limit=limit)
+    return {"email": email, "total": len(scans), "scans": scans}
+
+
+# -----------------------------------------------------------------------------
 # Scan público (compatível com dashboard)
 # -----------------------------------------------------------------------------
 @app.get("/scan/{target:path}")
@@ -1505,26 +1528,6 @@ def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa), async_mode: bool = Q
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Erro no scan Kubernetes: {e}")
-
-
-# -----------------------------------------------------------------------------
-# Histórico de scans
-# -----------------------------------------------------------------------------
-
-@app.get("/scan/history")
-def scan_history_endpoint(
-    provider: Optional[str] = None,
-    limit: int = 20,
-    user=Depends(require_mfa),
-):
-    """Lista os últimos scans do usuário logado. Filtre por provider opcional."""
-    if not HISTORY_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Histórico de scans indisponível.")
-    email = user.get("email") if isinstance(user, dict) else None
-    if not email:
-        raise HTTPException(status_code=401, detail="Usuário não identificado.")
-    scans = list_scans(email, provider=provider, limit=limit)
-    return {"email": email, "total": len(scans), "scans": scans}
 
 
 # -----------------------------------------------------------------------------

@@ -390,12 +390,20 @@ class K8sAuthenticatedAuditor(GraphCollector):
 
         cluster_info = self._get_cluster_info()
 
+        # Ordem importa: _check_workload_security gera uma finding MEDIUM por
+        # container sem resources.limits -- escala com o total de containers
+        # do cluster e é, de longe, o check mais "barulhento" dos cinco. Se
+        # ele rodasse primeiro num cluster grande, sozinho poderia estourar
+        # max_resources e cortar o loop antes de RBAC/anonymous-auth (os dois
+        # que geram CRITICAL de verdade) sequer rodarem. Roda por último de
+        # propósito: os checks de alto sinal e baixo volume vêm primeiro, e
+        # se algum corte acontecer, é garantido que é só nele.
         for check in (
-            lambda: self._check_workload_security(namespaces),
             self._check_rbac,
+            self._check_anonymous_auth,
             lambda: self._check_secrets_configmaps(namespaces),
             lambda: self._check_network_exposure(namespaces),
-            self._check_anonymous_auth,
+            lambda: self._check_workload_security(namespaces),
         ):
             try:
                 findings.extend(check())
