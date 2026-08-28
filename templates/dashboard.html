@@ -2639,15 +2639,7 @@
                   id="gcs-service-account"
                   class="input-field"
                   rows="8"
-                  placeholder='Cole aqui o JSON completo da Service Account:
-{
-  "type": "service_account",
-  "project_id": "my-project",
-  "private_key_id": "...",
-  "private_key": "-----BEGIN PRIVATE KEY-----\n...",
-  "client_email": "...@....iam.gserviceaccount.com",
-  ...
-}'
+                  placeholder='Cole aqui o JSON completo da chave de Service Account baixada do GCP Console (contém os campos project_id, private_key, client_email, entre outros).'
                 ></textarea>
                 <span class="help-text">JSON completo da Service Account Key (gerado no GCP Console → IAM & Admin → Service Accounts)</span>
               </div>
@@ -2916,15 +2908,7 @@ echo "Não commite este arquivo em git — contém um bearer token válido."</pr
                   class="input-field"
                   rows="8"
                   style="font-family: monospace; font-size: 12px;"
-                  placeholder='Cole o JSON completo da Service Account com permissão roles/iam.securityReviewer:
-{
-  "type": "service_account",
-  "project_id": "meu-projeto",
-  "private_key_id": "...",
-  "private_key": "-----BEGIN PRIVATE KEY-----\n...",
-  "client_email": "auditor@meu-projeto.iam.gserviceaccount.com",
-  ...
-}'
+                  placeholder='Cole o JSON completo da chave de Service Account com permissão roles/iam.securityReviewer (contém os campos project_id, private_key, client_email, entre outros).'
                 ></textarea>
                 <span class="help-text">GCP Console → IAM & Admin → Service Accounts → Create key (JSON). Permissão mínima: <code>roles/iam.securityReviewer</code></span>
               </div>

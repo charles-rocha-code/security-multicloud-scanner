@@ -33,7 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from collections import Counter
 import hashlib, json, io, tempfile, os
-from xml.sax.saxutils import escape as _xml_escape
+from xml.sax.saxutils import escape as _xml_escape  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml -- só escapa texto de saída, nunca faz parse de XML de entrada (sem risco de XXE)
 
 # ── python-docx ───────────────────────────────────────────────────────
 try:

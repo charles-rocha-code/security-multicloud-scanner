@@ -10,7 +10,7 @@ from engine_risk import scan_content_for_secrets, should_scan_content
 
 
 def test_detecta_chave_aws_embutida_em_texto_comum():
-    resultado = scan_content_for_secrets("notas do projeto\nchave: AKIAABCDEFGHIJKLMNOP\nfim")
+    resultado = scan_content_for_secrets("notas do projeto\nchave: AKIAABCDEFGHIJKLMNOP\nfim")  # nosemgrep: generic.secrets.security.detected-aws-access-key-id-value.detected-aws-access-key-id-value -- chave falsa, fixture pra testar o próprio motor de detecção
     assert resultado is not None
     sev, _ = resultado
     assert sev == "CRITICAL"
