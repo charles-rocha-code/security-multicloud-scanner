@@ -753,20 +753,3 @@ def logout_all_sessions(email: str) -> int:
     for token in tokens:
         _session_delete(token)
     return len(tokens)
-
-# ==================== INFORMAÇÕES ====================
-
-def get_system_stats() -> Dict[str, Any]:
-    if _backend() != "aws":
-        active_count = len(read_json(SESSIONS_FILE, {}))
-    else:
-        try:
-            resp = _tbl_sessions().scan(Select="COUNT")
-            active_count = resp.get("Count", 0)
-        except Exception:
-            active_count = -1
-    return {
-        "total_users": len(USERS_DB),
-        "users_with_mfa": sum(1 for u in USERS_DB.values() if u.get("mfa_enabled")),
-        "active_sessions": active_count,
-    }

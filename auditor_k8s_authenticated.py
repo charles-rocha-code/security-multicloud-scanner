@@ -312,7 +312,8 @@ class K8sAuthenticatedAuditor(GraphCollector):
         return findings
 
     def _check_network_exposure(self, namespaces: List[str]) -> List[Dict[str, Any]]:
-        """Services LoadBalancer/NodePort, namespaces sem NetworkPolicy."""
+        """Services LoadBalancer/NodePort, namespaces sem NetworkPolicy (ou com
+        NetworkPolicy que existe mas equivale a allow-all)."""
         findings: List[Dict[str, Any]] = []
 
         for ns in namespaces:
@@ -337,6 +338,18 @@ class K8sAuthenticatedAuditor(GraphCollector):
                         "Namespace sem NetworkPolicy (tráfego pod-a-pod liberado)",
                         "Aplicar default-deny e regras de allowlist.",
                     ))
+                else:
+                    for policy in policies.items:
+                        ingress_rules = policy.spec.ingress or []
+                        allow_all_rule = any(not (rule._from or []) for rule in ingress_rules)
+                        if allow_all_rule:
+                            findings.append(self._finding(
+                                "HIGH", "Network", "NetworkPolicy", policy.metadata.name, ns,
+                                "NetworkPolicy presente mas com regra de ingress sem "
+                                "'from' -- equivale a allow-all, não restringe origem",
+                                "Definir 'from' (podSelector/namespaceSelector) em vez "
+                                "de regra vazia.",
+                            ))
             except ApiException:
                 pass
 
