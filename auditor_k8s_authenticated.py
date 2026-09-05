@@ -12,6 +12,8 @@ except ImportError:
 
 from graph_model import GraphCollector, GraphEdge, GraphNode
 from ssrf_guard import assert_server_not_ssrf_target
+from auditor_k8s import _is_system_namespace
+from engine_risk import scan_content_for_secrets
 
 # Sujeitos que, se vinculados a uma ClusterRole perigosa, representam ponto
 # de entrada exposto de verdade — qualquer requisição não autenticada ou
@@ -23,6 +25,20 @@ SENSITIVE_KEY_PATTERNS = (
     "password", "passwd", "secret", "token", "apikey", "api_key",
     "access_key", "private_key", "credential", "auth",
 )
+
+# ClusterRoles nativas do Kubernetes que legitimamente concedem '*'/'*' --
+# hoje só cluster-admin bate nisso de verdade (admin/edit/view são escopadas
+# por apiGroup, não têm resources=["*"] literal). Continua entrando no grafo
+# (dangerous_roles) porque o Mapa de Grafo de Ataque precisa dela pra mostrar
+# "existe alvo de alto valor, mas nenhum caminho sem credencial leva até ele"
+# -- só não vira um finding CRITICAL solto, que é ruído (é assim que
+# cluster-admin existe em todo cluster Kubernetes, não uma misconfiguração).
+_NATIVE_WILDCARD_CLUSTERROLES = {"cluster-admin"}
+
+# ClusterRoleBindings nativas que concedem acesso mínimo (só /healthz,
+# /version) a system:unauthenticated/system:authenticated -- shipped por
+# padrão em todo cluster Kubernetes desde ~1.14, não é acesso anônimo real.
+_BENIGN_ANONYMOUS_BINDINGS = {"system:public-info-viewer"}
 
 
 class K8sAuthenticatedAuditor(GraphCollector):
@@ -126,8 +142,21 @@ class K8sAuthenticatedAuditor(GraphCollector):
     # ------------------------------------------------------------------
 
     def _check_workload_security(self, namespaces: List[str]) -> List[Dict[str, Any]]:
-        """Privileged, hostNetwork, runAsRoot, sem resource limits."""
+        """Privileged, hostNetwork, runAsRoot, sem resource limits.
+
+        Em namespace de sistema (kube-system etc.), esses padrões são como o
+        próprio control plane/CNI funciona (etcd, kube-apiserver, kindnet,
+        kube-proxy) -- reportar isso como CRITICAL/HIGH genérico é ruído que
+        afoga achado real de workload de usuário. Severidade cai pra LOW
+        nesses namespaces, sem deixar de reportar (visibilidade continua,
+        só não grita alarme falso)."""
         findings: List[Dict[str, Any]] = []
+
+        def finding(default_severity, category, resource_type, resource_name, namespace, reason, recommendation):
+            if _is_system_namespace(namespace):
+                default_severity = "LOW"
+                reason = f"{reason} -- namespace de sistema ({namespace}), esperado em control plane/CNI"
+            return self._finding(default_severity, category, resource_type, resource_name, namespace, reason, recommendation)
 
         for ns in namespaces:
             try:
@@ -140,19 +169,19 @@ class K8sAuthenticatedAuditor(GraphCollector):
                 spec = pod.spec
 
                 if spec.host_network:
-                    findings.append(self._finding(
+                    findings.append(finding(
                         "HIGH", "Workload Security", "Pod", name, ns,
                         "Pod com hostNetwork=true (compartilha rede do nó)",
                         "Remover hostNetwork salvo necessidade técnica justificada.",
                     ))
                 if spec.host_pid:
-                    findings.append(self._finding(
+                    findings.append(finding(
                         "HIGH", "Workload Security", "Pod", name, ns,
                         "Pod com hostPID=true (vê processos do nó)",
                         "Remover hostPID.",
                     ))
                 if spec.host_ipc:
-                    findings.append(self._finding(
+                    findings.append(finding(
                         "HIGH", "Workload Security", "Pod", name, ns,
                         "Pod com hostIPC=true",
                         "Remover hostIPC.",
@@ -162,14 +191,14 @@ class K8sAuthenticatedAuditor(GraphCollector):
                     sc = c.security_context
                     if sc:
                         if sc.privileged:
-                            findings.append(self._finding(
+                            findings.append(finding(
                                 "CRITICAL", "Workload Security", "Container",
                                 f"{name}/{c.name}", ns,
                                 "Container rodando como privileged",
                                 "Remover privileged=true; usar capabilities específicas se necessário.",
                             ))
                         if sc.run_as_user == 0 or (sc.run_as_user is None and sc.run_as_non_root is not True):
-                            findings.append(self._finding(
+                            findings.append(finding(
                                 "HIGH", "Workload Security", "Container",
                                 f"{name}/{c.name}", ns,
                                 "Container pode estar rodando como root",
@@ -177,7 +206,7 @@ class K8sAuthenticatedAuditor(GraphCollector):
                             ))
 
                     if not c.resources or not c.resources.limits:
-                        findings.append(self._finding(
+                        findings.append(finding(
                             "MEDIUM", "Workload Security", "Container",
                             f"{name}/{c.name}", ns,
                             "Container sem resources.limits (CPU/memory)",
@@ -202,12 +231,19 @@ class K8sAuthenticatedAuditor(GraphCollector):
                 verbs = rule.verbs or []
                 resources = rule.resources or []
                 if "*" in verbs and "*" in resources:
+                    # Continua em dangerous_roles (o grafo abaixo precisa
+                    # dela pra mostrar "existe alvo de alto valor, nenhum
+                    # caminho sem credencial chega nele") -- só não vira
+                    # finding solto se for uma role nativa do Kubernetes
+                    # (cluster-admin existe em todo cluster, não é
+                    # misconfiguração de ninguém).
                     dangerous_roles.add(role.metadata.name)
-                    findings.append(self._finding(
-                        "CRITICAL", "RBAC", "ClusterRole", role.metadata.name, None,
-                        "ClusterRole concede '*' verbs em '*' resources",
-                        "Aplicar princípio do menor privilégio; remover wildcards.",
-                    ))
+                    if role.metadata.name not in _NATIVE_WILDCARD_CLUSTERROLES:
+                        findings.append(self._finding(
+                            "CRITICAL", "RBAC", "ClusterRole", role.metadata.name, None,
+                            "ClusterRole concede '*' verbs em '*' resources",
+                            "Aplicar princípio do menor privilégio; remover wildcards.",
+                        ))
 
         # Grafo: quem está vinculado (bound) às roles perigosas encontradas
         # acima. Dado novo em relação aos outros clouds — list_cluster_role
@@ -239,6 +275,62 @@ class K8sAuthenticatedAuditor(GraphCollector):
 
         return findings
 
+    def _check_namespaced_rbac(self, namespaces: List[str]) -> List[Dict[str, Any]]:
+        """Roles (namespaced) com wildcard '*', bindings perigosos -- mesma
+        lógica do _check_rbac, mas pra Role/RoleBinding escopados a um
+        namespace, que list_cluster_role/list_cluster_role_binding nunca
+        enxergam. Um Role com '*'/'*' escopado a um namespace concede o
+        mesmo acesso irrestrito que um ClusterRole wildcard, só que
+        limitado àquele namespace -- igualmente CRITICAL."""
+        findings: List[Dict[str, Any]] = []
+
+        for ns in namespaces:
+            try:
+                roles = self.rbac.list_namespaced_role(ns, _request_timeout=self.timeout)
+            except ApiException:
+                continue
+
+            dangerous_roles: set = set()
+            for role in roles.items:
+                for rule in role.rules or []:
+                    verbs = rule.verbs or []
+                    resources = rule.resources or []
+                    if "*" in verbs and "*" in resources:
+                        dangerous_roles.add(role.metadata.name)
+                        findings.append(self._finding(
+                            "CRITICAL", "RBAC", "Role", role.metadata.name, ns,
+                            "Role concede '*' verbs em '*' resources neste namespace",
+                            "Aplicar princípio do menor privilégio; remover wildcards.",
+                        ))
+
+            if not dangerous_roles:
+                continue
+
+            try:
+                bindings = self.rbac.list_namespaced_role_binding(ns, _request_timeout=self.timeout)
+            except ApiException:
+                continue
+
+            for binding in bindings.items:
+                role_ref = binding.role_ref.name if binding.role_ref else None
+                if role_ref not in dangerous_roles:
+                    continue
+                role_id = f"role/{ns}/{role_ref}"
+                self.add_node(GraphNode(
+                    id=role_id, type="k8s_role", provider="KUBERNETES",
+                    label=f"{role_ref} ({ns})", high_value=True,
+                ))
+                for subject in binding.subjects or []:
+                    subj_name = subject.name or "unknown"
+                    subj_id = f"{subject.kind}/{subj_name}"
+                    self.add_node(GraphNode(
+                        id=subj_id, type="k8s_subject", provider="KUBERNETES", label=subj_name,
+                        exposed=(subj_name in EXPOSED_SUBJECT_NAMES),
+                    ))
+                    self.add_edge(GraphEdge(subj_id, role_id, "has_permission"))
+
+        return findings
+
     def _check_secrets_configmaps(self, namespaces: List[str]) -> List[Dict[str, Any]]:
         """ConfigMaps com chaves sensíveis, Secrets usados como env var."""
         findings: List[Dict[str, Any]] = []
@@ -250,11 +342,33 @@ class K8sAuthenticatedAuditor(GraphCollector):
                 continue
 
             for cm in cms.items:
-                for key in (cm.data or {}):
+                for key, value in (cm.data or {}).items():
                     if any(p in key.lower() for p in SENSITIVE_KEY_PATTERNS):
                         findings.append(self._finding(
                             "CRITICAL", "Secrets", "ConfigMap", cm.metadata.name, ns,
                             f"ConfigMap contém chave sensível '{key}' em plaintext",
+                            "Migrar para Secret (ainda melhor: External Secrets + Vault/KMS).",
+                        ))
+                        continue
+                    # Mesmo motor de scan de conteúdo usado nos auditores de
+                    # storage (engine_risk.py) -- sem isso, uma chave com
+                    # nome inofensivo (ex. "app-config") mas valor contendo
+                    # uma AKIA... embutida passava invisível, enquanto o
+                    # mesmo conteúdo num arquivo do S3 já era detectado.
+                    # include_entropy_fallback=False: validado contra um
+                    # cluster kind real, o fallback de entropia sozinho
+                    # (sem isso) marcava kube-root-ca.crt (certificado PEM)
+                    # e ConfigMap de regra do Prometheus/kubelet (JSON
+                    # grande) como "possível segredo" -- 100% falso-positivo,
+                    # zero dos padrões precisos (AWS/PEM/JWT/api_key) bateu
+                    # nesse cluster. Mantém os padrões precisos, só desliga
+                    # o fallback ruidoso pra esse tipo de dado.
+                    content_match = scan_content_for_secrets(value or "", include_entropy_fallback=False)
+                    if content_match:
+                        sev, reason = content_match
+                        findings.append(self._finding(
+                            sev, "Secrets", "ConfigMap", cm.metadata.name, ns,
+                            f"ConfigMap chave '{key}': {reason}",
                             "Migrar para Secret (ainda melhor: External Secrets + Vault/KMS).",
                         ))
 
@@ -277,7 +391,8 @@ class K8sAuthenticatedAuditor(GraphCollector):
         return findings
 
     def _check_network_exposure(self, namespaces: List[str]) -> List[Dict[str, Any]]:
-        """Services LoadBalancer/NodePort, namespaces sem NetworkPolicy."""
+        """Services LoadBalancer/NodePort, namespaces sem NetworkPolicy (ou com
+        NetworkPolicy que existe mas equivale a allow-all)."""
         findings: List[Dict[str, Any]] = []
 
         for ns in namespaces:
@@ -302,6 +417,18 @@ class K8sAuthenticatedAuditor(GraphCollector):
                         "Namespace sem NetworkPolicy (tráfego pod-a-pod liberado)",
                         "Aplicar default-deny e regras de allowlist.",
                     ))
+                else:
+                    for policy in policies.items:
+                        ingress_rules = policy.spec.ingress or []
+                        allow_all_rule = any(not (rule._from or []) for rule in ingress_rules)
+                        if allow_all_rule:
+                            findings.append(self._finding(
+                                "HIGH", "Network", "NetworkPolicy", policy.metadata.name, ns,
+                                "NetworkPolicy presente mas com regra de ingress sem "
+                                "'from' -- equivale a allow-all, não restringe origem",
+                                "Definir 'from' (podSelector/namespaceSelector) em vez "
+                                "de regra vazia.",
+                            ))
             except ApiException:
                 pass
 
@@ -313,6 +440,20 @@ class K8sAuthenticatedAuditor(GraphCollector):
         try:
             sars = self.rbac.list_cluster_role_binding(_request_timeout=self.timeout)
             for crb in sars.items:
+                role_ref_name = crb.role_ref.name if crb.role_ref else None
+                if (
+                    crb.metadata.name in _BENIGN_ANONYMOUS_BINDINGS
+                    and role_ref_name in _BENIGN_ANONYMOUS_BINDINGS
+                ):
+                    # system:public-info-viewer só expõe /healthz e /version
+                    # -- shipped por padrão em todo cluster desde ~1.14, não
+                    # é acesso anônimo real. Checa nome do binding E
+                    # role_ref: sem isso, alguém reapontando esse binding
+                    # pra cluster-admin (mantendo o mesmo nome) passaria
+                    # despercebido -- exatamente o CRITICAL que este check
+                    # existe pra pegar. Um binding novo com nome diferente
+                    # continua sendo pego abaixo.
+                    continue
                 for s in crb.subjects or []:
                     if s.name == "system:anonymous" or s.name == "system:unauthenticated":
                         findings.append(self._finding(
@@ -341,12 +482,21 @@ class K8sAuthenticatedAuditor(GraphCollector):
 
         cluster_info = self._get_cluster_info()
 
+        # Ordem importa: _check_workload_security gera uma finding MEDIUM por
+        # container sem resources.limits -- escala com o total de containers
+        # do cluster e é, de longe, o check mais "barulhento" dos cinco. Se
+        # ele rodasse primeiro num cluster grande, sozinho poderia estourar
+        # max_resources e cortar o loop antes de RBAC/anonymous-auth (os dois
+        # que geram CRITICAL de verdade) sequer rodarem. Roda por último de
+        # propósito: os checks de alto sinal e baixo volume vêm primeiro, e
+        # se algum corte acontecer, é garantido que é só nele.
         for check in (
-            lambda: self._check_workload_security(namespaces),
             self._check_rbac,
+            lambda: self._check_namespaced_rbac(namespaces),
+            self._check_anonymous_auth,
             lambda: self._check_secrets_configmaps(namespaces),
             lambda: self._check_network_exposure(namespaces),
-            self._check_anonymous_auth,
+            lambda: self._check_workload_security(namespaces),
         ):
             try:
                 findings.extend(check())

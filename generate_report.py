@@ -33,7 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from collections import Counter
 import hashlib, json, io, tempfile, os
-from xml.sax.saxutils import escape as _xml_escape
+from xml.sax.saxutils import escape as _xml_escape  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml -- só escapa texto de saída, nunca faz parse de XML de entrada (sem risco de XXE)
 
 # ── python-docx ───────────────────────────────────────────────────────
 try:
@@ -1477,6 +1477,7 @@ class ProfessionalReportGenerator:
         return [{'file': f.get('key',f.get('name','unknown')),
                  'severity': f.get('severity','LOW'),
                  'size': int(f.get('size',0)),
+                 'category': f.get('category',''),
                  'reason': f.get('reason','Exposição pública'),
                  'last_modified': f.get('last_modified','N/A')}
                 for f in files[:n]
@@ -1685,6 +1686,14 @@ class ProfessionalReportGenerator:
     # ── Gerar todos os gráficos ────────────────────────────────────────
     def _generate_all_charts(self):
         files    = self.scan_data.get('files', [])
+        # Ordena por severidade (depois por 'size' desc como desempate, mesmo
+        # critério de _get_top_critical_files) antes de qualquer files[:N] abaixo
+        # -- 'files' vem na ordem bruta que o auditor gerou (ex.: Kubernetes lista
+        # Storage/hostPath, todo LOW, antes de RBAC/Workload), então um top-N sem
+        # ordenar cortava CRITICAL/HIGH pra fora do gráfico "Top 20" inteiro.
+        _SEV_ORDER = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3}
+        files = sorted(files, key=lambda f: (_SEV_ORDER.get(f.get('severity', 'LOW'), 4),
+                                              -float(f.get('size', 0) or 0)))
         sd       = self.scan_data.get('severity_distribution', {})
         total    = len(files)
         provider = self.scan_data.get('provider','').upper()
@@ -2053,6 +2062,7 @@ class ProfessionalReportGenerator:
 
         # Métricas resumidas + ação
         is_iam   = 'IAM' in self.scan_data.get('provider','').upper()
+        is_k8s   = 'KUBERNETES' in self.scan_data.get('provider','').upper()
         iam_prov = self.scan_data.get('provider','').upper()
         iam_summ = self.scan_data.get('summary', {}) if is_iam else {}
         target_label = 'Account / Project / Subscription' if is_iam else 'Bucket / Container'
@@ -2140,15 +2150,26 @@ class ProfessionalReportGenerator:
             # sem aviso (bug visto com achados de Kubernetes, cujo 'motivo' é mais
             # longo que os de bucket S3).
             CELL = ParagraphStyle('TopFileCell', fontSize=8, leading=10, textColor=colors.HexColor('#1e293b'))
-            top_data = [['#', 'Arquivo', 'Severidade', 'Tamanho', 'Motivo']]
+            # Achados de Kubernetes (RBAC/Network/Workload/API Server) não têm
+            # bytes de arquivo -- 'size' vem 0 do auditor pra esses (só Secrets
+            # carrega o tamanho do valor exposto). Mostrar "Tamanho" gera uma
+            # coluna inteira de "0.0 B" que parece bug; "Categoria" é o dado
+            # que de fato existe pra esse provider (mesma fonte do Top Achados
+            # por Categoria logo abaixo).
+            col4_label = 'Categoria' if is_k8s else 'Tamanho'
+            top_data = [['#', 'Arquivo', 'Severidade', col4_label, 'Motivo']]
             for i, f in enumerate(self.top_critical_files[:10], 1):
                 fname = f['file']
                 fname_display = ('...' + fname[-42:]) if len(fname) > 45 else fname
+                # 'Categoria' (ex. 'Workload Security') é mais longo que 'Tamanho'
+                # (ex. '0.0 B') -- precisa de Paragraph pra quebrar linha na coluna
+                # estreita, senão a string crua transborda em cima do 'Motivo'.
+                col4_value = Paragraph(f.get('category') or '-', CELL) if is_k8s else self._format_size(f['size'])
                 top_data.append([
                     str(i),
                     Paragraph(fname_display, CELL),
                     f['severity'],
-                    self._format_size(f['size']),
+                    col4_value,
                     Paragraph((f.get('reason','') or '') or '-', CELL),
                 ])
             sev_col_map = {'CRITICAL': self.COLOR_CRITICAL, 'HIGH': self.COLOR_HIGH,
@@ -2407,11 +2428,25 @@ class ProfessionalReportGenerator:
                 story.append(Paragraph(
                     f"{vuln['icon']} {vuln['name']} ({vuln['count']} arquivos)", H2))
                 CELL2 = ParagraphStyle('VulnCell', fontSize=8, leading=10, textColor=colors.HexColor('#1e293b'))
+                # K8s: 'size' é 0 pra quase todo achado (RBAC/Network/Workload não
+                # têm bytes de arquivo) e a categoria já está no título da seção
+                # acima -- repetir 'Tamanho' zerado não ajuda; 'Namespace' (1º
+                # segmento da key, ex. 'default/Container/...') é o dado que sobra
+                # de útil pra esse provider.
+                col3_label = 'Namespace' if is_k8s else 'Tamanho'
+                def _col3(item):
+                    # Paragraph pra quebrar linha -- nomes de namespace (ex.
+                    # 'kube-node-lease', 'local-path-storage') são mais longos
+                    # que '0.0 B' e transbordavam em cima do 'Motivo' como
+                    # string crua na coluna estreita.
+                    if is_k8s:
+                        return Paragraph((item.get('file','') or '-').split('/')[0] or '-', CELL2)
+                    return self._format_size(item['size'])
                 vt = Table(
-                    [['Arquivo','Sev.','Tamanho','Motivo']] +
+                    [['Arquivo','Sev.',col3_label,'Motivo']] +
                     [[Paragraph(item['file'][:45]+'...' if len(item['file'])>45 else item['file'], CELL2),
                       item['severity'],
-                      self._format_size(item['size']),
+                      _col3(item),
                       Paragraph(item.get('reason','') or '-', CELL2)] for item in vuln['items'][:10]],
                     colWidths=[2.3*inch, 0.7*inch, 0.8*inch, 2.3*inch])
                 vt.setStyle(TableStyle([
@@ -2738,6 +2773,7 @@ class ProfessionalReportGenerator:
         total    = len(self.scan_data.get('files', []))
         risk     = self.risk_level
         is_iam   = 'IAM' in self.scan_data.get('provider','').upper()
+        is_k8s   = 'KUBERNETES' in self.scan_data.get('provider','').upper()
         iam_summ = self.scan_data.get('summary', {}) if is_iam else {}
 
         # ── Capa ──────────────────────────────────────────────────────
@@ -2919,14 +2955,20 @@ class ProfessionalReportGenerator:
                 self._docx_heading(doc, f"{vuln['icon']} {vuln['name']} ({vuln['count']} arquivos)", level=2)
                 vt = doc.add_table(rows=1+len(vuln['items'][:10]), cols=4)
                 vt.style = 'Table Grid'
-                for i, h in enumerate(['Arquivo','Severidade','Tamanho','Motivo']):
+                # K8s: 'size' é 0 pra quase todo achado (RBAC/Network/Workload não
+                # têm bytes de arquivo) e a categoria já está no título da seção
+                # acima -- 'Namespace' (1º segmento da key) é o dado que sobra de
+                # útil pra esse provider (mesmo critério do PDF).
+                col3_label = 'Namespace' if is_k8s else 'Tamanho'
+                for i, h in enumerate(['Arquivo','Severidade',col3_label,'Motivo']):
                     self._docx_set_bg(vt.rows[0].cells[i], '3b82f6')
                     r = vt.rows[0].cells[i].paragraphs[0].add_run(h)
                     r.bold=True; r.font.size=Pt(9); r.font.name='Arial'
                     r.font.color.rgb=RGBColor(255,255,255)
                 for ri, item in enumerate(vuln['items'][:10], 1):
+                    col3_value = ((item.get('file','') or '-').split('/')[0] or '-') if is_k8s else self._format_size(item['size'])
                     vals = [_smart_short_label(item['file'], 50), item['severity'],
-                            self._format_size(item['size']), item.get('reason','') or '-']
+                            col3_value, item.get('reason','') or '-']
                     for ci, v in enumerate(vals):
                         c = vt.rows[ri].cells[ci]
                         r = c.paragraphs[0].add_run(v)

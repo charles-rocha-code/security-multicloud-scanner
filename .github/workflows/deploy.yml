@@ -18,6 +18,10 @@ jobs:
   deploy:
     name: Deploy — rolling zero-downtime via SSM + ALB draining
     runs-on: ubuntu-latest
+    # Gate real de aprovação antes de tocar em produção — sem isso, todo push
+    # em main deployava direto, e o environment 'production' só existia no
+    # GitHub sem nenhum job referenciá-lo (protection rule nunca era avaliada).
+    environment: production
 
     steps:
       - name: Configure AWS credentials (OIDC -- sem chave de longa duração)

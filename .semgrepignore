@@ -1,0 +1,8 @@
+# Falsos positivos confirmados manualmente (mesma triagem documentada no
+# .gitleaksignore, ver docs/sast-dast-roadmap.md) -- Semgrep não suporta
+# supressão por fingerprint como o Gitleaks, só exclusão de arquivo inteiro.
+#
+# README.md: exemplos de curl na documentação com JSON de Service Account
+# preenchido com placeholders ("...", "my-project") -- não é credencial
+# real, mas casa com generic.secrets.security.detected-google-gcm-service-account.
+README.md

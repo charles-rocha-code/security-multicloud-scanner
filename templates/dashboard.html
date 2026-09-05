@@ -2386,34 +2386,71 @@
           <span>Todos</span>
           <span class="cat-filter-count" id="cat-count-all">0</span>
         </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('cred', this)" id="cat-btn-cred">
-          <span>Credenciais</span>
-          <span class="cat-filter-count" id="cat-count-cred">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('keys', this)" id="cat-btn-keys">
-          <span>Chaves Crypto</span>
-          <span class="cat-filter-count" id="cat-count-keys">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('db', this)" id="cat-btn-db">
-          <span>Backups / DB</span>
-          <span class="cat-filter-count" id="cat-count-db">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('config', this)" id="cat-btn-config">
-          <span>Configs</span>
-          <span class="cat-filter-count" id="cat-count-config">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('code', this)" id="cat-btn-code">
-          <span>Código</span>
-          <span class="cat-filter-count" id="cat-count-code">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('archive', this)" id="cat-btn-archive">
-          <span>Compactados</span>
-          <span class="cat-filter-count" id="cat-count-archive">0</span>
-        </button>
-        <button class="cat-filter-btn" onclick="setCategoryFilter('other', this)" id="cat-btn-other">
-          <span>Outros</span>
-          <span class="cat-filter-count" id="cat-count-other">0</span>
-        </button>
+
+        <!-- Categorias p/ scan de bucket (S3/GCS/Azure) — classificação por extensão -->
+        <div id="sidebar-categories-generic">
+          <button class="cat-filter-btn" onclick="setCategoryFilter('cred', this)" id="cat-btn-cred">
+            <span>Credenciais</span>
+            <span class="cat-filter-count" id="cat-count-cred">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('keys', this)" id="cat-btn-keys">
+            <span>Chaves Crypto</span>
+            <span class="cat-filter-count" id="cat-count-keys">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('db', this)" id="cat-btn-db">
+            <span>Backups / DB</span>
+            <span class="cat-filter-count" id="cat-count-db">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('config', this)" id="cat-btn-config">
+            <span>Configs</span>
+            <span class="cat-filter-count" id="cat-count-config">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('code', this)" id="cat-btn-code">
+            <span>Código</span>
+            <span class="cat-filter-count" id="cat-count-code">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('archive', this)" id="cat-btn-archive">
+            <span>Compactados</span>
+            <span class="cat-filter-count" id="cat-count-archive">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('other', this)" id="cat-btn-other">
+            <span>Outros</span>
+            <span class="cat-filter-count" id="cat-count-other">0</span>
+          </button>
+        </div>
+
+        <!-- Categorias p/ scan Kubernetes — mesmas do Mapa de Vulnerabilidades e
+             Top Achados por Categoria (ver K8S_CATEGORY_MAP/getFileCategory) -->
+        <div id="sidebar-categories-k8s" style="display:none;">
+          <button class="cat-filter-btn" onclick="setCategoryFilter('storage', this)" id="cat-btn-storage">
+            <span>Storage (K8s)</span>
+            <span class="cat-filter-count" id="cat-count-storage">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('workload', this)" id="cat-btn-workload">
+            <span>Workload</span>
+            <span class="cat-filter-count" id="cat-count-workload">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('rbac', this)" id="cat-btn-rbac">
+            <span>RBAC</span>
+            <span class="cat-filter-count" id="cat-count-rbac">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('secrets-k8s', this)" id="cat-btn-secrets-k8s">
+            <span>Secrets</span>
+            <span class="cat-filter-count" id="cat-count-secrets-k8s">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('network-k8s', this)" id="cat-btn-network-k8s">
+            <span>Rede</span>
+            <span class="cat-filter-count" id="cat-count-network-k8s">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('apiserver', this)" id="cat-btn-apiserver">
+            <span>API Server</span>
+            <span class="cat-filter-count" id="cat-count-apiserver">0</span>
+          </button>
+          <button class="cat-filter-btn" onclick="setCategoryFilter('other', this)" id="cat-btn-other-k8s">
+            <span>Outros</span>
+            <span class="cat-filter-count" id="cat-count-other-k8s">0</span>
+          </button>
+        </div>
       </div>
 
     </aside>
@@ -2602,15 +2639,7 @@
                   id="gcs-service-account"
                   class="input-field"
                   rows="8"
-                  placeholder='Cole aqui o JSON completo da Service Account:
-{
-  "type": "service_account",
-  "project_id": "my-project",
-  "private_key_id": "...",
-  "private_key": "-----BEGIN PRIVATE KEY-----\n...",
-  "client_email": "...@....iam.gserviceaccount.com",
-  ...
-}'
+                  placeholder='Cole aqui o JSON completo da chave de Service Account baixada do GCP Console (contém os campos project_id, private_key, client_email, entre outros).'
                 ></textarea>
                 <span class="help-text">JSON completo da Service Account Key (gerado no GCP Console → IAM & Admin → Service Accounts)</span>
               </div>
@@ -2683,6 +2712,18 @@
                   kubeconfig precisa de <strong style="color:#facc15;">get/list</strong> em: namespaces, pods,
                   services, secrets, configmaps, persistentvolumes(claims), storageclasses, networkpolicies,
                   clusterroles e clusterrolebindings.</span>
+                <div class="warning-box" style="border-color: rgba(250,204,21,0.35); background: rgba(250,204,21,0.08); margin-top:8px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#facc15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+                  <div>
+                    <strong style="color:#facc15;">Não cole seu kubeconfig pessoal/admin aqui.</strong><br/>
+                    <span style="font-size:11px; color:#9ca3af;">
+                      Esta ServiceAccount tem <code>get/list</code> em Secrets de <strong>todos</strong> os
+                      namespaces — equivalente em sensibilidade a uma credencial de admin, mesmo sem nenhum
+                      verbo de escrita. Aplique o manifesto abaixo e gere um kubeconfig <em>a partir do token
+                      dela</em> (passo a passo logo em seguida) em vez de usar sua credencial de cluster-admin.
+                    </span>
+                  </div>
+                </div>
                 <details style="margin-top:8px;">
                   <summary style="cursor:pointer; font-size:12px; color:#9ca3af;">Ver manifesto de permissões (ClusterRole read-only)</summary>
                   <div style="position:relative; margin-top:6px;">
@@ -2727,6 +2768,91 @@ roleRef:
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     </button>
                   </div>
+                </details>
+                <details style="margin-top:8px;">
+                  <summary style="cursor:pointer; font-size:12px; color:#9ca3af;">Como usar este manifesto (gerar o kubeconfig)</summary>
+                  <ol style="font-size:11px; color:#9ca3af; margin:8px 0 8px 18px; padding:0; line-height:1.6;">
+                    <li><strong style="color:#facc15;">Confira qual cluster está ativo</strong> antes de tudo — o manifesto e o script abaixo agem sempre sobre o contexto <em>atual</em> do seu <code style="color:#d1d5db;">kubectl</code>, não existe campo pra digitar o nome do cluster em lugar nenhum. Se você tem mais de um cluster configurado:
+                      <code style="color:#d1d5db; display:block; margin-top:4px;">kubectl config get-contexts</code>
+                      <code style="color:#d1d5db; display:block; margin-top:2px;">kubectl config use-context &lt;nome-do-cluster-a-escanear&gt;</code>
+                    </li>
+                    <li>Com o contexto certo já selecionado, salve o manifesto acima em um arquivo e aplique: <code style="color:#d1d5db;">kubectl apply -f security-scanner-readonly.yaml</code></li>
+                    <li>Rode o script abaixo — ele lê o servidor e o CA do seu contexto <code style="color:#d1d5db;">kubectl</code> atual, gera um token para a ServiceAccount <code style="color:#d1d5db;">security-scanner-readonly</code> e monta um kubeconfig novo com só essa credencial.</li>
+                    <li>Cole o <strong style="color:#facc15;">conteúdo do arquivo gerado</strong> (<code style="color:#d1d5db;">security-scanner-kubeconfig-&lt;contexto&gt;.yaml</code>) no campo "Kubeconfig YAML" acima — não o seu <code style="color:#d1d5db;">~/.kube/config</code> pessoal.</li>
+                  </ol>
+                  <span class="help-text" style="display:block; margin-bottom:6px;">Pré-requisito: quem roda o script precisa de permissão <code>create</code> em
+                    <code>serviceaccounts/token</code> no cluster (na prática, só quem já tem acesso administrativo consegue emitir o token — esperado,
+                    só um admin deveria provisionar a credencial do scanner).</span>
+                  <div style="position:relative; margin-top:6px;">
+                    <pre id="k8s-token-script" style="font-size:11px; line-height:1.5; background:#111827; padding:12px 40px 12px 12px; border-radius:6px; overflow-x:auto; white-space:pre; color:#d1d5db;">#!/usr/bin/env bash
+set -euo pipefail
+
+CONTEXT=$(kubectl config current-context)
+echo "Contexto ativo: $CONTEXT — confirme que é este o cluster que você quer escanear."
+read -p "Continuar? [y/N] " -n 1 -r; echo
+[[ $REPLY =~ ^[Yy]$ ]] || { echo "Cancelado. Rode 'kubectl config use-context &lt;nome&gt;' e tente de novo."; exit 1; }
+
+CLUSTER=$(kubectl config view -o jsonpath="{.contexts[?(@.name=='$CONTEXT')].context.cluster}")
+SERVER=$(kubectl config view -o jsonpath="{.clusters[?(@.name=='$CLUSTER')].cluster.server}")
+[[ -n "$SERVER" ]] || { echo "Erro: server vazio — verifique o contexto com 'kubectl config view'."; exit 1; }
+
+CA_DATA=$(kubectl config view --raw -o jsonpath="{.clusters[?(@.name=='$CLUSTER')].cluster.certificate-authority-data}")
+if [[ -z "$CA_DATA" ]]; then
+  # Clusters locais (kind/minikube) costumam referenciar o CA por arquivo
+  # em vez de embutir em base64 -- lê o arquivo e embute manualmente.
+  CA_FILE=$(kubectl config view --raw -o jsonpath="{.clusters[?(@.name=='$CLUSTER')].cluster.certificate-authority}")
+  if [[ -n "$CA_FILE" ]]; then
+    CA_DATA=$(base64 "$CA_FILE" | tr -d '\n')
+  else
+    echo "Aviso: sem CA embutido nem arquivo de CA (cluster pode usar insecure-skip-tls-verify)."
+    read -p "Gerar kubeconfig sem verificação TLS do servidor? [y/N] " -n 1 -r; echo
+    [[ $REPLY =~ ^[Yy]$ ]] || { echo "Cancelado."; exit 1; }
+    INSECURE_TLS=1
+  fi
+fi
+if [[ -n "${INSECURE_TLS:-}" ]]; then
+  CA_LINE="insecure-skip-tls-verify: true"
+else
+  CA_LINE="certificate-authority-data: ${CA_DATA}"
+fi
+
+# --duration curto de propósito: token válido por 24h. Se vazar (commit sem
+# querer, log de CI), a janela de exposição fica pequena. Pra scans
+# recorrentes, prefira reemitir via cronjob a estender esse valor.
+TOKEN=$(kubectl create token security-scanner-readonly -n default --duration=24h)
+
+OUT_FILE="security-scanner-kubeconfig-${CONTEXT}.yaml"
+
+cat > "$OUT_FILE" &lt;&lt;EOF
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: ${SERVER}
+    ${CA_LINE}
+  name: scanner-${CONTEXT}
+contexts:
+- context:
+    cluster: scanner-${CONTEXT}
+    user: security-scanner-readonly
+  name: scanner-${CONTEXT}
+current-context: scanner-${CONTEXT}
+users:
+- name: security-scanner-readonly
+  user:
+    token: ${TOKEN}
+EOF
+chmod 600 "$OUT_FILE"
+
+echo "Gerado: $OUT_FILE (permissão 600) — cole o conteúdo desse arquivo no campo Kubeconfig YAML."
+echo "Não commite este arquivo em git — contém um bearer token válido."</pre>
+                    <button type="button" class="btn-copy-key" title="Copiar script" onclick="copyK8sTokenScript(this)" style="position:absolute; top:8px; right:8px;">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                  </div>
+                  <span class="help-text" style="display:block; margin-top:6px;">Requer Kubernetes 1.24+ (<code>kubectl create token</code>). Em clusters mais
+                    antigos, crie manualmente um Secret do tipo <code>kubernetes.io/service-account-token</code> anotado com
+                    <code>kubernetes.io/service-account.name: security-scanner-readonly</code> e leia o token de lá.</span>
                 </details>
               </div>
               <div style="margin-top: 12px;">
@@ -2782,15 +2908,7 @@ roleRef:
                   class="input-field"
                   rows="8"
                   style="font-family: monospace; font-size: 12px;"
-                  placeholder='Cole o JSON completo da Service Account com permissão roles/iam.securityReviewer:
-{
-  "type": "service_account",
-  "project_id": "meu-projeto",
-  "private_key_id": "...",
-  "private_key": "-----BEGIN PRIVATE KEY-----\n...",
-  "client_email": "auditor@meu-projeto.iam.gserviceaccount.com",
-  ...
-}'
+                  placeholder='Cole o JSON completo da chave de Service Account com permissão roles/iam.securityReviewer (contém os campos project_id, private_key, client_email, entre outros).'
                 ></textarea>
                 <span class="help-text">GCP Console → IAM & Admin → Service Accounts → Create key (JSON). Permissão mínima: <code>roles/iam.securityReviewer</code></span>
               </div>
@@ -4140,7 +4258,7 @@ function logout() {
       updateFileList(files);
 
       // Contagens de categoria para sidebar
-      updateCategoryCounts(files);
+      updateCategoryCounts(files, data);
 
       // Resumo executivo de achados
       renderExecutiveSummary(files, data);
@@ -5559,10 +5677,12 @@ function logout() {
         });
       }
 
-      // Filtro por categoria
+      // Filtro por categoria — usa getFileCategory (cobre tanto CATEGORY_DEFS
+      // quanto K8S_CATEGORY_MAP) em vez de só CATEGORY_DEFS, senão categorias
+      // K8s (storage/workload/rbac/secrets-k8s/network-k8s/apiserver) batiam
+      // 'not found' aqui e o filtro virava no-op silencioso.
       if (selectedCategory) {
-        const catDef = CATEGORY_DEFS.find(c => c.id === selectedCategory);
-        if (catDef) filtered = filtered.filter(f => catDef.test(f));
+        filtered = filtered.filter(f => getFileCategory(f) === selectedCategory);
       }
 
       // Ordenação
@@ -5669,14 +5789,34 @@ function logout() {
       applyFilters();
     }
 
-    function updateCategoryCounts(files) {
-      const counts = { cred:0, keys:0, db:0, config:0, code:0, archive:0, other:0 };
-      files.forEach(f => { counts[getFileCategory(f)]++; });
-      counts.all = files.length;
-      Object.entries(counts).forEach(([id, n]) => {
-        const el = document.getElementById(`cat-count-${id}`);
-        if (el) el.textContent = n.toLocaleString('pt-BR');
+    function updateCategoryCounts(files, data) {
+      const isK8s = !!(data && data.provider === 'KUBERNETES');
+      // 'other' existe nos dois grupos com IDs de DOM distintos (cat-count-other
+      // vs cat-count-other-k8s) pra não colidir — só um grupo fica visível por vez.
+      const domId = isK8s
+        ? { storage:'storage', workload:'workload', rbac:'rbac', 'secrets-k8s':'secrets-k8s', 'network-k8s':'network-k8s', apiserver:'apiserver', other:'other-k8s' }
+        : { cred:'cred', keys:'keys', db:'db', config:'config', code:'code', archive:'archive', other:'other' };
+
+      const counts = {};
+      Object.keys(domId).forEach(id => { counts[id] = 0; });
+      files.forEach(f => {
+        const cat = getFileCategory(f);
+        if (counts[cat] !== undefined) counts[cat]++;
       });
+      counts.all = files.length;
+
+      const genericGroup = document.getElementById('sidebar-categories-generic');
+      const k8sGroup = document.getElementById('sidebar-categories-k8s');
+      if (genericGroup) genericGroup.style.display = isK8s ? 'none' : '';
+      if (k8sGroup) k8sGroup.style.display = isK8s ? '' : 'none';
+
+      const el = document.getElementById('cat-count-all');
+      if (el) el.textContent = counts.all.toLocaleString('pt-BR');
+      Object.entries(domId).forEach(([catId, suffix]) => {
+        const countEl = document.getElementById(`cat-count-${suffix}`);
+        if (countEl) countEl.textContent = counts[catId].toLocaleString('pt-BR');
+      });
+
       const sidebar = document.getElementById('sidebar-categories');
       if (sidebar) sidebar.style.display = files.length > 0 ? 'block' : 'none';
     }
@@ -6150,6 +6290,20 @@ Tem certeza que deseja continuar?`;
         btn.classList.add('copied');
         btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
         showToast('Manifesto copiado!', 'success', 2000);
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+        }, 2000);
+      }).catch(() => showToast('Falha ao copiar.', 'error'));
+    }
+
+    function copyK8sTokenScript(btn) {
+      const pre = document.getElementById('k8s-token-script');
+      if (!pre) return;
+      navigator.clipboard.writeText(pre.innerText).then(() => {
+        btn.classList.add('copied');
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+        showToast('Script copiado!', 'success', 2000);
         setTimeout(() => {
           btn.classList.remove('copied');
           btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;

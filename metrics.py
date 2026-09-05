@@ -1,5 +1,5 @@
 """
-metrics.py - Métricas customizadas da aplicação no CloudWatch.
+metrics.py - Métricas customizadas da aplicação no CloudWatch (STORAGE_BACKEND=aws).
 
 Antes, só existia métrica de infraestrutura (CPU, memória, disco) -- nada
 sobre o comportamento real da aplicação: quanto tempo cada tipo de
@@ -7,6 +7,9 @@ varredura leva, taxa de falha, latência de chamada ao Bedrock/Claude.
 
 Não requer nenhuma permissão IAM nova -- cloudwatch:PutMetricData já vem
 da CloudWatchAgentServerPolicy anexada à role da instância.
+
+Em STORAGE_BACKEND=local (padrão sem AWS), put_metric() só loga em debug --
+sem tentar a chamada de rede ao CloudWatch.
 """
 
 import os
@@ -22,12 +25,19 @@ logger = get_logger("metrics")
 
 NAMESPACE = "SecurityScanner/App"
 _REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-2")
-_cw = boto3.client("cloudwatch", region_name=_REGION)
+
+
+def _backend() -> str:
+    return os.environ.get("STORAGE_BACKEND", "local")
 
 
 def put_metric(name: str, value: float, unit: str = "Count", dimensions: Optional[dict] = None) -> None:
+    if _backend() != "aws":
+        logger.debug(f"metric (local, não enviada) {name}={value}{unit} {dimensions or {}}")
+        return
     try:
-        _cw.put_metric_data(
+        cw = boto3.client("cloudwatch", region_name=_REGION)
+        cw.put_metric_data(
             Namespace=NAMESPACE,
             MetricData=[{
                 "MetricName": name,

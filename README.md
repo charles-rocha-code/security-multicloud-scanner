@@ -21,6 +21,36 @@ A production-grade **Cloud Security Posture Management (CSPM)** and **Cloud Work
 
 ---
 
+## Running locally without AWS
+
+`STORAGE_BACKEND=local` is the default — the app runs end to end (login, MFA,
+scans, dashboard, scan history, executive reports) with zero AWS credentials,
+persisting to JSON files under `local_data/` instead of DynamoDB/S3.
+
+```bash
+./install.sh
+source venv/bin/activate
+uvicorn api_with_mfa:app --reload
+```
+
+What's different in local mode:
+
+| Feature | Local mode | AWS mode (`STORAGE_BACKEND=aws`) |
+|---|---|---|
+| Sessions / users / password resets | `local_data/*.json` | DynamoDB |
+| Scan history | `local_data/scan_history/` | S3 |
+| Password reset link | logged to the app log | sent via SES |
+| RAG semantic retrieval (`/ai/ask`) | disabled (returns no chunks) | Bedrock + DynamoDB |
+| Custom metrics | logged at debug level | CloudWatch |
+
+Storage/target scanning (S3, GCS, Azure Blob, AWS/GCP/Azure IAM, Kubernetes)
+is unaffected by `STORAGE_BACKEND` — those still connect to whatever
+credentials you pass in at scan time, regardless of how the app's own state
+is persisted. See `.env.example` for the full list of variables, including
+the ones only relevant when `STORAGE_BACKEND=aws`.
+
+---
+
 ## AWS Infrastructure
 
 ![AWS Infrastructure — Security Multicloud Scanner (HA)](docs/aws-architecture.png)

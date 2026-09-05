@@ -37,6 +37,20 @@ def _is_sensitive(key: str) -> bool:
     return any(p in k for p in SENSITIVE_PATTERNS)
 
 
+# Namespaces reservados do próprio Kubernetes (kube-node-lease/kube-public
+# nunca têm workload; kube-system concentra o control plane e CNI). hostPath
+# nesses namespaces é como o cluster funciona (etcd, kube-apiserver, kindnet,
+# kube-proxy montando certs/socket/lib-modules do nó) -- não é a mesma coisa
+# que um workload de usuário optando por hostPath, então não deveria disparar
+# a mesma severidade. Sem essa distinção, todo cluster kind/kubeadm gera uma
+# dezena de CRITICAL genéricos que afogam achados de usuário reais.
+_SYSTEM_NAMESPACES = {"kube-system", "kube-node-lease", "kube-public"}
+
+
+def _is_system_namespace(ns: str) -> bool:
+    return ns in _SYSTEM_NAMESPACES
+
+
 def _classify_severity(reason: str) -> str:
     reason_lower = reason.lower()
     if any(w in reason_lower for w in ["public", "exposed", "secret", "credential", "token", "key"]):
@@ -231,12 +245,24 @@ class K8sStorageAuditor:
 
             for vol in volumes:
                 if getattr(vol, "host_path", None):
-                    findings.append({
-                        "key": f"Pod/{ns}/{name}/volume:{vol.name}",
-                        "size": 0,
-                        "severity": "CRITICAL",
-                        "reason": f"Pod monta hostPath={vol.host_path.path}: acesso direto ao sistema de arquivos do host",
-                    })
+                    if _is_system_namespace(ns):
+                        findings.append({
+                            "key": f"Pod/{ns}/{name}/volume:{vol.name}",
+                            "size": 0,
+                            "severity": "LOW",
+                            "reason": (
+                                f"Pod monta hostPath={vol.host_path.path} em namespace de sistema "
+                                f"({ns}): esperado em componentes de control plane/CNI, não é um "
+                                f"achado de configuração de usuário"
+                            ),
+                        })
+                    else:
+                        findings.append({
+                            "key": f"Pod/{ns}/{name}/volume:{vol.name}",
+                            "size": 0,
+                            "severity": "CRITICAL",
+                            "reason": f"Pod monta hostPath={vol.host_path.path}: acesso direto ao sistema de arquivos do host",
+                        })
 
         return findings
 

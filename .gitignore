@@ -63,6 +63,15 @@ users_db.json
 sessions_db.json
 cookies.txt
 
+# Kubeconfig gerado pelo script de onboarding do scan K8s (contém bearer
+# token válido da ServiceAccount security-scanner-readonly) -- se alguém
+# rodar o script com a raiz do repo como cwd, isso não pode ir pro git.
+security-scanner-kubeconfig-*.yaml
+security-scanner-readonly.yaml
+
+# STORAGE_BACKEND=local (sessões/usuários/histórico de scan em JSON local)
+local_data/
+
 # Backups de código
 *.bak
 api_with_mfa.py.bak

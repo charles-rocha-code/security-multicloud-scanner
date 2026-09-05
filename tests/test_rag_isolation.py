@@ -20,6 +20,11 @@ TEST_TABLE = "test-security-scanner-knowledge"
 
 @pytest.fixture
 def dynamo_table(monkeypatch):
+    # retrieve()/index_chunk() viram no-op em STORAGE_BACKEND=local (o
+    # default do projeto) -- sem forçar "aws" aqui, este teste de isolamento
+    # multi-tenant passaria trivialmente com retrieve() sempre vazio,
+    # mascarando uma regressão real no filtro owner/category.
+    monkeypatch.setenv("STORAGE_BACKEND", "aws")
     monkeypatch.setattr(rag, "TABLE", TEST_TABLE)
     monkeypatch.setattr(rag, "embed_text", lambda text: [1.0, 0.0, 0.0])
 

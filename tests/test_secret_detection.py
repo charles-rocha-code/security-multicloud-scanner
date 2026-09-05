@@ -10,7 +10,7 @@ from engine_risk import scan_content_for_secrets, should_scan_content
 
 
 def test_detecta_chave_aws_embutida_em_texto_comum():
-    resultado = scan_content_for_secrets("notas do projeto\nchave: AKIAABCDEFGHIJKLMNOP\nfim")
+    resultado = scan_content_for_secrets("notas do projeto\nchave: AKIAABCDEFGHIJKLMNOP\nfim")  # nosemgrep: generic.secrets.security.detected-aws-access-key-id-value.detected-aws-access-key-id-value -- chave falsa, fixture pra testar o próprio motor de detecção
     assert resultado is not None
     sev, _ = resultado
     assert sev == "CRITICAL"
@@ -48,6 +48,26 @@ def test_string_repetitiva_longa_nao_gera_falso_positivo():
     # 20+ caracteres, mas baixa entropia (padrão repetitivo) -- não deve
     # bater no limiar de 4.0 bits/char mesmo tendo o tamanho mínimo do regex
     assert scan_content_for_secrets("abababababababababababab") is None
+
+
+def test_include_entropy_fallback_false_ainda_detecta_padrao_preciso():
+    # Achado do teste ao vivo contra um cluster kind real (docs/dspm-kspm-roadmap.md):
+    # desligar o fallback de entropia não pode desligar os padrões precisos junto.
+    resultado = scan_content_for_secrets(
+        "notas do projeto\nchave: AKIAABCDEFGHIJKLMNOP\nfim",  # nosemgrep: generic.secrets.security.detected-aws-access-key-id-value.detected-aws-access-key-id-value -- chave falsa, fixture de teste
+        include_entropy_fallback=False,
+    )
+    assert resultado is not None
+    sev, _ = resultado
+    assert sev == "CRITICAL"
+
+
+def test_include_entropy_fallback_false_nao_detecta_alta_entropia():
+    # Mesmo texto do teste de entropia acima, mas com o fallback desligado
+    # -- precisa voltar None, não HIGH.
+    assert scan_content_for_secrets(
+        "token=Xk9mZq2Lp8vN4wR7tY1sB6dF3hJ0cA5eG", include_entropy_fallback=False
+    ) is None
 
 
 def test_should_scan_content_pula_arquivo_ja_critical():

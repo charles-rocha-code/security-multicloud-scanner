@@ -4,20 +4,34 @@ nuvem, antes de qualquer request real. Existe porque as exceções de WAF em
 a proteção de borda pra esse padrão especificamente nessas rotas -- essa
 checagem é a defesa real que sobrou, não decoração.
 
-Bloqueia só loopback e link-local (inclui 169.254.169.254, metadados de
-AWS/Azure/GCP) -- NÃO bloqueia faixa privada geral (10.x/172.16.x/192.168.x)
+Bloqueia link-local (inclui 169.254.169.254, metadados de AWS/Azure/GCP)
+sempre, em qualquer backend -- risco de metadados do host é independente de
+onde a app roda. NÃO bloqueia faixa privada geral (10.x/172.16.x/192.168.x)
 porque cluster K8s privado legítimo é um caso de uso real desta ferramenta.
+
+Loopback só é liberado quando STORAGE_BACKEND está EXPLICITAMENTE definido
+como "local" no ambiente: aí quem roda o scan é o mesmo dono da máquina e do
+cluster (ex.: kind, que só publica a API em loopback), e o risco de SSRF
+contra host de produção atrás do WAF não se aplica. Fail-safe de propósito:
+se a variável não estiver definida (ambiente novo, deploy mal configurado
+que esqueceu de setar STORAGE_BACKEND=aws), o bloqueio de loopback continua
+ativo por padrão -- não depende de alguém lembrar de setar "aws" em todo
+caminho de deploy possível, só de ninguém setar "local" por engano.
 """
 from __future__ import annotations
 
 import ipaddress
+import os
 import socket
 from urllib.parse import urlparse
 
-_BLOCKED_NETWORKS = [
+_ALWAYS_BLOCKED_NETWORKS = [
     ipaddress.ip_network("169.254.0.0/16"),  # link-local -- cobre 169.254.169.254
-    ipaddress.ip_network("127.0.0.0/8"),      # loopback IPv4
     ipaddress.ip_network("fe80::/10"),        # link-local IPv6
+]
+
+_LOOPBACK_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),      # loopback IPv4
     ipaddress.ip_network("::1/128"),          # loopback IPv6
 ]
 
@@ -34,9 +48,13 @@ def assert_server_not_ssrf_target(server_url: str) -> None:
     except socket.gaierror:
         raise ValueError(f"Não foi possível resolver o endereço do cluster: {host}")
 
+    blocked_networks = list(_ALWAYS_BLOCKED_NETWORKS)
+    if os.environ.get("STORAGE_BACKEND") != "local":
+        blocked_networks += _LOOPBACK_NETWORKS
+
     for addr in addrs:
         ip = ipaddress.ip_address(addr)
-        if any(ip in net for net in _BLOCKED_NETWORKS):
+        if any(ip in net for net in blocked_networks):
             raise ValueError(
                 f"Endereço do cluster ({host} -> {ip}) aponta para loopback/"
                 f"link-local/metadados de nuvem -- recusado por segurança."

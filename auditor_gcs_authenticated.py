@@ -41,7 +41,7 @@ class GCSAuthenticatedAuditor:
 
     def _client(self) -> storage.Client:
         if not isinstance(self.service_account_key, dict) or self.service_account_key.get("type") != "service_account":
-            raise ValueError("service_account_key deve ser um JSON dict de Service Account (type=service_account).")
+            raise ValueError("service_account_key deve ser um JSON dict de Service Account (type=service_account).")  # nosemgrep: generic.secrets.security.detected-google-gcm-service-account.detected-google-gcm-service-account -- mensagem de erro, não credencial
         creds = service_account.Credentials.from_service_account_info(self.service_account_key)
         project_id = self.service_account_key.get("project_id")
         return storage.Client(project=project_id, credentials=creds)
