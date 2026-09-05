@@ -8,6 +8,14 @@
 46d9fb79a8dbb916c9f98eb79c491e6bc279ba17:tests/test_secret_detection.py:jwt:28
 46d9fb79a8dbb916c9f98eb79c491e6bc279ba17:tests/test_secret_detection.py:generic-api-key:36
 46d9fb79a8dbb916c9f98eb79c491e6bc279ba17:tests/test_secret_detection.py:aws-access-token:13
+96fd9dda360dcfdc6a2ae5681732e742060d26dd:tests/test_secret_detection.py:aws-access-token:13
+
+# Testes novos de include_entropy_fallback (mesmas fixtures falsas do
+# bloco acima, reusadas pra validar que desligar o fallback de entropia
+# não desliga os padrões precisos) e do content-scan de ConfigMap do K8s.
+fffb56433548a3a253f624f48a90859533720f99:tests/test_secret_detection.py:generic-api-key:69
+fffb56433548a3a253f624f48a90859533720f99:tests/test_secret_detection.py:aws-access-token:57
+fffb56433548a3a253f624f48a90859533720f99:tests/test_k8s_configmap_content_scan.py:aws-access-token:47
 
 # auditor_v3.0_old.py / files/s3_auditor_improved.py: regex literal
 # "-----BEGIN RSA PRIVATE KEY-----" usado como PADRÃO de detecção de
