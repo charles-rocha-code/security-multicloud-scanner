@@ -1,14 +1,19 @@
 # Roadmap CWPP — security-multicloud-scanner
 
-Documento de análise e roadmap. Não implementado, não commitado no código —
-decisão pendente do usuário sobre por onde começar.
+Documento de análise e roadmap. Decisão pendente do usuário sobre por onde
+começar no que ainda falta.
+
+> **Atualização 2026-09-04**: Fase 2 (parsing de NetworkPolicy allow-all) e a
+> limpeza de código morto citada abaixo foram implementadas e mergeadas
+> (commits `631a4f3`, `901c652`). Ver `docs/dspm-kspm-roadmap.md` pro roadmap
+> consolidado de DSPM/KSPM e pro que resta do CWPP (Fase 1 — Trivy).
 
 ## TL;DR
 
 | # | Pilar CWPP (Gartner/NIST) | Cobertura hoje | Gap | Esforço | Veredito |
 |---|---|---|---|---|---|
 | 1 | Vulnerability management (imagem/host) | CVE mapping estático de container-escape do K8s control-plane (`cve_mapping.py`, cache NVD semanal) — **não** escaneia a imagem que o pod roda | Scan real de imagem (CVE nos pacotes/camadas) | Baixo-médio | **Sim, próximo** |
-| 2 | Network segmentation | Só existência de `NetworkPolicy` por namespace + tipo de Service exposto | Parsing das regras (allow-all disfarçado de "tem policy") | Baixo | **Sim, próximo** |
+| 2 | Network segmentation | ~~Só existência de `NetworkPolicy`~~ Parsing de regra allow-all implementado | — | — | **✅ Concluído** (commit `631a4f3`, `tests/test_k8s_network_policy_allow_all.py`) |
 | 3 | Secrets dentro da imagem | Só secret em manifest (ConfigMap/env var) | Secret vazado dentro das camadas da imagem | Baixo (reusa o pull do item 1) | **Sim, junto do item 1** |
 | 4 | CIEM fino (permissão concedida vs usada) | Checks binários (`AdministratorAccess`? wildcard?) + attack path graph | Access Analyzer / last-accessed real | Médio | Avaliar depois |
 | 5 | System integrity / host hardening / app control | Nada — produto nunca toca host/VM | Exigiria agente ou scan agentless via SSM | Alto | **Não agora** |

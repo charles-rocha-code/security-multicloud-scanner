@@ -13,6 +13,7 @@ except ImportError:
 from graph_model import GraphCollector, GraphEdge, GraphNode
 from ssrf_guard import assert_server_not_ssrf_target
 from auditor_k8s import _is_system_namespace
+from engine_risk import scan_content_for_secrets
 
 # Sujeitos que, se vinculados a uma ClusterRole perigosa, representam ponto
 # de entrada exposto de verdade — qualquer requisição não autenticada ou
@@ -274,6 +275,62 @@ class K8sAuthenticatedAuditor(GraphCollector):
 
         return findings
 
+    def _check_namespaced_rbac(self, namespaces: List[str]) -> List[Dict[str, Any]]:
+        """Roles (namespaced) com wildcard '*', bindings perigosos -- mesma
+        lógica do _check_rbac, mas pra Role/RoleBinding escopados a um
+        namespace, que list_cluster_role/list_cluster_role_binding nunca
+        enxergam. Um Role com '*'/'*' escopado a um namespace concede o
+        mesmo acesso irrestrito que um ClusterRole wildcard, só que
+        limitado àquele namespace -- igualmente CRITICAL."""
+        findings: List[Dict[str, Any]] = []
+
+        for ns in namespaces:
+            try:
+                roles = self.rbac.list_namespaced_role(ns, _request_timeout=self.timeout)
+            except ApiException:
+                continue
+
+            dangerous_roles: set = set()
+            for role in roles.items:
+                for rule in role.rules or []:
+                    verbs = rule.verbs or []
+                    resources = rule.resources or []
+                    if "*" in verbs and "*" in resources:
+                        dangerous_roles.add(role.metadata.name)
+                        findings.append(self._finding(
+                            "CRITICAL", "RBAC", "Role", role.metadata.name, ns,
+                            "Role concede '*' verbs em '*' resources neste namespace",
+                            "Aplicar princípio do menor privilégio; remover wildcards.",
+                        ))
+
+            if not dangerous_roles:
+                continue
+
+            try:
+                bindings = self.rbac.list_namespaced_role_binding(ns, _request_timeout=self.timeout)
+            except ApiException:
+                continue
+
+            for binding in bindings.items:
+                role_ref = binding.role_ref.name if binding.role_ref else None
+                if role_ref not in dangerous_roles:
+                    continue
+                role_id = f"role/{ns}/{role_ref}"
+                self.add_node(GraphNode(
+                    id=role_id, type="k8s_role", provider="KUBERNETES",
+                    label=f"{role_ref} ({ns})", high_value=True,
+                ))
+                for subject in binding.subjects or []:
+                    subj_name = subject.name or "unknown"
+                    subj_id = f"{subject.kind}/{subj_name}"
+                    self.add_node(GraphNode(
+                        id=subj_id, type="k8s_subject", provider="KUBERNETES", label=subj_name,
+                        exposed=(subj_name in EXPOSED_SUBJECT_NAMES),
+                    ))
+                    self.add_edge(GraphEdge(subj_id, role_id, "has_permission"))
+
+        return findings
+
     def _check_secrets_configmaps(self, namespaces: List[str]) -> List[Dict[str, Any]]:
         """ConfigMaps com chaves sensíveis, Secrets usados como env var."""
         findings: List[Dict[str, Any]] = []
@@ -285,11 +342,33 @@ class K8sAuthenticatedAuditor(GraphCollector):
                 continue
 
             for cm in cms.items:
-                for key in (cm.data or {}):
+                for key, value in (cm.data or {}).items():
                     if any(p in key.lower() for p in SENSITIVE_KEY_PATTERNS):
                         findings.append(self._finding(
                             "CRITICAL", "Secrets", "ConfigMap", cm.metadata.name, ns,
                             f"ConfigMap contém chave sensível '{key}' em plaintext",
+                            "Migrar para Secret (ainda melhor: External Secrets + Vault/KMS).",
+                        ))
+                        continue
+                    # Mesmo motor de scan de conteúdo usado nos auditores de
+                    # storage (engine_risk.py) -- sem isso, uma chave com
+                    # nome inofensivo (ex. "app-config") mas valor contendo
+                    # uma AKIA... embutida passava invisível, enquanto o
+                    # mesmo conteúdo num arquivo do S3 já era detectado.
+                    # include_entropy_fallback=False: validado contra um
+                    # cluster kind real, o fallback de entropia sozinho
+                    # (sem isso) marcava kube-root-ca.crt (certificado PEM)
+                    # e ConfigMap de regra do Prometheus/kubelet (JSON
+                    # grande) como "possível segredo" -- 100% falso-positivo,
+                    # zero dos padrões precisos (AWS/PEM/JWT/api_key) bateu
+                    # nesse cluster. Mantém os padrões precisos, só desliga
+                    # o fallback ruidoso pra esse tipo de dado.
+                    content_match = scan_content_for_secrets(value or "", include_entropy_fallback=False)
+                    if content_match:
+                        sev, reason = content_match
+                        findings.append(self._finding(
+                            sev, "Secrets", "ConfigMap", cm.metadata.name, ns,
+                            f"ConfigMap chave '{key}': {reason}",
                             "Migrar para Secret (ainda melhor: External Secrets + Vault/KMS).",
                         ))
 
@@ -413,6 +492,7 @@ class K8sAuthenticatedAuditor(GraphCollector):
         # se algum corte acontecer, é garantido que é só nele.
         for check in (
             self._check_rbac,
+            lambda: self._check_namespaced_rbac(namespaces),
             self._check_anonymous_auth,
             lambda: self._check_secrets_configmaps(namespaces),
             lambda: self._check_network_exposure(namespaces),

@@ -110,13 +110,28 @@ def should_scan_content(key: str, size: int, severity: str) -> bool:
     return True
 
 
-def scan_content_for_secrets(content: str) -> Optional[Tuple[str, str]]:
+def scan_content_for_secrets(
+    content: str, include_entropy_fallback: bool = True
+) -> Optional[Tuple[str, str]]:
     """Retorna (severidade, motivo) se achar padrão de credencial conhecido
-    ou um token de alta entropia (indício de chave/segredo real) no
-    conteúdo. None se nada suspeito for encontrado."""
+    ou, quando include_entropy_fallback=True, um token de alta entropia
+    (indício de chave/segredo real) no conteúdo. None se nada suspeito for
+    encontrado.
+
+    include_entropy_fallback=False desliga só o fallback de entropia,
+    mantendo os padrões precisos (AWS key, PEM, JWT, api_key=...). Existe
+    porque validação contra um cluster real mostrou esse fallback gerando
+    falso-positivo em ConfigMap de sistema com conteúdo legitimamente denso
+    (kube-root-ca.crt -- certificado PEM, ConfigMaps de regra do
+    Prometheus/kubelet -- JSON grande): esse tipo de dado é raro num
+    arquivo solto de bucket de storage, mas é o padrão comum em ConfigMap
+    do Kubernetes -- ver chamada em auditor_k8s_authenticated.py."""
     for pattern, sev, reason in SECRET_CONTENT_PATTERNS:
         if pattern.search(content):
             return sev, reason
+
+    if not include_entropy_fallback:
+        return None
 
     for token in _ENTROPY_TOKEN_RE.findall(content):
         if _shannon_entropy(token) >= _ENTROPY_THRESHOLD:
