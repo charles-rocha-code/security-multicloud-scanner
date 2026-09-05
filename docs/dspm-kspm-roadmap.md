@@ -1,17 +1,23 @@
 # Roadmap de Implantação — CWPP (finalização), DSPM, KSPM
 
 Análise do ambiente em 2026-09-04, feita lendo o código atual (não a partir
-de memória de sessões anteriores). Documento de análise e roadmap — nada
-aqui foi implementado ainda, decisão de por onde começar é do usuário.
+de memória de sessões anteriores). Documento de análise e roadmap.
+
+> **Atualização 2026-09-05**: Fase K1 (RBAC namespaced) e Fase D2
+> (content-scan de ConfigMap) foram implementadas, testadas, validadas ao
+> vivo contra um cluster kind real e mergeadas em `main` (PR #5, commit
+> `1b24fd7`). Detalhe de cada uma nas seções "Parte 2 — DSPM" e "Parte 3 —
+> KSPM" abaixo. D1, K2, K3, D3 e o Trivy (CWPP Fase 1) continuam pendentes.
 
 ## Estado do ambiente agora
 
 | Item | Estado |
 |---|---|
-| Branch | `local-dev-no-aws`, sincronizada com `origin` |
-| Testes | 69 passed (`pytest tests/`) |
-| Commits recentes relevantes | `631a4f3` (fix NetworkPolicy allow-all + dead code), `901c652` (docs CWPP) |
+| Branch | `main` (mergeado via PR #5 a partir de `local-dev-no-aws`) |
+| Testes | 79 passed (`pytest tests/`) — 10 novos desde a análise original |
+| Commits relevantes | `631a4f3` (NetworkPolicy allow-all + dead code), `901c652` (docs CWPP), `fffb564` (K1 + D2), `f3eeaa8` (fix gitleaksignore), `1b24fd7` (merge PR #5 em main) |
 | App local | sobe via `uvicorn api_with_mfa:app`, `STORAGE_BACKEND=local`, sem credencial AWS |
+| Ambiente AWS | **descontinuado** — `deploy.yml` falha por design (sem role IAM pra assumir), não é incidente |
 | `docs/cwpp-roadmap.md` | Fase 1 (Trivy) ainda pendente; Fase 2 (NetworkPolicy) **concluída** |
 
 ---
@@ -21,8 +27,8 @@ aqui foi implementado ainda, decisão de por onde começar é do usuário.
 | Pilar | O que já existe (verificado no código) | Maior gap | Prioridade |
 |---|---|---|---|
 | **CWPP** | Postura de configuração de workload K8s completa (5 checks) | Scan de vulnerabilidade de imagem (Fase 1 do `cwpp-roadmap.md`, ainda não implementada) | Mantém a do doc anterior |
-| **DSPM** | Motor de classificação + scan de segredo em conteúdo já existe (`engine_risk.py`), usado nos 4 auditores de storage | Zero detecção de PII/dado pessoal — e o relatório já promete LGPD/GDPR sem isso existir | **Nova, alta** |
-| **KSPM** | RBAC, workload security, secrets, exposição de rede, auth anônima | Só audita `ClusterRole`/`ClusterRoleBinding` — `Role`/`RoleBinding` namespaced nunca são vistos | **Nova, alta** |
+| **DSPM** | Motor de classificação + scan de segredo em conteúdo (`engine_risk.py`), usado nos 4 auditores de storage **e agora também no ConfigMap do K8s** (Fase D2 ✅) | Zero detecção de PII/dado pessoal — e o relatório já promete LGPD/GDPR sem isso existir | D1 ainda alta |
+| **KSPM** | RBAC (cluster **e agora namespaced**, Fase K1 ✅), workload security, secrets, exposição de rede, auth anônima | Sem mapeamento CIS Kubernetes Benchmark, sem checagem de Pod Security Standards | K2/K3 ainda altas |
 
 ---
 
@@ -121,11 +127,28 @@ relatório prometer o que o motor não verifica) se aplica aqui.
 - Critério de saída: um bucket de teste com um CSV contendo CPFs reais
   (fixture, não dado real) gera finding `category="PII Exposure"`.
 
-**Fase D2 — levar o mesmo motor pro K8s**
-- `_check_secrets_configmaps` passa a chamar `scan_content_for_secrets()`
-  (de `engine_risk.py`, já importável) no **valor** de cada chave de
+**Fase D2 — levar o mesmo motor pro K8s — ✅ concluída (2026-09-05)**
+- `_check_secrets_configmaps` (`auditor_k8s_authenticated.py:277`) agora
+  chama `scan_content_for_secrets()` no **valor** de cada chave de
   ConfigMap, não só no nome — fecha a inconsistência entre providers.
-- Depende de D1 estar pronto (mesma engine, evita duplicar trabalho).
+  Não precisou esperar D1: rodou com os padrões precisos que já existiam
+  (AWS key, PEM, JWT, api_key), sem depender de regex de PII nova.
+- **Achado só na validação ao vivo, não nos testes unitários**: rodando
+  contra um cluster kind real, o fallback de entropia (token ≥20 chars,
+  Shannon ≥4.0 bits/char) sozinho gerou 33 falso-positivos em ConfigMap de
+  sistema — `kube-root-ca.crt` (certificado PEM, existe em todo namespace
+  por padrão do Kubernetes) e regras do Prometheus/kubelet (JSON denso).
+  String sintética pequena de teste unitário não reproduz esse padrão.
+- Corrigido com um parâmetro novo em `engine_risk.scan_content_for_secrets`:
+  `include_entropy_fallback` (default `True`, não muda os 6 call-sites de
+  storage existentes). K8s passa `include_entropy_fallback=False` —
+  mantém os padrões precisos, desliga só o fallback ruidoso.
+- Resultado validado: 2ª rodada do scan contra o mesmo cluster foi de 148
+  findings (33 falso-positivo) pra 115 findings (**zero** falso-positivo).
+- 10 testes novos (`tests/test_k8s_configmap_content_scan.py`,
+  `tests/test_secret_detection.py`), suíte completa 79 passed.
+- Commits: `fffb564` (implementação + achado), `f3eeaa8` (fix CI
+  gitleaksignore pras fixtures de teste), mergeados em `main` via PR #5.
 
 **Fase D3 — mais distante, avaliar depois**: ingestão de tags de
 classificação já existentes (S3 object tags, GCS labels, Azure Blob
@@ -145,16 +168,17 @@ ConfigMap/env var, exposição de rede (Service + NetworkPolicy, agora com
 detecção de allow-all), e auth anônima na API server. É postura de
 configuração real, não superficial.
 
-### Gap 1 — RBAC namespaced nunca é auditado
+### Gap 1 — RBAC namespaced nunca é auditado — ✅ fechado (2026-09-05)
 
 Confirmado no código: `_check_rbac` (`auditor_k8s_authenticated.py:217`)
-só chama `self.rbac.list_cluster_role()` e
+só chamava `self.rbac.list_cluster_role()` e
 `list_cluster_role_binding()` — **nunca** `list_namespaced_role()` ou
 `list_namespaced_role_binding()`. Um `Role` escopado a um namespace com
 `verbs: ["*"]` sobre `secrets` (permite ler todos os segredos daquele
-namespace) é tão perigoso quanto um `ClusterRole` wildcard, e hoje é
-invisível pro scanner. Esse é o maior blind spot de segurança encontrado
-nesta análise inteira — não é feature nova, é lacuna de detecção real.
+namespace) é tão perigoso quanto um `ClusterRole` wildcard, e era
+invisível pro scanner. Foi o maior blind spot de segurança encontrado
+nesta análise inteira — não era feature faltando, era lacuna de detecção
+real. Fechado pela Fase K1 abaixo.
 
 ### Gap 2 — sem mapeamento pro CIS Kubernetes Benchmark
 
@@ -179,17 +203,23 @@ verifica se existe uma *política* impedindo isso de acontecer de novo —
 **Fase K0 — decisão prévia**: qual gap fechar primeiro. Recomendo K1
 primeiro (é o mais barato e o mais grave em termos de segurança real).
 
-**Fase K1 — auditar Role/RoleBinding namespaced (esforço baixo)**
-- Estender `_check_rbac` (ou método novo `_check_namespaced_rbac`) pra
-  iterar `list_namespaced_role(ns)` por namespace e aplicar a mesma lógica
-  de wildcard já usada pra `ClusterRole` (`"*" in verbs and "*" in
-  resources`).
-- Mesmo padrão de finding, mesma categoria "RBAC", `resource_type="Role"`
-  pra diferenciar de `ClusterRole` no relatório.
-- Teste: um `Role` namespaced com wildcard sobre `secrets` gera CRITICAL;
-  um `Role` restritivo não gera finding novo (evita regressão de
-  falso-positivo, mesmo padrão dos testes já existentes no arquivo).
-- Rollback: reverter o método novo, zero impacto no resto do auditor.
+**Fase K1 — auditar Role/RoleBinding namespaced — ✅ concluída (2026-09-05)**
+- `_check_namespaced_rbac(namespaces)` novo (`auditor_k8s_authenticated.py`,
+  logo após `_check_rbac`): itera `list_namespaced_role(ns)` por
+  namespace e aplica a mesma lógica de wildcard já usada pra `ClusterRole`
+  (`"*" in verbs and "*" in resources`). Role perigoso + binding entra no
+  Attack Path Graph Map como nó de alto valor (`role/{ns}/{nome}`), mesmo
+  padrão do check de `ClusterRole`.
+- Mesmo padrão de finding, categoria "RBAC", `resource_type="Role"` pra
+  diferenciar de `ClusterRole` no relatório.
+- Validado ao vivo contra um cluster kind real: rodou sem erro em 8
+  namespaces, zero falso-positivo (nenhum Role namespaced perigoso existe
+  de fato nesse cluster de lab — confirma que o check não gera ruído em
+  infra real, mesmo sem uma fixture deliberada de Role malicioso).
+- 4 testes novos (`tests/test_k8s_namespaced_rbac.py`): wildcard gera
+  CRITICAL, Role restritivo não gera finding, binding perigoso entra no
+  grafo, falha de permissão (403) não quebra o scan.
+- Commit `fffb564`, mergeado em `main` via PR #5 (commit `1b24fd7`).
 
 **Fase K2 — mapear findings pro CIS Kubernetes Benchmark (esforço médio,
 trabalho de catalogação)**
@@ -227,31 +257,33 @@ igual à já registrada como fora de escopo no CWPP.
 
 ## Cronograma consolidado
 
-| Sprint | Entregável | Depende de | Esforço |
-|---|---|---|---|
-| **K1** | Role/RoleBinding namespaced no `_check_rbac` | — | Baixo |
-| **D1** | Regex de PII em `engine_risk.py` + testes | — | Baixo-médio |
-| **CWPP S1/S2** | Scan de imagem via Trivy (já detalhado no `cwpp-roadmap.md`) | — | Médio (+ dependência cross-repo) |
-| **K2** | Mapeamento CIS Kubernetes Benchmark | K1 (mesmos findings) | Médio (catalogação) |
-| **D2** | Reusar `engine_risk` nos ConfigMaps do K8s | D1 | Baixo |
-| **K3** | Pod Security Standards / admission control | K1, K2 | Médio-alto |
-| **D3** | Ingestão de tags de classificação existentes | D1, D2 | Alto |
+| Sprint | Entregável | Depende de | Esforço | Status |
+|---|---|---|---|---|
+| **K1** | Role/RoleBinding namespaced no `_check_rbac` | — | Baixo | ✅ Concluído (`fffb564`) |
+| **D2** | Reusar `engine_risk` nos ConfigMaps do K8s | — (não precisou de D1) | Baixo | ✅ Concluído (`fffb564`) |
+| **D1** | Regex de PII em `engine_risk.py` + testes | — | Baixo-médio | Pendente |
+| **CWPP S1/S2** | Scan de imagem via Trivy (já detalhado no `cwpp-roadmap.md`) | — | Médio (+ dependência cross-repo) | Pendente |
+| **K2** | Mapeamento CIS Kubernetes Benchmark | K1 ✅ (mesmos findings) | Médio (catalogação) | Pendente |
+| **K3** | Pod Security Standards / admission control | K1 ✅, K2 | Médio-alto | Pendente |
+| **D3** | Ingestão de tags de classificação existentes | D1, D2 ✅ | Alto | Pendente |
 
-K1 e D1 são independentes entre si e do Trivy — podem correr em paralelo,
-cada um seu PR.
+K1 e D2 já mergeados em `main` (PR #5, commit `1b24fd7`). D1 segue
+independente do Trivy — pode correr em paralelo, cada um seu PR.
 
 ## Recomendação de prioridade
 
-1. **K1** — menor esforço de todo este documento, fecha o gap de segurança
-   mais grave encontrado (Role namespaced invisível hoje).
-2. **D1** — reusa infraestrutura pronta, fecha a divergência entre o que o
-   relatório promete (LGPD/GDPR) e o que o motor realmente verifica —
-   mesmo tipo de correção já priorizada no CWPP.
-3. **CWPP Fase 1 (Trivy)** — mantém a prioridade já definida no
+1. ~~**K1**~~ — ✅ concluído. Fechou o gap de segurança mais grave
+   encontrado (Role namespaced invisível).
+2. ~~**D2**~~ — ✅ concluído (junto com K1, no mesmo commit). Achado extra
+   na validação ao vivo (falso-positivo de entropia) corrigido antes do
+   merge.
+3. **D1** (próximo) — reusa infraestrutura pronta, fecha a divergência
+   entre o que o relatório promete (LGPD/GDPR) e o que o motor realmente
+   verifica — mesmo tipo de correção já priorizada no CWPP.
+4. **CWPP Fase 1 (Trivy)** — mantém a prioridade já definida no
    `cwpp-roadmap.md`, maior esforço mas maior gap de cobertura.
-4. **K2** — trabalho de catalogação, sem bloqueio técnico, fecha paridade
+5. **K2** — trabalho de catalogação, sem bloqueio técnico, fecha paridade
    com os outros 3 providers do produto.
-5. **D2** — pequeno, mas só faz sentido depois de D1 existir.
 6. **K3/D3** — ficam registrados pra não serem re-propostos do zero, mas
    exigem decisão de arquitetura maior (CRDs dinâmicas, ingestão de tags
    externas) que este documento discute mas não resolve sozinho.
