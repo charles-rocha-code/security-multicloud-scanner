@@ -2711,7 +2711,7 @@
                   storage <strong style="color:#facc15;">e</strong> RBAC/rede/workload — o ServiceAccount do
                   kubeconfig precisa de <strong style="color:#facc15;">get/list</strong> em: namespaces, pods,
                   services, secrets, configmaps, persistentvolumes(claims), storageclasses, networkpolicies,
-                  clusterroles e clusterrolebindings.</span>
+                  clusterroles, clusterrolebindings, roles e rolebindings.</span>
                 <div class="warning-box" style="border-color: rgba(250,204,21,0.35); background: rgba(250,204,21,0.08); margin-top:8px;">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#facc15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
                   <div>
@@ -2743,7 +2743,7 @@ rules:
     resources: ["networkpolicies"]
     verbs: ["get", "list"]
   - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["clusterroles", "clusterrolebindings"]
+    resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
     verbs: ["get", "list"]
 ---
 apiVersion: v1
