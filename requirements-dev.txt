@@ -5,3 +5,9 @@ pytest>=8.0.0
 # AWS) -- só os serviços que os testes de fato usam, pra manter a imagem
 # de CI enxuta.
 moto[dynamodb]>=5.0.0
+# starlette.testclient (usado por tests/test_ai_ask_tools_endpoint.py via
+# fastapi.testclient.TestClient) exige httpx explicitamente -- não é puxado
+# pelo anthropic (que usa httpx2, pacote diferente) nem por mais nada em
+# requirements.txt, então falha só em ambiente limpo de CI, não localmente
+# se já tiver instalado por outro motivo.
+httpx>=0.28.0
