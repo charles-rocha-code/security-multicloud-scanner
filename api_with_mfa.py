@@ -114,6 +114,15 @@ except Exception as _ai_e:
     AI_AVAILABLE = False
     logger.warning(f"⚠️ ai_analyzer indisponível: {_ai_e}")
 
+# === IA — tool-calling (piloto /ai/ask-tools, openspec/changes/add-ai-ask-tool-calling/) ===
+try:
+    import ai_tools  # type: ignore
+    AI_TOOLS_AVAILABLE = True
+    logger.info("✅ ai_tools carregado")
+except Exception as _ai_tools_e:
+    AI_TOOLS_AVAILABLE = False
+    logger.warning(f"⚠️ ai_tools indisponível: {_ai_tools_e}")
+
 # === PDF/DOCX Profissional ===
 try:
     from generate_report import generate_executive_report as _gen_executive_report
@@ -1632,6 +1641,59 @@ def ai_ask(request: Request, body: dict = Body(...), user=Depends(require_mfa)):
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"❌ Erro ai_ask: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erro ao responder: {e}")
+
+
+class AiAskToolsIn(BaseModel):
+    question: str = Field(..., max_length=2000)
+    use_history: bool = True
+    provider: Optional[str] = None
+    kubeconfig: Optional[str] = Field(
+        None, description="Conteúdo do arquivo ~/.kube/config em YAML — "
+        "opcional; sem isso, a tool de auditoria K8s usa o kubeconfig de "
+        "teste local do ambiente."
+    )
+
+
+@app.post("/ai/ask-tools")
+@limiter.limit("5/minute")
+def ai_ask_tools(request: Request, body: dict = Body(...), user=Depends(require_mfa)):
+    """Piloto de tool-calling (openspec/changes/add-ai-ask-tool-calling/):
+    igual a /ai/ask, mas o Claude pode decidir rodar uma auditoria K8s fresca
+    em vez de só interpretar o último scan salvo. Paralelo a /ai/ask — não o
+    substitui, tem rate limit próprio (mais conservador: rodar um auditor de
+    verdade custa mais que só ler um scan já feito).
+
+    Mesmo motivo do `body: dict` cru de /ai/ask: sob `@limiter.limit`, o
+    FastAPI resolve anotações via `__globals__` do wrapper do slowapi, que não
+    conhece `AiAskToolsIn` — validamos manualmente abaixo."""
+    try:
+        parsed = AiAskToolsIn.model_validate(body)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
+    if not AI_AVAILABLE or not AI_TOOLS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="ai_tools indisponível.")
+    email = user.get("email") if isinstance(user, dict) else None
+    scan  = LAST_SCAN_BY_EMAIL.get(email) if email else None
+    if not scan:
+        raise HTTPException(status_code=404, detail="Nenhum scan encontrado. Realize um scan primeiro.")
+    history = []
+    if parsed.use_history and HISTORY_AVAILABLE and email:
+        try:
+            history = load_recent(email, provider=parsed.provider, n=3)
+        except Exception as _e:
+            logger.warning(f"⚠️ load_recent error: {_e}")
+    try:
+        with timed_metric("AiAnalysisDuration", dimensions={"Operation": "ask_tools"}):
+            answer = ai_tools.ask_with_tools(parsed.question, scan, history, kubeconfig_yaml=parsed.kubeconfig)
+        return {"answer": answer, "history_scans_used": len(history)}
+    except ai_analyzer.AiRefusalError:
+        put_metric("AiRefusal", 1, dimensions={"Operation": "ask_tools"})
+        return {"answer": "O Claude recusou processar esta solicitação por motivos de segurança. Tente reformular a pergunta.", "history_scans_used": len(history)}
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"❌ Erro ai_ask_tools: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erro ao responder: {e}")
 
 
