@@ -906,33 +906,33 @@ def root():
 @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
 @limiter.limit("30/minute")
 def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request, "login.html")
 
 
 @app.get("/mfa/setup", response_class=HTMLResponse, include_in_schema=False)
 def mfa_setup_page(request: Request):
-    return templates.TemplateResponse("mfa_setup.html", {"request": request})
+    return templates.TemplateResponse(request, "mfa_setup.html")
 
 
 @app.get("/change-password", response_class=HTMLResponse, include_in_schema=False)
 def change_password_page(request: Request):
-    return templates.TemplateResponse("change_password.html", {"request": request})
+    return templates.TemplateResponse(request, "change_password.html")
 
 
 @app.get("/forgot-password", response_class=HTMLResponse, include_in_schema=False)
 def forgot_password_page(request: Request):
-    return templates.TemplateResponse("forgot_password.html", {"request": request})
+    return templates.TemplateResponse(request, "forgot_password.html")
 
 
 @app.get("/reset-password", response_class=HTMLResponse, include_in_schema=False)
 def reset_password_page(request: Request):
-    return templates.TemplateResponse("reset_password.html", {"request": request})
+    return templates.TemplateResponse(request, "reset_password.html")
 
 
 @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
 def dashboard_page(request: Request):
     # Proteção real é via /api/dashboard (com Authorization)
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse(request, "dashboard.html")
 
 
 # -----------------------------------------------------------------------------
