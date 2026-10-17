@@ -638,10 +638,14 @@ FastAPI (api_with_mfa.py)
 ## File Structure
 
 ```
-s3_auditor_enteprise/
-├── api_with_mfa.py                     # Main server — all endpoints, auth, orchestration
-├── auth_mfa.py                         # TOTP + JWT + password reset implementation
+security-multicloud-scanner/
 │
+│  # API / web
+├── api_with_mfa.py                     # Main server — all endpoints, auth, orchestration
+├── auth_mfa.py                         # TOTP + JWT + password reset (local JSON or DynamoDB)
+│
+│  # Storage auditors
+├── auditor_universal.py                # Provider router (S3 / GCS / Azure Blob)
 ├── auditor.py                          # AWS S3 public auditor
 ├── auditor_s3_authenticated.py         # AWS S3 authenticated auditor
 ├── auditor_gcs.py                      # GCS public auditor
@@ -649,29 +653,50 @@ s3_auditor_enteprise/
 ├── auditor_azure.py                    # Azure Blob public auditor
 ├── auditor_azure_authenticated.py      # Azure Blob authenticated auditor
 │
+│  # IAM auditors
 ├── auditor_iam.py                      # AWS IAM CSPM auditor (CIS AWS v1.4)
 ├── auditor_iam_gcp.py                  # GCP IAM CSPM auditor (CIS GCP v2.0)
 ├── auditor_iam_azure.py                # Azure IAM / Entra ID auditor (CIS Azure v2.0)
 │
-├── auditor_k8s_authenticated.py        # Kubernetes security auditor
-├── engine_risk.py                      # Risk scoring and compliance mapping
+│  # Kubernetes auditors
+├── auditor_k8s.py                      # Kubernetes storage auditor (PV/PVC/StorageClass)
+├── auditor_k8s_authenticated.py        # Kubernetes security auditor (RBAC, pods, network)
 │
+│  # Risk engine, CVEs and attack graph
+├── engine_risk.py                      # Risk scoring and compliance mapping
+├── cve_mapping.py                      # Static CVE references per finding
+├── cve_updater.py                      # Weekly NVD fetch for Kubernetes CVEs (cron)
 ├── graph_model.py                      # GraphNode/GraphEdge + GraphCollector mixin
 ├── graph_engine.py                     # Attack path search (networkx)
-├── test_graph_local.py                 # End-to-end validation script (-dev tables only)
 │
+│  # AI
+├── ai_analyzer.py                      # Claude analysis of scan results (/ai/analyze, /ai/ask)
+├── ai_tools.py                         # Tool-calling for /ai/ask-tools (K8s pilot)
+├── rag.py                              # Semantic retrieval (Bedrock, disabled in local mode)
+│
+│  # Reports
 ├── generate_report.py                  # PDF + DOCX executive report generator
 │
-├── requirements.txt                    # Python dependencies
-├── deploy_mfa.sh                       # Production deploy script
-├── reset_users.sh                      # Reset user database
+│  # Persistence and cross-cutting
+├── local_store.py                      # JSON file store for STORAGE_BACKEND=local
+├── scan_history.py                     # Scan history (local_data/ or S3)
+├── ssrf_guard.py                       # Anti-SSRF checks for user-supplied endpoints
+├── logging_setup.py                    # JSON logging with request id
+├── metrics.py                          # Custom CloudWatch metrics (AWS mode)
 │
-└── templates/
-    ├── dashboard.html                  # Main SPA dashboard
-    ├── login.html                      # Split-panel login + MFA setup
-    ├── mfa_setup.html                  # TOTP QR code setup page
-    ├── forgot_password.html            # Password recovery form
-    └── reset_password.html             # Password reset form
+│  # Scripts
+├── install.sh                          # Creates venv, installs deps, copies .env.example
+├── reset_users.sh                      # BROKEN — targets legacy users_db.json, see docs/aws-return-roadmap.md
+├── test_graph_local.py                 # Manual end-to-end check (DynamoDB -dev tables only)
+│
+├── requirements*.txt                   # Runtime, lock, dev and security-scan dependencies
+├── templates/                          # Jinja2 pages (dashboard, login, MFA, password reset)
+├── tests/                              # pytest suite (run by .github/workflows/test.yml)
+├── docs/                               # Roadmaps and architecture diagrams
+│   └── legacy/                         # v2.0/v3.0-era guides, kept for history
+├── openspec/                           # Spec-driven changes (specs/ + changes/archive/)
+├── .deploy/                            # systemd unit for the EC2 instances
+└── .github/workflows/                  # test, security-scan, code-review, deploy, reset-db
 ```
 
 ---
