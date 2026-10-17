@@ -3,11 +3,18 @@ set -e
 
 echo "🔧 Instalando ambiente…"
 
-python3 -m venv venv
+# Mesma versão do CI (test.yml / security-scan.yml): sem fixar, "python3" no
+# macOS com Homebrew pode ser 3.14 e o venv local diverge do que é testado.
+# Sobrescreva com PYTHON=python3.x ./install.sh se precisar.
+PYTHON="${PYTHON:-python3.12}"
+command -v "$PYTHON" >/dev/null || { echo "❌ $PYTHON não encontrado (macOS: brew install python@3.12)"; exit 1; }
+
+"$PYTHON" -m venv venv
 source venv/bin/activate
 
 pip install --upgrade pip
-pip install -r requirements.txt
+# Lock = mesmas versões do deploy e do CI; requirements.txt só define as faixas.
+pip install -r requirements.lock.txt
 
 mkdir -p local_data
 mkdir -p reports_executive
