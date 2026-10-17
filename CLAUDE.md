@@ -18,6 +18,14 @@ OpenSpec), execute as etapas abaixo **na ordem**. Em tarefas pequenas e
 localizadas, as etapas 1.1 e 1.2 bastam, desde que você leia todos os módulos
 que o arquivo alterado importa ou que o importam.
 
+> **Exceção — code review de PR** (`.github/workflows/code-review.yml`,
+> `/code-review` ou qualquer revisão de um diff): **não** execute este protocolo
+> nem o checklist da seção 2.3. Leia apenas os arquivos do diff, os módulos que
+> eles importam ou que os importam, e as specs de `openspec/specs/` e
+> `openspec/changes/` tocadas pelo PR. Use as seções 2.1 e 2.2 só como
+> critério para julgar o diff. O review no CI tem limite de turnos
+> (`--max-turns`) e a leitura completa do projeto o esgota antes da revisão.
+
 ### 1.1 Contexto e contrato
 Leia, nesta ordem:
 1. `README.md` — features, providers, checks CIS, LLM Firewall, Attack Path Graph.
