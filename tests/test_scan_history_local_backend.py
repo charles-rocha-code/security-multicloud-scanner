@@ -58,3 +58,40 @@ def test_list_scans_nao_cruza_usuarios(local_backend):
     metas = scan_history.list_scans("user-a@example.com")
 
     assert len(metas) == 1
+
+
+# --- provider vira segmento de caminho: não pode sair da pasta do usuário ---
+
+@pytest.mark.parametrize("valor,esperado", [
+    ("k8s", "k8s"), ("aws_iam", "aws_iam"), ("AWS_IAM", "aws_iam"),
+    ("azure_blob", "azure_blob"), ("universal", "universal"),
+    ("public", "public"), ("unknown", "unknown"),
+])
+def test_normalize_provider_aceita_identificadores_simples(valor, esperado):
+    assert scan_history.normalize_provider(valor) == esperado
+
+
+@pytest.mark.parametrize("valor", ["../x", "a/b", ".", "..", "", "a" * 33, "k8s\n", "a\\b"])
+def test_normalize_provider_rejeita_o_resto(valor):
+    with pytest.raises(ValueError):
+        scan_history.normalize_provider(valor)
+
+
+def test_list_scans_com_traversal_nao_le_historico_de_outro_usuario(local_backend):
+    scan_history.save_scan("user-a@example.com", "AWS_S3", {"risk_score": 1})
+    scan_history.save_scan("user-b@example.com", "AWS_S3", {"risk_score": 2})
+    pasta_b = scan_history._email_safe("user-b@example.com")
+
+    with pytest.raises(ValueError):
+        scan_history.list_scans("user-a@example.com", provider=f"../{pasta_b}")
+
+
+def test_save_scan_com_provider_invalido_grava_como_unknown_na_pasta_do_usuario(local_backend, tmp_path):
+    key = scan_history.save_scan("user@example.com", "../../evil", {"risk_score": 3})
+
+    pasta_usuario = scan_history.LOCAL_DIR / scan_history._email_safe("user@example.com")
+    assert key.split("/")[2] == "unknown"
+    assert (tmp_path / key).resolve().is_relative_to(pasta_usuario.resolve())
+    # nada foi criado fora de scan-history/<usuario>/
+    assert not (tmp_path / "evil").exists()
+    assert sorted(p.name for p in pasta_usuario.iterdir()) == ["unknown"]

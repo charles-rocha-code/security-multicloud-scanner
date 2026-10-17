@@ -11,8 +11,9 @@ except ImportError:
     K8S_AVAILABLE = False
 
 from graph_model import GraphCollector, GraphEdge, GraphNode
+from kubeconfig_guard import validate_kubeconfig_file
 from ssrf_guard import assert_server_not_ssrf_target
-from auditor_k8s import _is_system_namespace
+from auditor_k8s import _is_system_namespace, group_pods_by_workload, replicas_note, verify_cluster_access
 from engine_risk import scan_content_for_secrets
 
 # Sujeitos que, se vinculados a uma ClusterRole perigosa, representam ponto
@@ -79,6 +80,9 @@ class K8sAuthenticatedAuditor(GraphCollector):
             if in_cluster:
                 config.load_incluster_config()
             elif kubeconfig_path:
+                # Antes do load: load_kube_config roda o plugin users[].user.exec
+                # do arquivo -- ver kubeconfig_guard.py.
+                validate_kubeconfig_file(kubeconfig_path)
                 config.load_kube_config(config_file=kubeconfig_path, context=context)
             else:
                 config.load_kube_config(context=context)
@@ -164,26 +168,28 @@ class K8sAuthenticatedAuditor(GraphCollector):
             except ApiException:
                 continue
 
-            for pod in pods.items:
-                name = pod.metadata.name
+            # Uma checagem por workload, não por réplica: as réplicas de um
+            # DaemonSet/Deployment têm o mesmo spec (ver group_pods_by_workload).
+            for pod, kind, name, n_pods in group_pods_by_workload(pods.items):
                 spec = pod.spec
+                reps = replicas_note(n_pods)
 
                 if spec.host_network:
                     findings.append(finding(
-                        "HIGH", "Workload Security", "Pod", name, ns,
-                        "Pod com hostNetwork=true (compartilha rede do nó)",
+                        "HIGH", "Workload Security", kind, name, ns,
+                        f"Pod com hostNetwork=true (compartilha rede do nó){reps}",
                         "Remover hostNetwork salvo necessidade técnica justificada.",
                     ))
                 if spec.host_pid:
                     findings.append(finding(
-                        "HIGH", "Workload Security", "Pod", name, ns,
-                        "Pod com hostPID=true (vê processos do nó)",
+                        "HIGH", "Workload Security", kind, name, ns,
+                        f"Pod com hostPID=true (vê processos do nó){reps}",
                         "Remover hostPID.",
                     ))
                 if spec.host_ipc:
                     findings.append(finding(
-                        "HIGH", "Workload Security", "Pod", name, ns,
-                        "Pod com hostIPC=true",
+                        "HIGH", "Workload Security", kind, name, ns,
+                        f"Pod com hostIPC=true{reps}",
                         "Remover hostIPC.",
                     ))
 
@@ -194,14 +200,14 @@ class K8sAuthenticatedAuditor(GraphCollector):
                             findings.append(finding(
                                 "CRITICAL", "Workload Security", "Container",
                                 f"{name}/{c.name}", ns,
-                                "Container rodando como privileged",
+                                f"Container rodando como privileged{reps}",
                                 "Remover privileged=true; usar capabilities específicas se necessário.",
                             ))
                         if sc.run_as_user == 0 or (sc.run_as_user is None and sc.run_as_non_root is not True):
                             findings.append(finding(
                                 "HIGH", "Workload Security", "Container",
                                 f"{name}/{c.name}", ns,
-                                "Container pode estar rodando como root",
+                                f"Container pode estar rodando como root{reps}",
                                 "Definir runAsNonRoot=true e runAsUser >= 1000.",
                             ))
 
@@ -209,7 +215,7 @@ class K8sAuthenticatedAuditor(GraphCollector):
                         findings.append(finding(
                             "MEDIUM", "Workload Security", "Container",
                             f"{name}/{c.name}", ns,
-                            "Container sem resources.limits (CPU/memory)",
+                            f"Container sem resources.limits (CPU/memory){reps}",
                             "Definir limits para evitar noisy neighbor/DoS.",
                         ))
 
@@ -377,16 +383,23 @@ class K8sAuthenticatedAuditor(GraphCollector):
             except ApiException:
                 continue
 
-            for pod in pods.items:
+            for pod, kind, name, n_pods in group_pods_by_workload(pods.items):
                 for c in pod.spec.containers or []:
+                    # Um finding por Secret por container, listando as env vars
+                    # -- antes era um por env var, e o mesmo Secret exposto em 2
+                    # variáveis virava 2 findings idênticos (mesma key e motivo).
+                    secret_vars: Dict[str, List[str]] = {}
                     for ev in c.env or []:
                         if ev.value_from and ev.value_from.secret_key_ref:
-                            findings.append(self._finding(
-                                "MEDIUM", "Secrets", "Container",
-                                f"{pod.metadata.name}/{c.name}", ns,
-                                f"Secret '{ev.value_from.secret_key_ref.name}' montado como env var",
-                                "Preferir volume mount (env vars vazam em logs/inspeção).",
-                            ))
+                            secret_vars.setdefault(ev.value_from.secret_key_ref.name, []).append(ev.name)
+                    for secret_name, env_names in secret_vars.items():
+                        findings.append(self._finding(
+                            "MEDIUM", "Secrets", "Container",
+                            f"{name}/{c.name}", ns,
+                            f"Secret '{secret_name}' montado como env var "
+                            f"({', '.join(sorted(env_names))}){replicas_note(n_pods)}",
+                            "Preferir volume mount (env vars vazam em logs/inspeção).",
+                        ))
 
         return findings
 
@@ -471,6 +484,10 @@ class K8sAuthenticatedAuditor(GraphCollector):
     # ------------------------------------------------------------------
 
     def run(self) -> Dict[str, Any]:
+        # Credencial recusada/cluster fora do ar vira exceção aqui, não um
+        # resultado "limpo" -- ver K8sAccessError em auditor_k8s.py.
+        verify_cluster_access(self.core, self.timeout)
+
         errors: List[str] = []
         findings: List[Dict[str, Any]] = []
 

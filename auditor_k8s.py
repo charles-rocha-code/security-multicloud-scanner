@@ -21,6 +21,7 @@ from kubernetes import client, config as k8s_config
 from kubernetes.client.rest import ApiException
 
 from cve_mapping import enrich_finding
+from kubeconfig_guard import validate_user_kubeconfig
 from ssrf_guard import assert_server_not_ssrf_target
 
 
@@ -30,6 +31,33 @@ SENSITIVE_PATTERNS = [
     "google_credentials", "service_account", "gcs_key",
     "password", "passwd", "token", "secret", "credential",
 ]
+
+
+class K8sAccessError(Exception):
+    """O cluster recusou a credencial (401) ou não respondeu. Levantada antes de
+    qualquer check: sem isso, os checks engoliam o erro um a um e o scan saía
+    "com sucesso" com risk_score baixo e quase nenhum finding -- um falso
+    negativo indistinguível de cluster limpo (o 401 ficava só em 'errors',
+    que o dashboard não mostra)."""
+
+
+def verify_cluster_access(core: "client.CoreV1Api", timeout: int = 30) -> None:
+    """Confirma que a credencial é aceita e o API server responde. 403 passa:
+    credencial válida com RBAC mais restrito (ex.: escopo de namespace) é um
+    uso legítimo -- os checks que não tiverem permissão reportam isso."""
+    try:
+        core.list_namespace(limit=1, _request_timeout=timeout)
+    except ApiException as e:
+        if e.status == 401:
+            raise K8sAccessError(
+                "o cluster recusou a credencial do kubeconfig (401 Unauthorized) -- "
+                "token expirado ou inválido; gere um novo kubeconfig da ServiceAccount"
+            ) from None
+        if e.status == 403:
+            return
+        raise K8sAccessError(f"o API server respondeu {e.status} {e.reason}") from None
+    except Exception as e:
+        raise K8sAccessError(f"o API server do cluster não respondeu ({e.__class__.__name__})") from None
 
 
 def _is_sensitive(key: str) -> bool:
@@ -49,6 +77,67 @@ _SYSTEM_NAMESPACES = {"kube-system", "kube-node-lease", "kube-public"}
 
 def _is_system_namespace(ns: str) -> bool:
     return ns in _SYSTEM_NAMESPACES
+
+
+# Só controllers cujas réplicas compartilham o mesmo spec. Static pods do
+# control plane (etcd, kube-apiserver, scheduler...) têm o *Node* como dono --
+# agrupar por ele juntava pods diferentes num só e escondia os hostPaths dos
+# demais (pego comparando o scan antes/depois no cluster kind).
+_REPLICA_CONTROLLERS = {"DaemonSet", "ReplicaSet", "StatefulSet", "Job", "ReplicationController"}
+
+
+def _pod_workload(pod) -> tuple:
+    """(kind, nome) do workload dono do pod. Pod de Deployment pertence a um
+    ReplicaSet "<deployment>-<pod-template-hash>": tira o hash para chegar no
+    Deployment. Pod sem controller de réplicas é o próprio workload."""
+    meta = pod.metadata
+    owners = getattr(meta, "owner_references", None) or []
+    owner = next((o for o in owners if getattr(o, "controller", False)), owners[0] if owners else None)
+    if owner is None or owner.kind not in _REPLICA_CONTROLLERS:
+        return "Pod", getattr(meta, "name", None) or "-"
+    if owner.kind == "ReplicaSet":
+        tmpl_hash = (getattr(meta, "labels", None) or {}).get("pod-template-hash")
+        if tmpl_hash and owner.name.endswith(f"-{tmpl_hash}"):
+            return "Deployment", owner.name[: -len(tmpl_hash) - 1]
+    return owner.kind, owner.name
+
+
+def group_pods_by_workload(pods) -> list:
+    """Uma entrada por workload: [(pod_representante, kind, nome, n_pods)].
+    Réplicas de um mesmo DaemonSet/Deployment/StatefulSet compartilham o mesmo
+    spec -- checar cada réplica só multiplicava o mesmo achado (ex.: 3 réplicas
+    do node-exporter = 3x cada hostPath). O namespace entra na chave porque
+    workloads de mesmo nome em namespaces diferentes são coisas diferentes."""
+    groups: Dict[tuple, list] = {}
+    for pod in pods or []:
+        kind, name = _pod_workload(pod)
+        groups.setdefault((getattr(pod.metadata, "namespace", None), kind, name), []).append(pod)
+    return [(members[0], kind, name, len(members)) for (_, kind, name), members in groups.items()]
+
+
+def replicas_note(n_pods: int) -> str:
+    return f" ({n_pods} pods)" if n_pods > 1 else ""
+
+
+_CLUSTER_SCOPED_KINDS = {"PV", "StorageClass"}
+_NAMESPACED_KEY_KINDS = {"Pod", "PVC", "Secret", "ConfigMap", "DaemonSet", "Deployment",
+                         "StatefulSet", "ReplicaSet", "Job", "CronJob"}
+
+
+def finding_namespace(f: Dict[str, Any]) -> str:
+    """Namespace de um finding K8s, venha de qual auditor vier. Os dois
+    auditores usam formatos de chave diferentes ('<Kind>/<ns>/...' no de
+    storage, '<ns>/<Tipo>/...' no autenticado), e o relatório pegava sempre o
+    1º segmento -- mostrando 'Pod'/'Secret'/'PV' como namespace."""
+    ns = f.get("namespace")
+    if ns and ns != "-":
+        return ns
+    parts = (f.get("key") or "").split("/")
+    if ns == "-" or (parts and parts[0] in _CLUSTER_SCOPED_KINDS) or (parts and parts[0] == "cluster"):
+        return "cluster"
+    if len(parts) > 1 and parts[0] in _NAMESPACED_KEY_KINDS:
+        return parts[1]
+    return parts[0] if parts and parts[0] else "-"
 
 
 def _classify_severity(reason: str) -> str:
@@ -71,7 +160,9 @@ class K8sStorageAuditor:
         self._api_client: Optional[client.ApiClient] = None
 
     def _load_config(self) -> client.ApiClient:
-        cfg_dict = yaml.safe_load(self.kubeconfig_yaml)
+        # Antes do loader: load_and_set roda o plugin users[].user.exec do
+        # kubeconfig -- sem isso, kubeconfig do usuário executava comando aqui.
+        cfg_dict = validate_user_kubeconfig(self.kubeconfig_yaml)
         loader = k8s_config.kube_config.KubeConfigLoader(config_dict=cfg_dict)
         cfg = client.Configuration()
         loader.load_and_set(cfg)
@@ -237,31 +328,33 @@ class K8sStorageAuditor:
         if not resp:
             return findings
 
-        for pod in (resp.items or []):
-            name = pod.metadata.name or "-"
+        for pod, kind, name, n_pods in group_pods_by_workload(resp.items):
             ns = pod.metadata.namespace or "default"
             spec = pod.spec or client.V1PodSpec(containers=[])
             volumes = getattr(spec, "volumes", []) or []
+            reps = replicas_note(n_pods)
 
             for vol in volumes:
                 if getattr(vol, "host_path", None):
                     if _is_system_namespace(ns):
                         findings.append({
-                            "key": f"Pod/{ns}/{name}/volume:{vol.name}",
+                            "key": f"{kind}/{ns}/{name}/volume:{vol.name}",
+                            "namespace": ns,
                             "size": 0,
                             "severity": "LOW",
                             "reason": (
-                                f"Pod monta hostPath={vol.host_path.path} em namespace de sistema "
-                                f"({ns}): esperado em componentes de control plane/CNI, não é um "
+                                f"{kind} monta hostPath={vol.host_path.path} em namespace de sistema "
+                                f"({ns}){reps}: esperado em componentes de control plane/CNI, não é um "
                                 f"achado de configuração de usuário"
                             ),
                         })
                     else:
                         findings.append({
-                            "key": f"Pod/{ns}/{name}/volume:{vol.name}",
+                            "key": f"{kind}/{ns}/{name}/volume:{vol.name}",
+                            "namespace": ns,
                             "size": 0,
                             "severity": "CRITICAL",
-                            "reason": f"Pod monta hostPath={vol.host_path.path}: acesso direto ao sistema de arquivos do host",
+                            "reason": f"{kind} monta hostPath={vol.host_path.path}{reps}: acesso direto ao sistema de arquivos do host",
                         })
 
         return findings
@@ -291,6 +384,7 @@ class K8sStorageAuditor:
 
         core = client.CoreV1Api(api_client)
         storage_api = client.StorageV1Api(api_client)
+        verify_cluster_access(core)
 
         findings: List[Dict] = []
         errors: List[str] = []
@@ -312,6 +406,7 @@ class K8sStorageAuditor:
 
         for f in findings:
             f.setdefault("category", "Storage")
+            f.setdefault("namespace", finding_namespace(f))
             enrich_finding(f, "KUBERNETES")
 
         dist = {"critical": 0, "high": 0, "medium": 0, "low": 0}

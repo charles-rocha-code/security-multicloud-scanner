@@ -98,11 +98,15 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         return response
 
 # === Histórico de scans ===
+from kubeconfig_guard import validate_user_kubeconfig
+from auditor_k8s import K8sAccessError
+
 try:
-    from scan_history import save_scan, list_scans, load_recent  # type: ignore
+    from scan_history import save_scan, list_scans, load_recent, PROVIDER_PATTERN  # type: ignore
     HISTORY_AVAILABLE = True
 except Exception as _hist_e:
     HISTORY_AVAILABLE = False
+    PROVIDER_PATTERN = r"^[A-Za-z0-9_]{1,32}$"
     logger.warning(f"⚠️ scan_history indisponível: {_hist_e}")
 
 # === IA — Claude (Anthropic) ===
@@ -366,7 +370,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     # erro vem de um @field_validator que faz "raise ValueError(...)" (ex.: política de
     # senha) — json.dumps quebra nisso. jsonable_encoder sabe serializar esse caso.
     errors = jsonable_encoder(exc.errors())
-    logger.error(f"❌ 422 em {request.method} {request.url.path}: {errors}")
+    # Log sem o 'input': ele traz o valor recusado inteiro -- kubeconfig com
+    # token de ServiceAccount em /scan/k8s, senha que falhou na política em
+    # /auth/change-password. A resposta continua igual (volta só pra quem enviou).
+    log_errors = [{k: v for k, v in e.items() if k != "input"} for e in errors]
+    logger.error(f"❌ 422 em {request.method} {request.url.path}: {log_errors}")
     return JSONResponse(status_code=422, content={"detail": errors})
 # Cache do último scan por usuário — persiste no S3 para suportar múltiplas instâncias
 LAST_SCAN_BY_EMAIL: _ScanCache = _ScanCache()
@@ -1050,7 +1058,9 @@ def scan_job_status(job_id: str, user=Depends(require_mfa)):
 # tentando escanear um bucket/host chamado "history").
 @app.get("/scan/history")
 def scan_history_endpoint(
-    provider: Optional[str] = None,
+    # provider vira caminho/prefixo no scan_history -- sem o pattern,
+    # "../<outro_usuario>" listava o histórico de outro tenant.
+    provider: Optional[str] = Query(None, pattern=PROVIDER_PATTERN),
     limit: int = 20,
     user=Depends(require_mfa),
 ):
@@ -1433,9 +1443,19 @@ def scan_iam_azure(payload: AzureIamScanIn, user=Depends(require_mfa), async_mod
 # -----------------------------------------------------------------------------
 # Scan Kubernetes (kubeconfig YAML)
 # -----------------------------------------------------------------------------
+def _reject_unsafe_kubeconfig(value):
+    """Recusa (422) kubeconfig com exec/auth-provider ou sem estrutura mínima,
+    antes de qualquer auditor carregá-lo -- ver kubeconfig_guard.py."""
+    if value is not None:
+        validate_user_kubeconfig(value)
+    return value
+
+
 class K8sScanIn(BaseModel):
     kubeconfig: str = Field(..., description="Conteúdo do arquivo ~/.kube/config em YAML")
     max_objects: int = 10000
+
+    _kubeconfig_safe = field_validator("kubeconfig")(_reject_unsafe_kubeconfig)
 
 
 def _run_full_k8s_scan(kubeconfig_yaml: str, max_objects: int) -> dict:
@@ -1533,6 +1553,10 @@ def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa), async_mode: bool = Q
                 except Exception as _e:
                     logger.warning(f"⚠️ save_scan error: {_e}")
         return result
+    except K8sAccessError as e:
+        # Credencial recusada / cluster inacessível: erro do lado de quem
+        # enviou o kubeconfig, não do scanner -- e nada é salvo no histórico.
+        raise HTTPException(status_code=400, detail=f"Não foi possível acessar o cluster: {e}")
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1546,7 +1570,7 @@ def scan_k8s(payload: K8sScanIn, user=Depends(require_mfa), async_mode: bool = Q
 class AiAskIn(BaseModel):
     question: str = Field(..., max_length=2000)
     use_history: bool = True
-    provider: Optional[str] = None
+    provider: Optional[str] = Field(None, pattern=PROVIDER_PATTERN)
 
 
 @app.post("/ai/analyze")
@@ -1647,12 +1671,14 @@ def ai_ask(request: Request, body: dict = Body(...), user=Depends(require_mfa)):
 class AiAskToolsIn(BaseModel):
     question: str = Field(..., max_length=2000)
     use_history: bool = True
-    provider: Optional[str] = None
+    provider: Optional[str] = Field(None, pattern=PROVIDER_PATTERN)
     kubeconfig: Optional[str] = Field(
         None, description="Conteúdo do arquivo ~/.kube/config em YAML — "
         "opcional; sem isso, a tool de auditoria K8s usa o kubeconfig de "
         "teste local do ambiente."
     )
+
+    _kubeconfig_safe = field_validator("kubeconfig")(_reject_unsafe_kubeconfig)
 
 
 @app.post("/ai/ask-tools")
@@ -1670,7 +1696,12 @@ def ai_ask_tools(request: Request, body: dict = Body(...), user=Depends(require_
     try:
         parsed = AiAskToolsIn.model_validate(body)
     except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors())
+        # Sem input/ctx: o input seria o kubeconfig recusado inteiro, e o ctx de
+        # um field_validator traz o ValueError cru, que não serializa em JSON (500).
+        raise HTTPException(
+            status_code=422,
+            detail=e.errors(include_input=False, include_context=False, include_url=False),
+        )
     if not AI_AVAILABLE or not AI_TOOLS_AVAILABLE:
         raise HTTPException(status_code=503, detail="ai_tools indisponível.")
     email = user.get("email") if isinstance(user, dict) else None

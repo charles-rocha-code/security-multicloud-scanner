@@ -33,6 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from collections import Counter
 import hashlib, json, io, tempfile, os
+from auditor_k8s import finding_namespace
 from xml.sax.saxutils import escape as _xml_escape  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml -- só escapa texto de saída, nunca faz parse de XML de entrada (sem risco de XXE)
 
 # ── python-docx ───────────────────────────────────────────────────────
@@ -1186,7 +1187,8 @@ class ProfessionalReportGenerator:
                 if sev not in ('CRITICAL', 'HIGH'): continue
                 item = {'file': f.get('key', f.get('name','unknown')),
                         'size': f.get('size', 0), 'severity': sev,
-                        'reason': f.get('reason',''), 'last_modified': f.get('last_modified','N/A')}
+                        'reason': f.get('reason',''), 'last_modified': f.get('last_modified','N/A'),
+                        'namespace': finding_namespace(f)}
                 bucket = cat_key_map.get(f.get('category'))
                 if bucket:
                     k8s_cats[bucket]['items'].append(item)
@@ -2440,7 +2442,7 @@ class ProfessionalReportGenerator:
                     # que '0.0 B' e transbordavam em cima do 'Motivo' como
                     # string crua na coluna estreita.
                     if is_k8s:
-                        return Paragraph((item.get('file','') or '-').split('/')[0] or '-', CELL2)
+                        return Paragraph(item.get('namespace') or finding_namespace({'key': item.get('file','')}), CELL2)
                     return self._format_size(item['size'])
                 vt = Table(
                     [['Arquivo','Sev.',col3_label,'Motivo']] +
@@ -2957,7 +2959,7 @@ class ProfessionalReportGenerator:
                 vt.style = 'Table Grid'
                 # K8s: 'size' é 0 pra quase todo achado (RBAC/Network/Workload não
                 # têm bytes de arquivo) e a categoria já está no título da seção
-                # acima -- 'Namespace' (1º segmento da key) é o dado que sobra de
+                # acima -- 'Namespace' (finding_namespace) é o dado que sobra de
                 # útil pra esse provider (mesmo critério do PDF).
                 col3_label = 'Namespace' if is_k8s else 'Tamanho'
                 for i, h in enumerate(['Arquivo','Severidade',col3_label,'Motivo']):
@@ -2966,7 +2968,7 @@ class ProfessionalReportGenerator:
                     r.bold=True; r.font.size=Pt(9); r.font.name='Arial'
                     r.font.color.rgb=RGBColor(255,255,255)
                 for ri, item in enumerate(vuln['items'][:10], 1):
-                    col3_value = ((item.get('file','') or '-').split('/')[0] or '-') if is_k8s else self._format_size(item['size'])
+                    col3_value = (item.get('namespace') or finding_namespace({'key': item.get('file','')})) if is_k8s else self._format_size(item['size'])
                     vals = [_smart_short_label(item['file'], 50), item['severity'],
                             col3_value, item.get('reason','') or '-']
                     for ci, v in enumerate(vals):

@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
@@ -38,6 +39,16 @@ DEFAULT_LOCAL_KUBECONFIG = str(
 
 TOOL_TIMEOUT_SECONDS = 25
 MAX_TOOL_ITERATIONS = 4  # evita loop sem fim se o modelo insistir em tool-use
+
+# Python não mata thread em execução: depois do timeout a auditoria continua
+# rodando até as próprias chamadas à API do cluster esgotarem
+# (_request_timeout). Executor de módulo + semáforo limitam quantas dessas
+# podem existir ao mesmo tempo -- antes, cada /ai/ask-tools contra cluster
+# lento prendia uma thread do FastAPI pelo tempo inteiro da auditoria, porque
+# o `with ThreadPoolExecutor` esperava a thread no __exit__ (shutdown(wait=True)).
+MAX_CONCURRENT_TOOL_RUNS = 2
+_TOOL_EXECUTOR = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_TOOL_RUNS, thread_name_prefix="ai-tool")
+_TOOL_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_TOOL_RUNS)
 
 TOOLS = [
     {
@@ -104,15 +115,32 @@ def _execute_tool(name: str, kubeconfig_yaml: Optional[str]) -> dict:
     fn = _DISPATCH.get(name)
     if fn is None:
         return {"error": f"tool desconhecida: {name}"}
-    with ThreadPoolExecutor(max_workers=1) as ex:
-        future = ex.submit(fn, kubeconfig_yaml)
+    if not _TOOL_SLOTS.acquire(blocking=False):
+        return {"error": f"scanner ocupado: já há {MAX_CONCURRENT_TOOL_RUNS} auditorias em andamento, tente de novo em instantes"}
+
+    def _run_and_release():
+        # A vaga só volta quando a auditoria termina de verdade -- inclusive
+        # depois de a requisição já ter desistido dela por timeout.
         try:
-            result = future.result(timeout=TOOL_TIMEOUT_SECONDS)
-        except FutureTimeoutError:
-            return {"error": f"tool '{name}' excedeu o tempo limite de {TOOL_TIMEOUT_SECONDS}s"}
-        except Exception as e:
-            logger.warning(f"⚠️ ai_tools tool error ({name}): {e}")
-            return {"error": str(e)}
+            return fn(kubeconfig_yaml)
+        finally:
+            _TOOL_SLOTS.release()
+
+    try:
+        future = _TOOL_EXECUTOR.submit(_run_and_release)
+    except Exception as e:
+        _TOOL_SLOTS.release()
+        logger.warning(f"⚠️ ai_tools submit error ({name}): {e}")
+        return {"error": str(e)}
+
+    # Espera fora de qualquer `with` do executor: no timeout, retorna na hora.
+    try:
+        result = future.result(timeout=TOOL_TIMEOUT_SECONDS)
+    except FutureTimeoutError:
+        return {"error": f"tool '{name}' excedeu o tempo limite de {TOOL_TIMEOUT_SECONDS}s"}
+    except Exception as e:
+        logger.warning(f"⚠️ ai_tools tool error ({name}): {e}")
+        return {"error": str(e)}
     return _sanitize_tool_result(result)
 
 
