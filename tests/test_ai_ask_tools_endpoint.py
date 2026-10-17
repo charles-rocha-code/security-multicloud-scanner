@@ -97,14 +97,20 @@ def test_kubeconfig_enviado_no_body_e_repassado(client, authenticated, monkeypat
         return "ok"
 
     monkeypatch.setattr(api_with_mfa.ai_tools, "ask_with_tools", _fake_ask_with_tools)
+    # Precisa ser um kubeconfig com estrutura mínima e sem exec/auth-provider:
+    # o endpoint recusa o resto com 422 (ver tests/test_kubeconfig_validation.py).
+    kubeconfig = (
+        "clusters:\n- name: c\n  cluster: {server: 'https://10.0.0.1:6443'}\n"
+        "users:\n- name: u\n  user: {token: abc}\n"
+    )
 
     resp = client.post(
         "/ai/ask-tools",
-        json={"question": "algo sobre o cluster", "use_history": False, "kubeconfig": "conteudo-yaml-fake"},
+        json={"question": "algo sobre o cluster", "use_history": False, "kubeconfig": kubeconfig},
     )
 
     assert resp.status_code == 200
-    assert captured["kubeconfig_yaml"] == "conteudo-yaml-fake"
+    assert captured["kubeconfig_yaml"] == kubeconfig
 
 
 def test_rate_limit_proprio_nao_e_o_de_ai_ask(client, authenticated, monkeypatch):

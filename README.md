@@ -383,13 +383,13 @@ health-check agents; the rest are documented in that repo's README.
 ## Installation
 
 ```bash
-git clone https://github.com/charles-rocha-code/s3_auditor_enteprise.git
-cd s3_auditor_enteprise
+git clone https://github.com/charles-rocha-code/security-multicloud-scanner.git
+cd security-multicloud-scanner
 
-python3 -m venv venv
+python3.12 -m venv venv   # same Python as CI (test.yml)
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-pip install -r requirements.txt
+pip install -r requirements.lock.txt
 ```
 
 Copy `.env.example` to `.env` and configure:
@@ -520,19 +520,24 @@ curl -X POST http://localhost:8000/scan/k8s \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "kubeconfig": "<base64-or-raw-yaml-kubeconfig>",
-    "context": "my-context",
-    "namespace": "production",
-    "max_resources": 1000
+    "kubeconfig": "<raw YAML kubeconfig>",
+    "max_objects": 10000
   }'
 ```
 
-Generate kubeconfig for managed clusters:
-```bash
-aws eks update-kubeconfig --name my-cluster --region us-east-1   # EKS
-gcloud container clusters get-credentials my-cluster --zone us-central1-a  # GKE
-az aks get-credentials --resource-group my-rg --name my-cluster  # AKS
-```
+Use a kubeconfig for the read-only `security-scanner-readonly` ServiceAccount
+(token auth). The dashboard's Kubernetes panel has the ClusterRole manifest and
+the script that generates `security-scanner-kubeconfig-<context>.yaml` from your
+current `kubectl` context.
+
+**Rejected kubeconfigs (HTTP 422):** any `users[].user` with `exec` or
+`auth-provider`. Loading those makes the Kubernetes client run a local command
+on the scanner host, so they are refused before the kubeconfig is loaded. This
+includes the kubeconfigs written by `aws eks update-kubeconfig`,
+`gcloud container clusters get-credentials` and `az aks get-credentials`
+(they use `exec` plugins). For EKS/GKE/AKS, apply the ServiceAccount manifest
+on the cluster and use the generated token kubeconfig instead. Token,
+`tokenFile`, client certificate and username/password auth are accepted.
 
 ### Generate Executive Report
 

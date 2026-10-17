@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -20,6 +21,15 @@ REGION     = os.getenv("AWS_DEFAULT_REGION", "us-east-2")
 PREFIX     = "scan-history/"
 LOCAL_DIR  = DATA_DIR / PREFIX
 
+# provider vira segmento de caminho (modo local) e de prefixo S3 (modo aws).
+# Sem essa restrição, provider="../<outro_usuario>" saía da pasta do usuário
+# autenticado e listava/carregava o histórico de outro tenant. Regex em vez de
+# allowlist fixa: os valores vêm de vários auditores (aws_s3, azure_blob,
+# universal, public...) e uma lista fechada quebraria a cada auditor novo.
+# Aceita maiúsculas na borda (o dashboard manda "AWS_IAM"), normaliza pra minúscula.
+PROVIDER_PATTERN = r"^[A-Za-z0-9_]{1,32}$"
+_PROVIDER_RE     = re.compile(PROVIDER_PATTERN)
+
 
 def _backend() -> str:
     return os.environ.get("STORAGE_BACKEND", "local")
@@ -31,6 +41,14 @@ def _s3():
 
 def _email_safe(email: str) -> str:
     return email.replace("@", "_at_").replace(".", "_").lower()
+
+
+def normalize_provider(provider: str) -> str:
+    """Devolve o provider em minúsculas ou levanta ValueError se ele não for
+    um identificador simples (ver PROVIDER_PATTERN)."""
+    if not isinstance(provider, str) or not _PROVIDER_RE.fullmatch(provider):
+        raise ValueError(f"provider inválido: {provider!r}")
+    return provider.lower()
 
 
 def _index_scan_for_rag(email: str, provider: str, ts: str, result: dict) -> None:
@@ -61,8 +79,15 @@ def save_scan(email: str, provider: str, result: dict) -> str:
     if not email:
         return ""
 
+    # Scan que já terminou não deve ser perdido por causa do rótulo: provider
+    # fora do formato vai pra "unknown" em vez de virar caminho.
+    try:
+        provider_dir = normalize_provider(provider)
+    except ValueError:
+        provider_dir = "unknown"
+
     ts  = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
-    key = f"{PREFIX}{_email_safe(email)}/{provider.lower()}/{ts}.json"
+    key = f"{PREFIX}{_email_safe(email)}/{provider_dir}/{ts}.json"
 
     payload = {
         "email":     email,
@@ -99,10 +124,16 @@ def list_scans(email: str, provider: Optional[str] = None, limit: int = 20) -> l
     if not email:
         return []
 
+    if provider:
+        provider = normalize_provider(provider)
+
     if _backend() != "aws":
-        base = LOCAL_DIR / _email_safe(email)
-        if provider:
-            base = base / provider.lower()
+        user_dir = LOCAL_DIR / _email_safe(email)
+        base = user_dir / provider if provider else user_dir
+        # Defesa em profundidade: mesmo que a validação acima afrouxe um dia,
+        # nunca listar nada fora da pasta do próprio usuário.
+        if not base.resolve().is_relative_to(user_dir.resolve()):
+            raise ValueError(f"provider inválido: {provider!r}")
         if not base.exists():
             return []
         files = sorted(base.rglob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
@@ -123,7 +154,7 @@ def list_scans(email: str, provider: Optional[str] = None, limit: int = 20) -> l
 
     prefix = f"{PREFIX}{_email_safe(email)}/"
     if provider:
-        prefix += f"{provider.lower()}/"
+        prefix += f"{provider}/"
 
     try:
         resp = _s3().list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)

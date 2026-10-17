@@ -91,6 +91,17 @@ def test_execute_tool_tool_desconhecida_nao_propaga_excecao():
     assert "error" in result
 
 
+@pytest.fixture(autouse=True)
+def _executor_isolado(monkeypatch):
+    """Executor/semáforo novos por teste: uma tool fake 'zumbi' de um teste
+    (que segue rodando depois do timeout) não pode ocupar vaga no próximo."""
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    monkeypatch.setattr(ai_tools, "_TOOL_EXECUTOR", ThreadPoolExecutor(max_workers=ai_tools.MAX_CONCURRENT_TOOL_RUNS))
+    monkeypatch.setattr(ai_tools, "_TOOL_SLOTS", threading.BoundedSemaphore(ai_tools.MAX_CONCURRENT_TOOL_RUNS))
+    yield
+
+
 def test_execute_tool_respeita_timeout(monkeypatch):
     import time
 
@@ -101,10 +112,55 @@ def test_execute_tool_respeita_timeout(monkeypatch):
     monkeypatch.setitem(ai_tools._DISPATCH, "run_k8s_audit", _lento)
     monkeypatch.setattr(ai_tools, "TOOL_TIMEOUT_SECONDS", 0.2)
 
+    inicio = time.monotonic()
     result = ai_tools._execute_tool("run_k8s_audit", None)
+    decorrido = time.monotonic() - inicio
 
     assert "error" in result
     assert "tempo limite" in result["error"]
+    # O bug era exatamente este: o erro vinha certo, mas só depois dos 2s da
+    # tool (o `with ThreadPoolExecutor` esperava a thread no __exit__).
+    assert decorrido < 0.2 + 1.0
+
+
+def test_execute_tool_recusa_na_hora_quando_todas_as_vagas_estao_ocupadas(monkeypatch):
+    import threading
+    import time
+
+    liberar = threading.Event()
+    rodando = []
+
+    def _bloqueada(kubeconfig_yaml):
+        rodando.append(1)
+        liberar.wait(5)
+        return {"ok": True}
+
+    monkeypatch.setitem(ai_tools._DISPATCH, "run_k8s_audit", _bloqueada)
+    monkeypatch.setattr(ai_tools, "TOOL_TIMEOUT_SECONDS", 0.1)
+
+    # Ocupa todas as vagas com auditorias que estouram o timeout e ficam rodando.
+    for _ in range(ai_tools.MAX_CONCURRENT_TOOL_RUNS):
+        assert "tempo limite" in ai_tools._execute_tool("run_k8s_audit", None)["error"]
+
+    inicio = time.monotonic()
+    result = ai_tools._execute_tool("run_k8s_audit", None)
+
+    assert "ocupado" in result["error"]
+    assert time.monotonic() - inicio < 0.05          # não esperou nada
+    assert len(rodando) == ai_tools.MAX_CONCURRENT_TOOL_RUNS  # não submeteu outra
+
+    # Quando as auditorias presas terminam, as vagas voltam.
+    liberar.set()
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if ai_tools._TOOL_SLOTS.acquire(blocking=False):
+            ai_tools._TOOL_SLOTS.release()
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("vaga não foi liberada depois que a tool terminou")
+    monkeypatch.setattr(ai_tools, "TOOL_TIMEOUT_SECONDS", 2)
+    assert ai_tools._execute_tool("run_k8s_audit", None) == {"ok": True}
 
 
 def _fake_client(responses):
