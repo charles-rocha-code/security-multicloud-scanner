@@ -8,6 +8,17 @@ schema: spec-driven
 #     Tech stack: TypeScript, React, Node.js
 #     We use conventional commits
 #     Domain: e-commerce platform
+context: |
+  Domain: CSPM/CWPP scanner for AWS, GCP, Azure and Kubernetes (storage, IAM, K8s),
+  with MFA-gated dashboard, AI analysis (Claude) and PDF/DOCX executive reports.
+  Tech stack: Python 3.9, FastAPI + Jinja2 templates, pytest. Modules live flat at
+  the repo root (api_with_mfa.py, auth_mfa.py, auditor_*.py, engine_risk.py, ...).
+  Persistence: STORAGE_BACKEND=local (JSON under local_data/) is the default and the
+  only environment available today; STORAGE_BACKEND=aws (DynamoDB/S3/SES/CloudWatch)
+  has no live AWS environment — AWS-dependent work cannot be validated end to end.
+  Language: write artifacts in Portuguese (PT-BR), keep code identifiers in English.
+  Workflow: changes go through a branch + pull request (never push straight to main),
+  so code-review.yml, test.yml and security-scan.yml run on them.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
